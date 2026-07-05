@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "克劳德套件",
+    "appName": "Dora",
     "themeLight": "浅色模式",
     "themeDark": "深色模式",
     "signOut": "安全退出",
@@ -17,7 +17,7 @@
     "selectChat": "从侧边栏选择一个讨论线程以开始聊天。"
   },
   "login": {
-    "title": "克劳德套件",
+    "title": "Dora",
     "subtitle": "欢迎回来。请登录您的工作空间。",
     "button": "使用微软账号登录",
     "footer": "登录即代表您同意我们的服务条款和隐私政策。",

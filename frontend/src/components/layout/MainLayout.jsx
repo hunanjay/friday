@@ -3,17 +3,19 @@ import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import { Mail, Calendar, MessageSquare, Edit3, LogOut, Sun, Moon, Quill, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
+import { Mail, Calendar, MessageSquare, Edit3, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 
 export default function MainLayout() {
-  const { 
-    user, 
-    emails, 
-    isSidebarCollapsed, 
-    setIsSidebarCollapsed, 
+  const {
+    user,
+    emails,
+    isSidebarCollapsed,
+    setIsSidebarCollapsed,
     handleLogout,
-    toast 
+    toast,
+    isSyncingInbox,
+    isSyncingEvents
   } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
@@ -31,13 +33,25 @@ export default function MainLayout() {
 
   const unreadEmailsCount = emails.filter(e => e.parentFolderId === 'inbox' && !e.isRead).length;
   const activeTab = location.pathname.split('/')[1] || 'email';
+  const isSyncing = isSyncingInbox || isSyncingEvents;
 
   return (
-    <div className={`app-workspace ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={"app-workspace " + (isSidebarCollapsed ? "sidebar-collapsed" : "")}>
+      {isSyncing && (
+        <div className="sync-marquee">
+          <div className="sync-marquee-track" />
+        </div>
+      )}
       {/* Sidebar Navigation */}
-      <aside className={`app-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
+      <aside className={"app-sidebar " + (isSidebarCollapsed ? "collapsed" : "")}>
         <div className="sidebar-brand">
-          {!isSidebarCollapsed && <Quill size={24} className="brand-logo" />}
+          {!isSidebarCollapsed && (
+            <img
+              src="/dora_assistant_avatar.png"
+              alt="Dora Logo"
+              style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }}
+            />
+          )}
           {!isSidebarCollapsed && <h2>{t('common.appName')}</h2>}
           <button 
             className="sidebar-collapse-btn" 
@@ -57,7 +71,7 @@ export default function MainLayout() {
             <Mail size={20} />
             {!isSidebarCollapsed && <span>{t('common.email')}</span>}
             {unreadEmailsCount > 0 && (
-              <span className={`nav-badge ${isSidebarCollapsed ? 'collapsed-badge' : ''}`}>
+              <span className={"nav-badge " + (isSidebarCollapsed ? "collapsed-badge" : "")}>
                 {unreadEmailsCount}
               </span>
             )}

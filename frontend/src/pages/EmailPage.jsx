@@ -13,6 +13,7 @@ export default function EmailPage() {
     handleDeleteEmail,
     showToast,
     authToken,
+    setIsSyncingInbox,
     handleSyncInboxEmails
   } = useWorkspace();
 
@@ -21,9 +22,10 @@ export default function EmailPage() {
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [selectedEmailId, setSelectedEmailId] = useState(emails.length > 0 ? emails[0].id : null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSyncingInbox, setIsSyncingInbox] = useState(false);
 
-  // Sync Inbox
+  // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
+  // value, so periodic Supabase token refreshes don't re-trigger a refetch.
+  const hasAuthToken = Boolean(authToken);
   useEffect(() => {
     if (!authToken) return;
     setIsSyncingInbox(true);
@@ -47,7 +49,7 @@ export default function EmailPage() {
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsSyncingInbox(false));
-  }, [authToken, t, showToast, handleSyncInboxEmails]);
+  }, [hasAuthToken, t, showToast, setIsSyncingInbox, handleSyncInboxEmails]);
 
   // Compose modal states
   const [isComposing, setIsComposing] = useState(false);
@@ -188,8 +190,8 @@ export default function EmailPage() {
         setDoraTab('summary');
         if (selectedEmail.id === 'email_1') {
           text = isZh 
-            ? "• 欢迎使用全新的 Claude Suite 统一工作空间。\n• 整合了电子邮件、日历、聊天室和持久便签。\n• 使用标准的 HTML 表单，并支持浏览器本地缓存。"
-            : "• Welcome to your new unified Claude Suite Workspace.\n• Centralizes email, calendars, chat rooms, and persistent memos.\n• Uses standard HTML forms and supports persistent local browser cache.";
+            ? "• 欢迎使用全新的 Dora 统一工作空间。\n• 整合了电子邮件、日历、聊天室和持久便签。\n• 使用标准的 HTML 表单，并支持浏览器本地缓存。"
+            : "• Welcome to your new unified Dora Workspace.\n• Centralizes email, calendars, chat rooms, and persistent memos.\n• Uses standard HTML forms and supports persistent local browser cache.";
         } else if (selectedEmail.id === 'email_2') {
           text = isZh
             ? "• Sarah 分享了设计草图以供评审。\n• 页面布局采用了温暖的、受纸张启发的极简主义色调。\n• 旨在征求关于字体大小和动画流畅度的反馈。"
@@ -284,13 +286,7 @@ export default function EmailPage() {
         </div>
 
         <div className="email-list">
-          {isSyncingInbox && activeFolder === 'inbox' && (
-            <div className="email-empty-state">
-              <Mail size={32} />
-              <p>{t('email.syncing')}</p>
-            </div>
-          )}
-          {!isSyncingInbox && filteredEmails.length === 0 ? (
+          {filteredEmails.length === 0 ? (
             <div className="email-empty-state">
               <Mail size={32} />
               <p>{t('email.emptyState')}</p>

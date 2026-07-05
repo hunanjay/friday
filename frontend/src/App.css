@@ -209,6 +209,32 @@
 /* --------------------------------------------------------------------------
    2. MAIN WORKSPACE LAYOUT
    -------------------------------------------------------------------------- */
+.sync-marquee {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  overflow: hidden;
+  background-color: var(--accent-light);
+  z-index: 1000;
+}
+
+.sync-marquee-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 40%;
+  background-color: var(--accent-primary);
+  animation: sync-progress-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes sync-progress-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
 .app-workspace {
   display: flex;
   height: 100vh;
@@ -923,16 +949,6 @@
   display: flex;
   flex-direction: column;
   background-color: var(--bg-card);
-}
-
-.calendar-sync-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 24px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-light);
 }
 
 .calendar-header-bar {

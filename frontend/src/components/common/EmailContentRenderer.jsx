@@ -12,6 +12,21 @@ export default function EmailContentRenderer({ body }) {
   const content = body?.content || '';
   const contentType = body?.contentType || 'text';
 
+  // Email HTML links rarely set target="_blank", so clicking them would
+  // navigate the iframe itself instead of opening a new tab. A <base> tag
+  // makes untargeted links open in a new tab by default (allow-popups
+  // permits it) without needing to touch every <a> in untrusted markup.
+  const withDefaultLinkTarget = (html) => {
+    const baseTag = '<base target="_blank" rel="noopener noreferrer">';
+    if (/<head[^>]*>/i.test(html)) {
+      return html.replace(/<head[^>]*>/i, (match) => `${match}${baseTag}`);
+    }
+    if (/<html[^>]*>/i.test(html)) {
+      return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${baseTag}</head>`);
+    }
+    return `${baseTag}${html}`;
+  };
+
   // Listen to theme mutations to update iframe style dynamically (Hook placed at top level)
   useEffect(() => {
     if (contentType !== 'html') return;
@@ -154,9 +169,9 @@ export default function EmailContentRenderer({ body }) {
       <div className="email-html-renderer">
         <iframe
           ref={iframeRef}
-          srcDoc={content}
+          srcDoc={withDefaultLinkTarget(content)}
           title="Email HTML Content"
-          sandbox="allow-popups"
+          sandbox="allow-popups allow-same-origin"
           style={{ width: '100%', height: iframeHeight, border: 'none', overflow: 'hidden' }}
           onLoad={handleIframeLoad}
         />

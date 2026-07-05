@@ -12,20 +12,31 @@ export default function CalendarPage() {
     handleDeleteEvent,
     showToast,
     authToken,
+    setIsSyncingEvents,
     handleSyncEvents
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
 
   const [currentDate, setCurrentDate] = useState(new Date(2026, 6, 5)); // July 5, 2026
-  const [isSyncingEvents, setIsSyncingEvents] = useState(false);
 
   // Pull real events via our backend, which proxies Microsoft Graph and
-  // holds the Graph token server-side.
+  // holds the Graph token server-side. Scoped to the visible month only,
+  // refetched on navigation, so we don't pull the whole account history.
+  // Gated on presence (hasAuthToken), not the token's exact value, so
+  // periodic Supabase token refreshes don't re-trigger a refetch.
+  const hasAuthToken = Boolean(authToken);
   useEffect(() => {
     if (!authToken) return;
+    const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+    const params = new URLSearchParams({
+      start: monthStart.toISOString(),
+      end: monthEnd.toISOString(),
+    });
+
     setIsSyncingEvents(true);
-    fetch(`${API_URL}/api/graph/calendar/events`, {
+    fetch(`${API_URL}/api/graph/calendar/events?${params}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(res => res.json())
@@ -43,7 +54,7 @@ export default function CalendarPage() {
       })
       .catch(() => showToast(t('calendar.syncFailed', { defaultValue: 'Failed to sync calendar from Outlook' })))
       .finally(() => setIsSyncingEvents(false));
-  }, [authToken, showToast, handleSyncEvents, t]);
+  }, [hasAuthToken, currentDate, showToast, setIsSyncingEvents, handleSyncEvents, t]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState('');
   const [eventTitle, setEventTitle] = useState('');
@@ -239,13 +250,6 @@ export default function CalendarPage() {
             <button onClick={nextMonth} className="nav-btn" title={t('calendar.nextMonth')}><ChevronRight size={16} /></button>
           </div>
         </div>
-
-        {isSyncingEvents && (
-          <div className="calendar-sync-banner">
-            <Calendar size={14} />
-            <span>{i18n.language === 'zh' ? "正在同步 Outlook 日历..." : "Syncing Outlook calendar…"}</span>
-          </div>
-        )}
 
         <div className="calendar-grid">
           {/* Days of week header */}
