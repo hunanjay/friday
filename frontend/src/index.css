@@ -1,0 +1,202 @@
+/* ==========================================
+   Claude Suite - Core Styling & Design Tokens
+   ========================================== */
+
+:root {
+  /* Typography */
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Palette - Warm Light Mode (Inspired by Claude) */
+  --bg-app: #F7F5F0;          /* Warm cream beige */
+  --bg-sidebar: #EFECE6;      /* Slightly darker cream */
+  --bg-card: #FFFFFF;         /* Pure white */
+  --bg-card-hover: #FAF9F6;
+  
+  --border-light: #E2DDD5;    /* Very soft warm-gray border */
+  --border-medium: #D0C9BE;
+  
+  --text-primary: #191919;    /* Warm soft black */
+  --text-secondary: #605B56;  /* Soft dark gray */
+  --text-muted: #9E978F;      /* Muted beige-gray */
+
+  --accent-primary: #CC5A37;  /* Terracotta primary accent */
+  --accent-hover: #B24625;
+  --accent-light: #F7EBE6;    /* Soft terracotta wash */
+  --accent-border: rgba(204, 90, 55, 0.3);
+
+  /* Categories Color Coding */
+  --color-work: #D97706;      /* Amber */
+  --color-work-bg: #FEF3C7;
+  --color-personal: #059669;  /* Emerald */
+  --color-personal-bg: #D1FAE5;
+  --color-urgent: #DC2626;    /* Red */
+  --color-urgent-bg: #FEE2E2;
+  --color-study: #7C3AED;     /* Violet */
+  --color-study-bg: #EDE9FE;
+
+  /* Memo pastel cards */
+  --memo-beige: #FDFBF7;
+  --memo-amber: #FEF8E7;
+  --memo-coral: #FFF0EB;
+  --memo-teal: #EBF8F5;
+  --memo-purple: #F3EFFF;
+  --memo-gray: #F5F5F3;
+
+  /* Box Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(25, 25, 25, 0.04), 0 2px 4px rgba(25, 25, 25, 0.02);
+  --shadow-lg: 0 12px 32px rgba(25, 25, 25, 0.08), 0 4px 12px rgba(25, 25, 25, 0.04);
+  --shadow-focus: 0 0 0 3px rgba(204, 90, 55, 0.15);
+
+  /* Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Dark Mode Tokens Override */
+:root.dark {
+  --bg-app: #151514;          /* Warm charcoal dark */
+  --bg-sidebar: #1C1C1B;      /* Lighter charcoal */
+  --bg-card: #20201F;         /* Warm dark gray */
+  --bg-card-hover: #262625;
+
+  --border-light: #2E2E2C;
+  --border-medium: #3E3E3A;
+
+  --text-primary: #EBE8E2;    /* Warm soft white */
+  --text-secondary: #AAA49C;  /* Muted warm gray */
+  --text-muted: #7A756E;      /* Muted dark-gray */
+
+  --accent-primary: #E27E5B;  /* Lighter terracotta for visibility */
+  --accent-hover: #F09675;
+  --accent-light: #352520;
+  --accent-border: rgba(226, 126, 91, 0.3);
+
+  /* Categories Color Coding Dark Mode */
+  --color-work: #F59E0B;
+  --color-work-bg: #3F2C0B;
+  --color-personal: #10B981;
+  --color-personal-bg: #0C382A;
+  --color-urgent: #EF4444;
+  --color-urgent-bg: #450A0A;
+  --color-study: #8B5CF6;
+  --color-study-bg: #2E1065;
+
+  /* Memo pastel cards Dark Mode */
+  --memo-beige: #262422;
+  --memo-amber: #2B261D;
+  --memo-coral: #30201B;
+  --memo-teal: #192724;
+  --memo-purple: #231E2D;
+  --memo-gray: #232322;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.2);
+  --shadow-focus: 0 0 0 3px rgba(226, 126, 91, 0.25);
+}
+
+/* Global Reset & Base Elements */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+/* Accessibility: Focus Rings */
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary) !important;
+  box-shadow: var(--shadow-focus) !important;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Shared Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* Smooth Links */
+a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+/* Dialog & Input Styles */
+input, select, textarea {
+  font-family: inherit;
+  font-size: 0.95rem;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  transition: all var(--transition-fast);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  transition: all var(--transition-fast);
+}
+
+/* Simple Spinner animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
