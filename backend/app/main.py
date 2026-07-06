@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-from app.api import auth, calendar, mail  # noqa: E402  (needs load_dotenv() first)
+from app.api import agent, auth, calendar, mail  # noqa: E402  (needs load_dotenv() first)
 from app.tools import graph_client  # noqa: E402  (needs load_dotenv() first)
 
 
@@ -28,6 +28,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(mail.router)
 app.include_router(calendar.router)
+app.include_router(agent.router)
 
 
 @app.get("/health")

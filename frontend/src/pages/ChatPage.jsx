@@ -3,12 +3,15 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { useTranslation } from 'react-i18next';
 import { Send, Paperclip } from '../components/common/Icons';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+
 export default function ChatPage() {
   const {
     messages,
     chatThreads,
     handleSendMessage,
-    handleSimulateBotReply
+    handleSimulateBotReply,
+    authToken
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
@@ -47,50 +50,39 @@ export default function ChatPage() {
 
     if (activeThreadId === 'claude') {
       setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        
-        let botText = isZh 
-          ? "我很乐意为您提供帮助！我看到这个工作空间有几个标签页。尝试在“邮件”标签页中撰写电子邮件，在“日历”中安排日程，或在“便签”中记录想法。如有需要，请随时告诉我！"
-          : "I'm here to help! I can see we have several tabs in this workspace. Try composing an email in the Email tab, scheduling an event in the Calendar, or jotting down ideas in the Memos tab. Let me know if you need any assistance!";
-        
-        const lowerText = sentText.toLowerCase();
-        if (lowerText.includes('email') || lowerText.includes('邮件')) {
-          botText = isZh
-            ? "您可以在“邮件”标签页管理您的邮件！事实上，我在那里给您发了一封欢迎邮件。您可以回复它、删除它，或者点击“写信”来草拟一封新邮件。"
-            : "You can manage your emails under the Email tab! In fact, I sent you a welcome email there. You can reply to it, delete it, or click 'Compose' to draft a new one.";
-        } else if (lowerText.includes('calendar') || lowerText.includes('日程') || lowerText.includes('会议')) {
-          botText = isZh
-            ? "“日历”标签页采用月度布局！点击任意网格单元格即可创建日程，选择颜色分类（工作、个人、紧急、学习）并查看详细信息。试着为今天安排点事情吧！"
-            : "The Calendar tab features a monthly layout! Click on any grid cell to create an event, choose color categories (Work, Personal, Urgent, Study), and view details. Try scheduling something for today!";
-        } else if (lowerText.includes('memo') || lowerText.includes('note') || lowerText.includes('便签') || lowerText.includes('笔记')) {
-          botText = isZh
-            ? "“便签”标签页让您可以写下即时贴。您可以搜索它们、标记它们、将它们置顶，并分配不同的淡雅背景颜色。快来试试吧！"
-            : "The Memos tab lets you write down sticky notes. You can search them, tag them, pin them to the top, and assign different pastel background colors. Give it a try!";
-        } else if (lowerText.includes('hello') || lowerText.includes('hi') || lowerText.includes('你好')) {
-          botText = isZh
-            ? "你好！欢迎来到您的工作空间。今天过得怎么样？如果有任何关于邮件、日历或便签的问题，随时告诉我。"
-            : "Hello! Welcome to your workspace. How is your day going? Let me know how I can assist you with your emails, calendar, or notes.";
-        } else if (lowerText.includes('claude') || lowerText.includes('who are you') || lowerText.includes('你是谁')) {
-          botText = isZh
-            ? "我是 Claude，您在这个精美仪表板中的模拟 AI 伴侣。我完全采用了 Claude 标志性的陶土色调和极简布局，给您带来舒适且高端的体验。"
-            : "I am Claude, your simulated AI companion in this beautiful dashboard. I am fully styled with Claude's signature terracotta colors and minimalist layout to feel comfortable and premium.";
-        } else if (lowerText.includes('clear') || lowerText.includes('reset')) {
-          botText = isZh
-            ? "我已经记录下了。如果您想清空本地工作区设置，请随时登出并重新登录！"
-            : "I've logged this. If you want to clear your local workspace settings, feel free to sign out and log back in!";
-        }
-
-        const botMsg = {
-          id: 'msg_bot_' + Date.now(),
-          threadId: 'claude',
-          sender: 'bot',
-          senderName: 'Claude AI',
-          text: botText,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-        handleSimulateBotReply(botMsg);
-      }, 1500);
+      fetch(`${API_URL}/api/agent/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ message: sentText }),
+      })
+        .then(res => res.json().then(data => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+          const botText = ok
+            ? data.reply
+            : (isZh ? `出错了：${data.detail || '请求失败'}` : `Something went wrong: ${data.detail || 'request failed'}`);
+          handleSimulateBotReply({
+            id: 'msg_bot_' + Date.now(),
+            threadId: 'claude',
+            sender: 'bot',
+            senderName: 'Claude AI',
+            text: botText,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        })
+        .catch(() => {
+          handleSimulateBotReply({
+            id: 'msg_bot_' + Date.now(),
+            threadId: 'claude',
+            sender: 'bot',
+            senderName: 'Claude AI',
+            text: isZh ? '无法连接到助手服务，请稍后再试。' : "Couldn't reach the assistant service, please try again later.",
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        })
+        .finally(() => setIsTyping(false));
     } else if (activeThreadId === 'friday') {
       setIsTyping(true);
       setTimeout(() => {

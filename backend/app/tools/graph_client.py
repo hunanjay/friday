@@ -59,19 +59,34 @@ async def refresh_ms_token(user_id: str) -> str | None:
     return data["access_token"]
 
 
-async def graph_get(user_id: str, path: str) -> dict:
+async def _graph_request(user_id: str, method: str, path: str, json: dict | None = None) -> dict | None:
     ms_token = await run_in_threadpool(get_ms_token, user_id)
     if not ms_token:
         raise HTTPException(status_code=404, detail="No Microsoft account linked")
 
-    resp = await _get_client().get(f"{GRAPH_BASE}{path}", headers={"Authorization": f"Bearer {ms_token}"})
+    def _call(token: str) -> httpx.Response:
+        return _get_client().request(method, f"{GRAPH_BASE}{path}", headers={"Authorization": f"Bearer {token}"}, json=json)
+
+    resp = await _call(ms_token)
     if resp.status_code == 401:
         refreshed = await refresh_ms_token(user_id)
         if not refreshed:
             raise HTTPException(status_code=401, detail="Microsoft token expired, please sign in again")
-        resp = await _get_client().get(f"{GRAPH_BASE}{path}", headers={"Authorization": f"Bearer {refreshed}"})
+        resp = await _call(refreshed)
         if resp.status_code == 401:
             raise HTTPException(status_code=401, detail="Microsoft token expired, please sign in again")
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=f"Graph API error: {resp.text}")
-    return resp.json()
+    return resp.json() if resp.content else None
+
+
+async def graph_get(user_id: str, path: str) -> dict:
+    return await _graph_request(user_id, "GET", path)
+
+
+async def graph_post(user_id: str, path: str, json: dict) -> dict | None:
+    return await _graph_request(user_id, "POST", path, json=json)
+
+
+async def graph_delete(user_id: str, path: str) -> None:
+    await _graph_request(user_id, "DELETE", path)
