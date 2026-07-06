@@ -99,7 +99,8 @@ export function WorkspaceProvider({ children }) {
       });
       setAuthToken(prev => (prev === session.access_token ? prev : session.access_token));
       // provider_token only comes back on fresh sign-in, not after a page reload;
-      // hand it to the backend once so it can be reused across reloads.
+      // hand it (plus the refresh_token, if Microsoft granted one) to the
+      // backend once so it can refresh silently and reuse it across reloads.
       if (session.provider_token) {
         fetch(`${API_URL}/api/graph/token`, {
           method: 'POST',
@@ -107,7 +108,10 @@ export function WorkspaceProvider({ children }) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ ms_token: session.provider_token }),
+          body: JSON.stringify({
+            ms_token: session.provider_token,
+            refresh_token: session.provider_refresh_token,
+          }),
         }).catch(() => {});
       }
     };
@@ -122,6 +126,27 @@ export function WorkspaceProvider({ children }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  // Periodically confirm the backend can still use the stored Microsoft
+  // token (it silently refreshes on our behalf); if refresh itself failed
+  // (e.g. the user revoked access), the MS session is unrecoverable and we
+  // force a fresh sign-in rather than let every sync action fail quietly.
+  useEffect(() => {
+    if (!authToken) return;
+    const checkStatus = () => {
+      fetch(`${API_URL}/api/graph/status`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.expired) handleLogout();
+        })
+        .catch(() => {});
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [authToken]);
+
   const handleSyncInboxEmails = useCallback((inboxEmails) => {
     setEmails(prev => [...inboxEmails, ...prev.filter(e => e.parentFolderId !== 'inbox')]);
   }, []);
@@ -130,16 +155,16 @@ export function WorkspaceProvider({ children }) {
     setEvents(calendarEvents);
   }, []);
 
-  const handleLogin = (userInfo) => {
+  const handleLogin = useCallback((userInfo) => {
     setUser(userInfo);
     localStorage.setItem('user', JSON.stringify(userInfo));
-  };
+  }, []);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     supabase.auth.signOut();
     setUser(null);
     localStorage.removeItem('user');
-  };
+  }, []);
 
   // State modifiers
   const handleAddEmail = (email) => {

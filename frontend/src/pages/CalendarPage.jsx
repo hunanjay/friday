@@ -13,7 +13,8 @@ export default function CalendarPage() {
     showToast,
     authToken,
     setIsSyncingEvents,
-    handleSyncEvents
+    handleSyncEvents,
+    handleLogout
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
@@ -39,8 +40,15 @@ export default function CalendarPage() {
     fetch(`${API_URL}/api/graph/calendar/events?${params}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
-      .then(res => res.json())
+      .then(res => {
+        if (res.status === 401) {
+          handleLogout();
+          return null;
+        }
+        return res.json();
+      })
       .then(data => {
+        if (!data) return;
         const calendarEvents = (data.value || []).map(ev => ({
           id: ev.id,
           subject: ev.subject,
@@ -54,7 +62,7 @@ export default function CalendarPage() {
       })
       .catch(() => showToast(t('calendar.syncFailed', { defaultValue: 'Failed to sync calendar from Outlook' })))
       .finally(() => setIsSyncingEvents(false));
-  }, [hasAuthToken, currentDate, showToast, setIsSyncingEvents, handleSyncEvents, t]);
+  }, [hasAuthToken, currentDate, showToast, setIsSyncingEvents, handleSyncEvents, t, handleLogout]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState('');
   const [eventTitle, setEventTitle] = useState('');

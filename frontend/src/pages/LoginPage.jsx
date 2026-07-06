@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Quill, Info } from '../components/common/Icons';
+import { Info } from '../components/common/Icons';
 import { supabase } from '../supabaseClient';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useTranslation } from 'react-i18next';
@@ -33,8 +33,9 @@ export default function LoginPage() {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
-          <div className="login-logo-container">
-            <Quill size={32} className="login-logo-icon" />
+          <div className="login-avatar-wrapper">
+            <img src="/dora_assistant_avatar.png" alt="Dora" className="login-avatar" />
+            <div className="dora-pulse-glow"></div>
           </div>
           <h1>{t('login.title')}</h1>
           <p className="login-subtitle">{t('login.subtitle')}</p>

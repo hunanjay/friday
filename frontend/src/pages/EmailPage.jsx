@@ -14,7 +14,8 @@ export default function EmailPage() {
     showToast,
     authToken,
     setIsSyncingInbox,
-    handleSyncInboxEmails
+    handleSyncInboxEmails,
+    handleLogout
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
@@ -32,8 +33,15 @@ export default function EmailPage() {
     fetch(`${API_URL}/api/graph/mail/inbox`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
-      .then(res => res.json())
+      .then(res => {
+        if (res.status === 401) {
+          handleLogout();
+          return null;
+        }
+        return res.json();
+      })
       .then(data => {
+        if (!data) return;
         const inboxEmails = (data.value || []).map(msg => ({
           id: msg.id,
           subject: msg.subject,
@@ -49,7 +57,7 @@ export default function EmailPage() {
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsSyncingInbox(false));
-  }, [hasAuthToken, t, showToast, setIsSyncingInbox, handleSyncInboxEmails]);
+  }, [hasAuthToken, t, showToast, setIsSyncingInbox, handleSyncInboxEmails, handleLogout]);
 
   // Compose modal states
   const [isComposing, setIsComposing] = useState(false);
