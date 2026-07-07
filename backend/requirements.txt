@@ -4,5 +4,8 @@ langchain
 langchain-openai
 langgraph
 langgraph-supervisor
+langgraph-checkpoint-postgres
+psycopg[binary,pool]
+langgraph-cli[inmem]
 supabase
 python-dotenv

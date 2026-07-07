@@ -80,10 +80,12 @@
     "sidebarTitle": "Chats",
     "startConversation": "Start of conversation. Say hello!",
     "active": "Active Now",
-    "offline": "Offline",
     "inputPlaceholderAI": "Ask Claude anything... (Try asking about email, calendar, or memos!)",
-    "inputPlaceholderGroup": "Type a message...",
-    "attachmentsSimulated": "Attachments are simulated. You can type in the chat instead!"
+    "attachmentsSimulated": "Attachments are simulated. You can type in the chat instead!",
+    "newSession": "New chat",
+    "newSessionTitle": "New chat",
+    "deleteSession": "Delete chat",
+    "aiAssistantDesc": "AI Assistant"
   },
   "memos": {
     "searchPlaceholder": "Search memos...",

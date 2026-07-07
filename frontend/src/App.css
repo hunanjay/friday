@@ -1129,11 +1129,54 @@
 .chat-sidebar-header {
   padding: 24px 16px;
   border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .chat-sidebar-header h3 {
   font-size: 1.1rem;
   font-weight: 600;
+}
+
+.new-session-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-light);
+  color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.new-session-btn:hover {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.delete-session-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chat-thread-item:hover .delete-session-btn {
+  display: flex;
+}
+
+.delete-session-btn:hover {
+  color: var(--color-urgent, #d33);
 }
 
 .chat-threads-list {

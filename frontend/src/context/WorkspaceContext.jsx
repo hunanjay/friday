@@ -27,11 +27,9 @@ export function WorkspaceProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const chatThreads = [
-    { id: 'claude', name: 'Claude AI', description: 'Simulated AI Assistant', online: true },
-    { id: 'friday', name: 'Project Friday', description: 'Team discussion channel', online: true },
-    { id: 'lounge', name: 'General Lounge', description: 'Casual chit-chat', online: false }
-  ];
+  // Real chat sessions (thread_id for the LangGraph agent + Postgres
+  // checkpointer), fetched from the backend rather than hardcoded.
+  const [chatThreads, setChatThreads] = useState([]);
 
   const [memos, setMemos] = useState(() => {
     const saved = localStorage.getItem('memos');
@@ -91,7 +89,16 @@ export function WorkspaceProvider({ children }) {
   // Apply Auth session
   useEffect(() => {
     const applySession = (session) => {
-      if (!session) return;
+      if (!session) {
+        // Supabase session gone (expired refresh_token, signed out elsewhere,
+        // or never logged in) - clear the stale `user` we persisted to
+        // localStorage so MainLayout's guard redirects to /login instead of
+        // rendering with a null authToken.
+        setUser(prev => (prev === null ? prev : null));
+        localStorage.removeItem('user');
+        setAuthToken(null);
+        return;
+      }
       handleLogin({
         name: session.user.user_metadata?.full_name || session.user.email.split('@')[0],
         email: session.user.email,
@@ -145,6 +152,39 @@ export function WorkspaceProvider({ children }) {
     checkStatus();
     const interval = setInterval(checkStatus, 5 * 60 * 1000);
     return () => clearInterval(interval);
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setChatThreads([]);
+      return;
+    }
+    fetch(`${API_URL}/api/agent/sessions`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : { sessions: [] }))
+      .then(data => setChatThreads(data.sessions || []))
+      .catch(() => {});
+  }, [authToken]);
+
+  const handleCreateSession = useCallback(async (title) => {
+    const res = await fetch(`${API_URL}/api/agent/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ title }),
+    });
+    const session = await res.json();
+    setChatThreads(prev => [session, ...prev]);
+    return session;
+  }, [authToken]);
+
+  const handleDeleteSession = useCallback(async (sessionId) => {
+    await fetch(`${API_URL}/api/agent/sessions/${sessionId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    setChatThreads(prev => prev.filter(s => s.id !== sessionId));
+    setMessages(prev => prev.filter(m => m.threadId !== sessionId));
   }, [authToken]);
 
   const handleSyncInboxEmails = useCallback((inboxEmails) => {
@@ -223,6 +263,8 @@ export function WorkspaceProvider({ children }) {
         setIsSyncingEvents,
         handleSyncInboxEmails,
         handleSyncEvents,
+        handleCreateSession,
+        handleDeleteSession,
         handleLogin,
         handleLogout,
         handleAddEmail,
