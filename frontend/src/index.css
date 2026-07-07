@@ -200,3 +200,152 @@ button {
   border-top-color: #fff;
   animation: spin 0.8s linear infinite;
 }
+
+/* ==========================================
+   Streaming Markdown & Token Buffering
+   ========================================== */
+
+.streaming-markdown-container {
+  line-height: 1.6;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.markdown-p {
+  margin-bottom: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.markdown-p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-h {
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.markdown-h1 { font-size: 1.4rem; border-bottom: 1px solid var(--border-light); padding-bottom: 0.25rem; }
+.markdown-h2 { font-size: 1.25rem; }
+.markdown-h3 { font-size: 1.15rem; }
+.markdown-h4 { font-size: 1.05rem; }
+.markdown-h5, .markdown-h6 { font-size: 0.95rem; }
+
+.markdown-ul, .markdown-ol {
+  margin-bottom: 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.markdown-li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-link {
+  color: var(--accent-primary);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.markdown-link:hover {
+  color: var(--accent-hover);
+}
+
+/* Inline Code block */
+.markdown-inline-code {
+  font-family: var(--font-mono);
+  background-color: var(--bg-sidebar);
+  color: var(--accent-primary);
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  border: 1px solid var(--border-light);
+}
+
+/* Token Buffering / Anti-Flicker States */
+.markdown-token-incomplete {
+  position: relative;
+  opacity: 0.8;
+  border-bottom: 1px dotted var(--text-muted);
+}
+
+.markdown-bold-incomplete {
+  font-weight: 700;
+}
+
+.markdown-italic-incomplete {
+  font-style: italic;
+}
+
+.markdown-inline-code-incomplete {
+  font-family: var(--font-mono);
+  background-color: var(--bg-sidebar);
+  color: var(--accent-primary);
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  border: 1px dashed var(--accent-primary);
+  opacity: 0.85;
+}
+
+.markdown-link-incomplete {
+  color: var(--text-secondary);
+  border-bottom: 1px dashed var(--text-muted);
+}
+
+/* Code Blocks styling */
+.markdown-code-block {
+  margin: 0.75rem 0;
+  border-radius: 8px;
+  border: 1px solid var(--border-medium);
+  overflow: hidden;
+  background-color: #1E1E1E; /* Neutral dark theme for code blocks */
+  box-shadow: var(--shadow-sm);
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.85rem;
+  background-color: #2D2D2D;
+  border-bottom: 1px solid #3D3D3D;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #AAAAAA;
+}
+
+.code-block-lang {
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.code-copy-btn {
+  background-color: transparent;
+  color: #CCCCCC;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border: 1px solid #444444;
+  border-radius: 4px;
+}
+
+.code-copy-btn:hover {
+  background-color: #3D3D3D;
+  color: #FFFFFF;
+}
+
+.code-block-pre {
+  margin: 0;
+  padding: 0.85rem;
+  overflow-x: auto;
+}
+
+.code-block-code {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: #D4D4D4;
+  display: block;
+}
+

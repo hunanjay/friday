@@ -46,13 +46,19 @@ def build_supervisor(user_id: str):
         model,
         tools=make_mail_tools(user_id),
         name="mail_agent",
-        prompt="You handle the user's email: reading the inbox and sending messages.",
+        prompt=(
+            "You handle the user's email: listing, searching, and reading messages, "
+            "sending new ones, and marking read/unread or deleting existing ones."
+        ),
     )
     calendar_agent = create_react_agent(
         model,
         tools=make_calendar_tools(user_id),
         name="calendar_agent",
-        prompt="You handle the user's calendar: listing, creating, and deleting events.",
+        prompt=(
+            "You handle the user's calendar: listing, creating, and deleting events, "
+            "and accepting/declining event invitations."
+        ),
     )
     memos_agent = create_react_agent(
         model,

@@ -47,7 +47,7 @@ async def refresh_ms_token(user_id: str) -> str | None:
             "client_secret": client_secret,
             "grant_type": "refresh_token",
             "refresh_token": row["refresh_token"],
-            "scope": "openid email profile offline_access Mail.Read Calendars.Read",
+            "scope": "openid email profile offline_access Mail.ReadWrite Mail.Send Calendars.ReadWrite",
         },
     )
     if resp.status_code >= 400:
@@ -86,6 +86,10 @@ async def graph_get(user_id: str, path: str) -> dict:
 
 async def graph_post(user_id: str, path: str, json: dict) -> dict | None:
     return await _graph_request(user_id, "POST", path, json=json)
+
+
+async def graph_patch(user_id: str, path: str, json: dict) -> dict | None:
+    return await _graph_request(user_id, "PATCH", path, json=json)
 
 
 async def graph_delete(user_id: str, path: str) -> None:

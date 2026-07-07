@@ -23,7 +23,7 @@ export default function LoginPage() {
       provider: 'azure',
       options: {
         redirectTo: window.location.origin,
-        scopes: 'openid email profile offline_access Mail.Read Calendars.Read',
+        scopes: 'openid email profile offline_access Mail.ReadWrite Mail.Send Calendars.ReadWrite',
       },
     });
     if (error) setError(error.message);

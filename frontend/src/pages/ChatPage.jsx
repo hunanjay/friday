@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useTranslation } from 'react-i18next';
 import { Send, Paperclip, Plus, Trash } from '../components/common/Icons';
+import StreamingMarkdown from '../components/common/StreamingMarkdown';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
@@ -12,6 +13,7 @@ export default function ChatPage() {
     chatThreads,
     handleSendMessage,
     handleSimulateBotReply,
+    handleUpdateMessageText,
     handleCreateSession,
     handleDeleteSession,
     handleLogout,
@@ -54,65 +56,128 @@ export default function ChatPage() {
     handleDeleteSession(sessionId);
   };
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
     if (!inputText.trim() || !activeThreadId) return;
 
+    const sessionId = activeThreadId;
+    const sentText = inputText;
+    setInputText('');
+
     const userMsg = {
       id: 'msg_' + Date.now(),
-      threadId: activeThreadId,
+      threadId: sessionId,
       sender: 'user',
       senderName: i18n.language === 'zh' ? '您' : 'You',
-      text: inputText,
+      text: sentText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
     handleSendMessage(userMsg);
-    const sentText = inputText;
-    const sessionId = activeThreadId;
-    setInputText('');
 
     const isZh = i18n.language === 'zh';
-
+    const botMsgId = 'msg_bot_' + Date.now();
+    const botMsg = {
+      id: botMsgId,
+      threadId: sessionId,
+      sender: 'bot',
+      senderName: 'Claude AI',
+      text: '',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    handleSimulateBotReply(botMsg);
+    
     setIsTyping(true);
-    fetch(`${API_URL}/api/agent/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({ message: sentText, session_id: sessionId }),
-    })
-      .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
-      .then(({ ok, status, data }) => {
-        if (status === 401) {
-          handleLogout();
-          navigate('/login');
-          return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/agent/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ message: sentText, session_id: sessionId }),
+      });
+
+      if (res.status === 401) {
+        handleLogout();
+        navigate('/login');
+        return;
+      }
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMsg = isZh
+          ? `出错了：${errorData.detail || '请求失败'}`
+          : `Something went wrong: ${errorData.detail || 'request failed'}`;
+        handleUpdateMessageText(botMsgId, errorMsg);
+        setIsTyping(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let botText = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          if (trimmed.startsWith('data: ')) {
+            const dataStr = trimmed.slice(6).trim();
+            if (dataStr === '[DONE]') {
+              break;
+            }
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.error) {
+                botText += `\n[Error: ${data.error}]`;
+                handleUpdateMessageText(botMsgId, botText);
+              } else if (data.chunk) {
+                botText += data.chunk;
+                handleUpdateMessageText(botMsgId, botText);
+              }
+            } catch (err) {
+              console.error('Failed to parse SSE data', err);
+            }
+          }
         }
-        const botText = ok
-          ? data.reply
-          : (isZh ? `出错了：${data.detail || '请求失败'}` : `Something went wrong: ${data.detail || 'request failed'}`);
-        handleSimulateBotReply({
-          id: 'msg_bot_' + Date.now(),
-          threadId: sessionId,
-          sender: 'bot',
-          senderName: 'Claude AI',
-          text: botText,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        });
-      })
-      .catch(() => {
-        handleSimulateBotReply({
-          id: 'msg_bot_' + Date.now(),
-          threadId: sessionId,
-          sender: 'bot',
-          senderName: 'Claude AI',
-          text: isZh ? '无法连接到助手服务，请稍后再试。' : "Couldn't reach the assistant service, please try again later.",
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        });
-      })
-      .finally(() => setIsTyping(false));
+      }
+
+      // Flush final buffer if any
+      if (buffer.startsWith('data: ')) {
+        const dataStr = buffer.slice(6).trim();
+        if (dataStr !== '[DONE]') {
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.chunk) {
+              botText += data.chunk;
+              handleUpdateMessageText(botMsgId, botText);
+            }
+          } catch (err) {
+            console.error('Failed to parse final SSE data', err);
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Stream reading error', error);
+      const errMsg = isZh
+        ? '无法连接到助手服务，请稍后再试。'
+        : "Couldn't reach the assistant service, please try again later.";
+      handleUpdateMessageText(botMsgId, errMsg);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -206,7 +271,14 @@ export default function ChatPage() {
                       <div className="message-bubble-wrapper">
                         {!isUser && <span className="message-sender-name">{msg.senderName}</span>}
                         <div className={`message-bubble ${isUser ? 'user-bubble' : 'other-bubble'} ${isBot ? 'bot-bubble' : ''}`}>
-                          <p>{msg.text}</p>
+                          {isUser ? (
+                            <p className="markdown-p">{msg.text}</p>
+                          ) : (
+                            <StreamingMarkdown
+                              content={msg.text}
+                              isBotTyping={isTyping && msg.id === threadMessages[threadMessages.length - 1]?.id}
+                            />
+                          )}
                         </div>
                         <span className="message-time">{msg.timestamp}</span>
                       </div>

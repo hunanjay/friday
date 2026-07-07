@@ -231,6 +231,10 @@ export function WorkspaceProvider({ children }) {
     setMessages(prev => [...prev, botMsg]);
   };
 
+  const handleUpdateMessageText = useCallback((id, newText) => {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, text: newText } : m));
+  }, []);
+
   const handleAddMemo = (memo) => {
     setMemos(prev => [memo, ...prev]);
   };
@@ -273,6 +277,7 @@ export function WorkspaceProvider({ children }) {
         handleDeleteEvent,
         handleSendMessage,
         handleSimulateBotReply,
+        handleUpdateMessageText,
         handleAddMemo,
         handleUpdateMemo,
         handleDeleteMemo

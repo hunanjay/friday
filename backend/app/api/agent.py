@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+import json
 
 from app.agents.supervisor import build_supervisor
 from app.db import chat_sessions
@@ -37,10 +39,29 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     if not await chat_sessions.session_exists(user_id, session_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
-    graph = build_supervisor(user_id)
-    result = await graph.ainvoke(
-        {"messages": [{"role": "user", "content": message}]},
-        config={"configurable": {"thread_id": session_id}},
-    )
-    reply = result["messages"][-1].content
-    return {"reply": reply}
+    async def event_generator():
+        graph = build_supervisor(user_id)
+        try:
+            async for event in graph.astream_events(
+                {"messages": [{"role": "user", "content": message}]},
+                config={"configurable": {"thread_id": session_id}},
+                version="v2",
+            ):
+                event_type = event.get("event")
+                metadata = event.get("metadata", {})
+                node = metadata.get("langgraph_node")
+                
+                # Check if it's the supervisor's chat model stream
+                if event_type == "on_chat_model_stream" and node == "agent":
+                    chunk = event["data"].get("chunk")
+                    if chunk and hasattr(chunk, "content") and chunk.content:
+                        yield f"data: {json.dumps({'chunk': chunk.content})}\n\n"
+                    elif chunk and isinstance(chunk, dict) and chunk.get("content"):
+                        yield f"data: {json.dumps({'chunk': chunk['content']})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
