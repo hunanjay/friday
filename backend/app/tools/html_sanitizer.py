@@ -40,6 +40,18 @@ _REMOVE_ELEMENTS = {
     "svg", "math", "canvas", "audio", "video", "source", "track",
 }
 
+# Void elements never get a closing tag (HTML spec forbids it, and browsers
+# never emit one) - html.parser correspondingly never calls handle_endtag for
+# them. Any of these landing in _REMOVE_ELEMENTS above (meta, link, source,
+# track, embed) must not open a skip region, or skip_depth never comes back
+# down and every remaining sibling gets swallowed - which is exactly what
+# happened with a bare <meta> in a real Outlook HTML body wiping the whole
+# email out.
+_VOID_ELEMENTS = {
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+}
+
 _BLOCK_ELEMENTS = {
     "p", "div", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
     "ul", "ol", "li", "table", "tr", "td", "th", "thead", "tbody",
@@ -66,7 +78,12 @@ class _VisibleTextExtractor(HTMLParser):
     def handle_starttag(self, tag, attrs_list):
         attrs = dict(attrs_list)
         if self._skip_depth > 0:
-            self._skip_depth += 1
+            if tag not in _VOID_ELEMENTS:
+                self._skip_depth += 1
+            return
+        if tag in _VOID_ELEMENTS:
+            if tag in _BLOCK_ELEMENTS:
+                self.chunks.append("\n")
             return
         if tag in _REMOVE_ELEMENTS or _is_hidden(attrs):
             self._skip_depth = 1

@@ -1,26 +1,32 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import { Mail, Calendar, MessageSquare, Edit3, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
+import { Mail, Calendar, MessageSquare, Edit3, Github, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 
 export default function MainLayout() {
   const {
     user,
     emails,
+    inboxUnread,
     isSidebarCollapsed,
     setIsSidebarCollapsed,
     handleLogout,
     toast,
     isSyncingInbox,
-    isSyncingEvents
+    isSyncingEvents,
+    githubStatus,
+    handleConnectGithub
   } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const settingsRef = useRef(null);
 
   // Redirect to login if not logged in
   useEffect(() => {
@@ -29,9 +35,21 @@ export default function MainLayout() {
     }
   }, [user, navigate]);
 
+  // Close the settings popover on an outside click.
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const onClickOutside = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setIsSettingsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [isSettingsOpen]);
+
   if (!user) return null;
 
-  const unreadEmailsCount = emails.filter(e => e.parentFolderId === 'inbox' && !e.isRead).length;
+  const unreadEmailsCount = inboxUnread ?? emails.filter(e => e.parentFolderId === 'inbox' && !e.isRead).length;
   const activeTab = location.pathname.split('/')[1] || 'email';
   const isSyncing = isSyncingInbox || isSyncingEvents;
 
@@ -102,15 +120,8 @@ export default function MainLayout() {
           </Link>
         </nav>
 
-        <div className="sidebar-footer">
-          <button className="theme-toggle-btn" onClick={toggleTheme} title="Toggle Theme">
-            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-            {!isSidebarCollapsed && <span>{theme === 'light' ? t('common.themeDark') : t('common.themeLight')}</span>}
-          </button>
-
-          <LanguageSwitcher isSidebarCollapsed={isSidebarCollapsed} />
-
-          <div className="user-profile-widget">
+        <div className="sidebar-footer" ref={settingsRef}>
+          <div className="user-profile-widget settings-trigger" onClick={() => setIsSettingsOpen(o => !o)}>
             <div className="user-avatar" title={isSidebarCollapsed ? `${user.name} (${user.email})` : ""}>
               {user.name ? user.name[0].toUpperCase() : 'U'}
             </div>
@@ -120,17 +131,39 @@ export default function MainLayout() {
                 <span className="user-email">{user.email}</span>
               </div>
             )}
-            {!isSidebarCollapsed && (
-              <button className="logout-btn" onClick={handleLogout} title={t('common.signOut')}>
-                <LogOut size={16} />
-              </button>
+
+            {isSettingsOpen && (
+              <div className="settings-menu" onClick={(e) => e.stopPropagation()}>
+                <button className="theme-toggle-btn" onClick={toggleTheme} title="Toggle Theme">
+                  {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+                  <span>{theme === 'light' ? t('common.themeDark') : t('common.themeLight')}</span>
+                </button>
+
+                <LanguageSwitcher isSidebarCollapsed={false} />
+
+                {githubStatus && (
+                  githubStatus.connected ? (
+                    <div className="theme-toggle-btn" title="GitHub connected" style={{ cursor: 'default', opacity: 0.7 }}>
+                      <Github size={18} />
+                      <span>GitHub Connected</span>
+                    </div>
+                  ) : (
+                    <button className="theme-toggle-btn" onClick={handleConnectGithub} title="Connect GitHub">
+                      <Github size={18} />
+                      <span>Connect GitHub</span>
+                    </button>
+                  )
+                )}
+
+                <div className="settings-menu-divider" />
+
+                <button className="theme-toggle-btn" onClick={handleLogout} title={t('common.signOut')}>
+                  <LogOut size={18} />
+                  <span>{t('common.signOut')}</span>
+                </button>
+              </div>
             )}
           </div>
-          {isSidebarCollapsed && (
-            <button className="logout-btn-collapsed" onClick={handleLogout} title={t('common.signOut')}>
-              <LogOut size={16} />
-            </button>
-          )}
         </div>
       </aside>
 

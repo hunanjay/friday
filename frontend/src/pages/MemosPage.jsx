@@ -42,27 +42,21 @@ export default function MemosPage() {
     return b.updatedAt - a.updatedAt;
   });
 
-  const handleCreateSubmit = (e) => {
+  const handleCreateSubmit = async (e) => {
     e.preventDefault();
     if (!newTitle.trim() && !newContent.trim()) {
       alert(i18n.language === 'zh' ? '便签内容不能完全为空' : 'Memo cannot be completely empty');
       return;
     }
 
-    const memo = {
-      id: 'memo_' + Date.now(),
+    await handleAddMemo({
       title: newTitle || (i18n.language === 'zh' ? '无标题便签' : 'Untitled Memo'),
       content: newContent,
       category: newCategory,
       color: newColor,
-      pinned: false,
-      updatedAt: Date.now(),
-      dateStr: new Date().toLocaleDateString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    };
-
-    handleAddMemo(memo);
+    });
     setIsCreateOpen(false);
-    
+
     // Reset fields
     setNewTitle('');
     setNewContent('');
@@ -72,30 +66,26 @@ export default function MemosPage() {
     showToast(i18n.language === 'zh' ? '便签新建成功！' : 'Memo created successfully!');
   };
 
-  const handleUpdateSubmit = (e) => {
+  const handleUpdateSubmit = async (e) => {
     e.preventDefault();
-    handleUpdateMemo(editingMemo);
+    await handleUpdateMemo(editingMemo);
     setEditingMemo(null);
     showToast(i18n.language === 'zh' ? '便签已更新！' : 'Memo updated!');
   };
 
-  const togglePin = (memo, e) => {
+  const togglePin = async (memo, e) => {
     e.stopPropagation();
-    handleUpdateMemo({
-      ...memo,
-      pinned: !memo.pinned,
-      updatedAt: Date.now()
-    });
+    await handleUpdateMemo({ ...memo, pinned: !memo.pinned });
     showToast(
-      memo.pinned 
-        ? (i18n.language === 'zh' ? '便签已取消置顶' : 'Memo unpinned') 
+      memo.pinned
+        ? (i18n.language === 'zh' ? '便签已取消置顶' : 'Memo unpinned')
         : (i18n.language === 'zh' ? '便签已置顶到顶部' : 'Memo pinned to top')
     );
   };
 
-  const deleteMemoClick = (id, e) => {
+  const deleteMemoClick = async (id, e) => {
     e.stopPropagation();
-    handleDeleteMemo(id);
+    await handleDeleteMemo(id);
     showToast(i18n.language === 'zh' ? '便签已删除' : 'Memo deleted');
   };
 

@@ -19,4 +19,7 @@ async def events(
     # within [start, end); /me/events returns only the series master with its
     # original (often past) start time, which never matches the visible month.
     path = f"/me/calendarView?startDateTime={start}&endDateTime={end}&$top=100&$orderby=start/dateTime"
-    return await graph_get(user_id, path)
+    # Frontend displays event.start/end.dateTime digits as-is (no timezone
+    # math), so ask Graph to return them already in Beijing time - matching
+    # what create_event now writes (see agents/tools.py's _BEIJING_TZ).
+    return await graph_get(user_id, path, extra_headers={"Prefer": 'outlook.timezone="China Standard Time"'})

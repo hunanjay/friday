@@ -1,11 +1,12 @@
 import os
+from datetime import datetime, timedelta, timezone
 
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langgraph_supervisor import create_supervisor
 
 from app.agents.checkpointer import get_checkpointer
-from app.agents.tools import make_calendar_tools, make_mail_tools, make_memos_tools
+from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
 
 class _ProxyCompatChatOpenAI(ChatOpenAI):
     # ponytail: langgraph-supervisor tags handoff-back messages with a `name`
@@ -42,6 +43,12 @@ def build_supervisor(user_id: str):
     this user's id so each sub-agent only ever touches this user's mailbox
     and calendar."""
     model = _get_model()
+    # Beijing time (UTC+8, no DST) - matches the timezone create_event/list_events
+    # write and read in (see agents/tools.py's _BEIJING_TZ), so "tomorrow" etc.
+    # resolve against the user's actual calendar day.
+    today = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8))).strftime(
+        "%Y-%m-%d (%A), Beijing time (UTC+8)"
+    )
     mail_agent = create_react_agent(
         model,
         tools=make_mail_tools(user_id),
@@ -56,23 +63,50 @@ def build_supervisor(user_id: str):
         tools=make_calendar_tools(user_id),
         name="calendar_agent",
         prompt=(
-            "You handle the user's calendar: listing, creating, and deleting events, "
-            "and accepting/declining event invitations."
+            f"Today is {today}. You handle the user's calendar: listing, creating, and "
+            "deleting events, and accepting/declining event invitations. Resolve relative "
+            "dates (\"tomorrow\", \"next Wednesday\") against today's date."
         ),
     )
     memos_agent = create_react_agent(
         model,
         tools=make_memos_tools(user_id),
         name="memos_agent",
-        prompt="You handle the user's memos/notes.",
+        prompt=(
+            "You manage the user's memos. Tools: list_memos (browse all), "
+            "search_memos(query) (answer a question from memos), create_memo(title, "
+            "content, category) (save something new).\n"
+            "Always call exactly one tool before replying. Never answer from "
+            "assumption. Never claim something is saved without calling create_memo "
+            "first. Never claim something was found without calling search_memos or "
+            "list_memos first."
+        ),
+    )
+
+    github_agent = create_react_agent(
+        model,
+        tools=make_github_tools(user_id),
+        name="github_agent",
+        prompt=(
+            f"Today is {today}. You generate the user's daily work report (日报) from "
+            "GitHub commit activity on their project repo. On every turn, call "
+            "list_todays_commits before you reply - do not ask for permission first, "
+            "just call it immediately. Write a concise report (grouped bullet points, "
+            "matching the language the user asked in) based only on the commit messages "
+            "the tool actually returned - never invent commits. Then call create_memo "
+            "with category='work', a title like 'Daily Report - <date>', and the "
+            "synthesized report as content. Confirm to the user once saved. If there "
+            "were no commits today, tell them that instead of saving an empty report."
+        ),
     )
 
     workflow = create_supervisor(
-        [mail_agent, calendar_agent, memos_agent],
+        [mail_agent, calendar_agent, memos_agent, github_agent],
         model=model,
         prompt=(
-            "You are a supervisor coordinating three agents: mail_agent (email), "
-            "calendar_agent (scheduling), and memos_agent (notes). Route each user "
+            f"Today is {today}. You are a supervisor coordinating four agents: "
+            "mail_agent (email), calendar_agent (scheduling), memos_agent (notes), and "
+            "github_agent (daily work reports from GitHub commits). Route each user "
             "request to the right agent(s) and relay their results back concisely."
         ),
     )

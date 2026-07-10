@@ -325,21 +325,6 @@
   border-radius: 50% !important;
 }
 
-.logout-btn-collapsed {
-  padding: 10px 0;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  width: 100%;
-}
-
-.logout-btn-collapsed:hover {
-  color: var(--color-urgent);
-  background-color: var(--color-urgent-bg);
-}
-
 .sidebar-brand {
   display: flex;
   align-items: center;
@@ -451,6 +436,38 @@
   background-color: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: 10px;
+  position: relative;
+}
+
+.settings-trigger {
+  cursor: pointer;
+}
+
+.settings-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 20;
+}
+
+.settings-menu .theme-toggle-btn,
+.settings-menu .language-toggle-btn {
+  width: 100%;
+}
+
+.settings-menu-divider {
+  height: 1px;
+  background-color: var(--border-light);
+  margin: 4px 0;
 }
 
 .user-avatar {
@@ -490,17 +507,6 @@
   text-overflow: ellipsis;
 }
 
-.logout-btn {
-  padding: 6px;
-  color: var(--text-muted);
-  border-radius: 6px;
-  display: flex;
-}
-
-.logout-btn:hover {
-  color: var(--color-urgent);
-  background-color: var(--color-urgent-bg);
-}
 
 .app-main-content {
   flex-grow: 1;
@@ -614,6 +620,44 @@
 .email-list {
   flex-grow: 1;
   overflow-y: auto;
+}
+
+/* Scrollable panes on the Email page keep scrolling but hide the scrollbar
+   track/thumb, matching the rest of the app's chrome-less look. */
+.email-list,
+.email-reader-panel,
+.email-detail-column,
+.dora-ai-sidebar-panel {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.email-list::-webkit-scrollbar,
+.email-reader-panel::-webkit-scrollbar,
+.email-detail-column::-webkit-scrollbar,
+.dora-ai-sidebar-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.load-more-emails-btn {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 12px 16px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.load-more-emails-btn:hover {
+  background: var(--bg-card-hover);
+}
+
+.load-more-emails-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .email-list-item {
@@ -792,15 +836,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.reply-btn {
-  background-color: var(--bg-app);
-  color: var(--text-primary);
-}
-
-.reply-btn:hover {
-  background-color: var(--border-light);
 }
 
 .delete-btn {
@@ -2087,7 +2122,7 @@
 }
 
 .dora-ai-sidebar-panel {
-  width: 320px;
+  width: 420px;
   border-left: 1px solid var(--border-light);
   background: rgba(255, 255, 255, 0.45);
   backdrop-filter: blur(20px);
@@ -2241,31 +2276,6 @@
   letter-spacing: 0.05em;
   font-weight: 600;
   margin-bottom: -4px;
-}
-
-.dora-quick-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.dora-action-btn {
-  background-color: var(--bg-card);
-  color: var(--text-primary);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  text-align: left;
-  transition: all var(--transition-fast);
-}
-
-.dora-action-btn:hover {
-  background-color: var(--accent-light);
-  color: var(--accent-primary);
-  border-color: var(--accent-primary);
-  transform: translateY(-1px);
 }
 
 .summary-btn {

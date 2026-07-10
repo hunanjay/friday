@@ -59,13 +59,19 @@ async def refresh_ms_token(user_id: str) -> str | None:
     return data["access_token"]
 
 
-async def _graph_request(user_id: str, method: str, path: str, json: dict | None = None) -> dict | None:
+async def _graph_request(
+    user_id: str, method: str, path: str, json: dict | None = None, extra_headers: dict | None = None
+) -> dict | None:
     ms_token = await run_in_threadpool(get_ms_token, user_id)
     if not ms_token:
         raise HTTPException(status_code=404, detail="No Microsoft account linked")
 
+    # @odata.nextLink (used by graph_get_paginated) is already a full URL.
+    url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
+
     def _call(token: str) -> httpx.Response:
-        return _get_client().request(method, f"{GRAPH_BASE}{path}", headers={"Authorization": f"Bearer {token}"}, json=json)
+        headers = {"Authorization": f"Bearer {token}", **(extra_headers or {})}
+        return _get_client().request(method, url, headers=headers, json=json)
 
     resp = await _call(ms_token)
     if resp.status_code == 401:
@@ -80,8 +86,21 @@ async def _graph_request(user_id: str, method: str, path: str, json: dict | None
     return resp.json() if resp.content else None
 
 
-async def graph_get(user_id: str, path: str) -> dict:
-    return await _graph_request(user_id, "GET", path)
+async def graph_get(user_id: str, path: str, extra_headers: dict | None = None) -> dict:
+    return await _graph_request(user_id, "GET", path, extra_headers=extra_headers)
+
+
+async def graph_get_paginated(user_id: str, path: str, max_count: int) -> dict:
+    """Follows `@odata.nextLink` until `max_count` items are collected or Graph
+    runs out of pages. `$top` in `path` only sets the page size Graph returns
+    per request - without this, results silently cap at one page."""
+    items: list = []
+    next_path: str | None = path
+    while next_path and len(items) < max_count:
+        page = await _graph_request(user_id, "GET", next_path)
+        items.extend(page.get("value", []))
+        next_path = page.get("@odata.nextLink")
+    return {"value": items[:max_count]}
 
 
 async def graph_post(user_id: str, path: str, json: dict) -> dict | None:

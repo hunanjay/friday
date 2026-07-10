@@ -287,20 +287,6 @@ export default function ChatPage() {
                 })
               )}
 
-              {isTyping && (
-                <div className="message-row other-row">
-                  <div className="message-avatar">🪶</div>
-                  <div className="message-bubble-wrapper">
-                    <span className="message-sender-name">Claude AI</span>
-                    <div className="message-bubble other-bubble bot-bubble typing-bubble">
-                      <span className="typing-dot"></span>
-                      <span className="typing-dot"></span>
-                      <span className="typing-dot"></span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div ref={messagesEndRef} />
             </div>
 

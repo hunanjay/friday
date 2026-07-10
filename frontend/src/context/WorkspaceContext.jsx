@@ -3,6 +3,20 @@ import { supabase } from '../supabaseClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
+// Backend returns updated_at as an ISO string; MemosPage sorts/displays via
+// the derived updatedAt (epoch ms) and dateStr fields it already expects.
+function mapMemo(memo) {
+  return {
+    ...memo,
+    updatedAt: Date.parse(memo.updated_at),
+    dateStr: new Date(memo.updated_at).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }),
+  };
+}
+
 const WorkspaceContext = createContext();
 
 export function WorkspaceProvider({ children }) {
@@ -31,10 +45,9 @@ export function WorkspaceProvider({ children }) {
   // checkpointer), fetched from the backend rather than hardcoded.
   const [chatThreads, setChatThreads] = useState([]);
 
-  const [memos, setMemos] = useState(() => {
-    const saved = localStorage.getItem('memos');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Memos are backend-persisted (Postgres + Qdrant hybrid search index), not
+  // localStorage - fetched once authToken is available (see effect below).
+  const [memos, setMemos] = useState([]);
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem('sidebar_collapsed') === 'true';
@@ -70,10 +83,6 @@ export function WorkspaceProvider({ children }) {
   }, [messages]);
 
   useEffect(() => {
-    localStorage.setItem('memos', JSON.stringify(memos));
-  }, [memos]);
-
-  useEffect(() => {
     localStorage.setItem('sidebar_collapsed', String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
 
@@ -81,14 +90,28 @@ export function WorkspaceProvider({ children }) {
   // Microsoft Graph token it stored for this user (never held/used client-side).
   const [authToken, setAuthToken] = useState(null);
 
+  // { connected: bool } | null (null = not checked yet). No polling like the
+  // Graph status check below - GitHub OAuth App tokens don't expire, only
+  // get revoked, so a one-shot check on load is enough.
+  const [githubStatus, setGithubStatus] = useState(null);
+
   // Surfaced globally (top marquee in MainLayout) instead of separate
   // per-page loading banners.
   const [isSyncingInbox, setIsSyncingInbox] = useState(false);
   const [isSyncingEvents, setIsSyncingEvents] = useState(false);
 
+  // Authoritative inbox unread count (Graph's unreadItemCount for the whole
+  // mailbox), shared by the sidebar nav badge and the EmailPage folder badge
+  // so both match Outlook rather than counting only the loaded page. null
+  // until fetched; adjusted optimistically as mail is read/deleted.
+  const [inboxUnread, setInboxUnread] = useState(null);
+  const adjustInboxUnread = useCallback((delta) => {
+    setInboxUnread(n => (n == null ? n : Math.max(0, n + delta)));
+  }, []);
+
   // Apply Auth session
   useEffect(() => {
-    const applySession = (session) => {
+    const applySession = async (session) => {
       if (!session) {
         // Supabase session gone (expired refresh_token, signed out elsewhere,
         // or never logged in) - clear the stale `user` we persisted to
@@ -104,23 +127,48 @@ export function WorkspaceProvider({ children }) {
         email: session.user.email,
         avatarUrl: session.user.user_metadata?.avatar_url,
       });
-      setAuthToken(prev => (prev === session.access_token ? prev : session.access_token));
       // provider_token only comes back on fresh sign-in, not after a page reload;
       // hand it (plus the refresh_token, if Microsoft granted one) to the
       // backend once so it can refresh silently and reuse it across reloads.
+      // Awaited (not fire-and-forget) so setAuthToken below can't fire the
+      // /api/graph/status check before the fresh token is actually persisted -
+      // that race used to make the status check see the old expired token,
+      // self-inflict a logout right after a successful sign-in, and force the
+      // user to log in a second time.
       if (session.provider_token) {
-        fetch(`${API_URL}/api/graph/token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            ms_token: session.provider_token,
-            refresh_token: session.provider_refresh_token,
-          }),
-        }).catch(() => {});
+        // linkIdentity (Connect GitHub, triggered from an already-logged-in
+        // state) also lands here with session.provider_token set - but to
+        // GitHub's token, not Microsoft's. This flag (set right before
+        // calling linkIdentity, cleared here) is what tells the two apart;
+        // without it, a GitHub connection would silently get POSTed to the
+        // Microsoft endpoint and clobbered.
+        const pendingProvider = sessionStorage.getItem('pending_oauth_provider');
+        sessionStorage.removeItem('pending_oauth_provider');
+        if (pendingProvider === 'github') {
+          await fetch(`${API_URL}/api/github/token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ github_token: session.provider_token }),
+          }).catch(() => {});
+          setGithubStatus({ connected: true });
+        } else {
+          await fetch(`${API_URL}/api/graph/token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              ms_token: session.provider_token,
+              refresh_token: session.provider_refresh_token,
+            }),
+          }).catch(() => {});
+        }
       }
+      setAuthToken(prev => (prev === session.access_token ? prev : session.access_token));
     };
 
     // onAuthStateChange fires once immediately with the current session
@@ -167,6 +215,57 @@ export function WorkspaceProvider({ children }) {
       .catch(() => {});
   }, [authToken]);
 
+  useEffect(() => {
+    if (!authToken) {
+      setInboxUnread(null);
+      return;
+    }
+    fetch(`${API_URL}/api/graph/mail/folders/inbox`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => data && setInboxUnread(data.unread))
+      .catch(() => {});
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setMemos([]);
+      return;
+    }
+    fetch(`${API_URL}/api/memos`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : { memos: [] }))
+      .then(data => setMemos((data.memos || []).map(mapMemo)))
+      .catch(() => {});
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setGithubStatus(null);
+      return;
+    }
+    fetch(`${API_URL}/api/github/status`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => data && setGithubStatus(data))
+      .catch(() => {});
+  }, [authToken]);
+
+  const handleConnectGithub = useCallback(async () => {
+    sessionStorage.setItem('pending_oauth_provider', 'github');
+    const { error } = await supabase.auth.linkIdentity({
+      provider: 'github',
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) {
+      sessionStorage.removeItem('pending_oauth_provider');
+      showToast(error.message);
+    }
+  }, [showToast]);
+
   const handleCreateSession = useCallback(async (title) => {
     const res = await fetch(`${API_URL}/api/agent/sessions`, {
       method: 'POST',
@@ -189,6 +288,14 @@ export function WorkspaceProvider({ children }) {
 
   const handleSyncInboxEmails = useCallback((inboxEmails) => {
     setEmails(prev => [...inboxEmails, ...prev.filter(e => e.parentFolderId !== 'inbox')]);
+  }, []);
+
+  // Appends a "load more" page without disturbing already-synced inbox emails.
+  const handleAppendInboxEmails = useCallback((inboxEmails) => {
+    setEmails(prev => {
+      const existingIds = new Set(prev.map(e => e.id));
+      return [...prev, ...inboxEmails.filter(e => !existingIds.has(e.id))];
+    });
   }, []);
 
   const handleSyncEvents = useCallback((calendarEvents) => {
@@ -215,6 +322,10 @@ export function WorkspaceProvider({ children }) {
     setEmails(prev => prev.map(e => e.id === id ? { ...e, parentFolderId: 'trash' } : e));
   };
 
+  const handleMarkEmailRead = (id, isRead = true) => {
+    setEmails(prev => prev.map(e => e.id === id ? { ...e, isRead } : e));
+  };
+
   const handleAddEvent = (event) => {
     setEvents(prev => [...prev, event]);
   };
@@ -235,17 +346,37 @@ export function WorkspaceProvider({ children }) {
     setMessages(prev => prev.map(m => m.id === id ? { ...m, text: newText } : m));
   }, []);
 
-  const handleAddMemo = (memo) => {
-    setMemos(prev => [memo, ...prev]);
-  };
+  // `memo` here is the editable fields only (title/content/category/color) -
+  // the backend assigns id/pinned/updated_at.
+  const handleAddMemo = useCallback(async (memo) => {
+    const res = await fetch(`${API_URL}/api/memos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify(memo),
+    });
+    const created = mapMemo(await res.json());
+    setMemos(prev => [created, ...prev]);
+    return created;
+  }, [authToken]);
 
-  const handleUpdateMemo = (updatedMemo) => {
-    setMemos(prev => prev.map(m => m.id === updatedMemo.id ? updatedMemo : m));
-  };
+  const handleUpdateMemo = useCallback(async (updatedMemo) => {
+    const res = await fetch(`${API_URL}/api/memos/${updatedMemo.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify(updatedMemo),
+    });
+    const saved = mapMemo(await res.json());
+    setMemos(prev => prev.map(m => m.id === saved.id ? saved : m));
+    return saved;
+  }, [authToken]);
 
-  const handleDeleteMemo = (id) => {
+  const handleDeleteMemo = useCallback(async (id) => {
+    await fetch(`${API_URL}/api/memos/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
     setMemos(prev => prev.filter(m => m.id !== id));
-  };
+  }, [authToken]);
 
   return (
     <WorkspaceContext.Provider
@@ -261,11 +392,16 @@ export function WorkspaceProvider({ children }) {
         toast,
         showToast,
         authToken,
+        githubStatus,
+        handleConnectGithub,
         isSyncingInbox,
         setIsSyncingInbox,
         isSyncingEvents,
         setIsSyncingEvents,
+        inboxUnread,
+        adjustInboxUnread,
         handleSyncInboxEmails,
+        handleAppendInboxEmails,
         handleSyncEvents,
         handleCreateSession,
         handleDeleteSession,
@@ -273,6 +409,7 @@ export function WorkspaceProvider({ children }) {
         handleLogout,
         handleAddEmail,
         handleDeleteEmail,
+        handleMarkEmailRead,
         handleAddEvent,
         handleDeleteEvent,
         handleSendMessage,

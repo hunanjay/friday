@@ -19,7 +19,7 @@ export default function CalendarPage() {
 
   const { t, i18n } = useTranslation();
 
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 6, 5)); // July 5, 2026
+  const [currentDate, setCurrentDate] = useState(() => new Date());
 
   // Pull real events via our backend, which proxies Microsoft Graph and
   // holds the Graph token server-side. Scoped to the visible month only,
@@ -186,7 +186,10 @@ export default function CalendarPage() {
   // Localized Month/Date representation
   const langKey = i18n.language === 'zh' ? 'zh-CN' : 'en-US';
   const monthYearTitle = currentDate.toLocaleDateString(langKey, { month: 'long', year: 'numeric' });
-  const todayFormatted = new Date(2026, 6, 5).toLocaleDateString(langKey, { month: 'long', day: 'numeric', year: 'numeric' });
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayFormatted = today.toLocaleDateString(langKey, { month: 'long', day: 'numeric', year: 'numeric' });
 
   // Map weekdays
   const weekDays = i18n.language === 'zh' 
@@ -214,7 +217,7 @@ export default function CalendarPage() {
               events
                 .filter(e => {
                   const evDate = new Date(e.start?.dateTime);
-                  return evDate >= new Date(2026, 6, 1);
+                  return evDate >= todayStart;
                 })
                 .sort((a, b) => a.start.dateTime.localeCompare(b.start.dateTime))
                 .slice(0, 5)
@@ -254,7 +257,7 @@ export default function CalendarPage() {
           </div>
           <div className="calendar-nav-buttons">
             <button onClick={prevMonth} className="nav-btn" title={t('calendar.prevMonth')}><ChevronLeft size={16} /></button>
-            <button onClick={() => setCurrentDate(new Date(2026, 6, 5))} className="today-btn">{i18n.language === 'zh' ? "今天" : "Today"}</button>
+            <button onClick={() => setCurrentDate(new Date())} className="today-btn">{i18n.language === 'zh' ? "今天" : "Today"}</button>
             <button onClick={nextMonth} className="nav-btn" title={t('calendar.nextMonth')}><ChevronRight size={16} /></button>
           </div>
         </div>
@@ -268,7 +271,7 @@ export default function CalendarPage() {
           {/* Grid cells */}
           {calendarCells.map((cell, idx) => {
             const cellEvents = getEventsForDate(cell.dateStr);
-            const isToday = cell.dateStr === '2026-07-05';
+            const isToday = cell.dateStr === todayStr;
 
             return (
               <div

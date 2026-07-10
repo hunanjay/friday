@@ -20,3 +20,12 @@ def get_ms_token_row(user_id: str) -> dict | None:
 def get_ms_token(user_id: str) -> str | None:
     row = get_ms_token_row(user_id)
     return row["token"] if row else None
+
+
+def set_github_token(user_id: str, token: str) -> None:
+    supabase_admin.table("github_tokens").upsert({"user_id": user_id, "token": token}).execute()
+
+
+def get_github_token(user_id: str) -> str | None:
+    res = supabase_admin.table("github_tokens").select("token").eq("user_id", user_id).execute()
+    return res.data[0]["token"] if res.data else None

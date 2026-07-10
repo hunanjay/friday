@@ -269,6 +269,16 @@ export default function StreamingMarkdown({ content, isBotTyping }) {
   const blocks = useMemo(() => textToBlocks(content), [content]);
   const cacheRef = useRef({}); // index_type -> { serializedBlock, jsx }
 
+  if (blocks.length === 0 && isBotTyping) {
+    return (
+      <div className="typing-bubble">
+        <span className="typing-dot"></span>
+        <span className="typing-dot"></span>
+        <span className="typing-dot"></span>
+      </div>
+    );
+  }
+
   return (
     <div className="streaming-markdown-container">
       {blocks.map((block, idx) => {

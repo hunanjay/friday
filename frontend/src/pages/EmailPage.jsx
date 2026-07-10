@@ -6,16 +6,38 @@ import EmailContentRenderer from '../components/common/EmailContentRenderer';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
+// Shared shape for both the inbox sync and search responses, since both are
+// arrays of raw Graph message objects.
+function normalizeMessage(msg, parentFolderId) {
+  return {
+    id: msg.id,
+    subject: msg.subject,
+    bodyPreview: msg.bodyPreview,
+    body: msg.body,
+    sender: msg.sender,
+    toRecipients: msg.toRecipients,
+    receivedDateTime: msg.receivedDateTime,
+    isRead: msg.isRead,
+    parentFolderId,
+  };
+}
+
 export default function EmailPage() {
   const {
+    user,
     emails,
     handleAddEmail,
     handleDeleteEmail,
+    handleMarkEmailRead,
     showToast,
     authToken,
     setIsSyncingInbox,
+    inboxUnread,
+    adjustInboxUnread,
     handleSyncInboxEmails,
-    handleLogout
+    handleAppendInboxEmails,
+    handleLogout,
+    setIsSidebarCollapsed
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
@@ -24,8 +46,16 @@ export default function EmailPage() {
   const [selectedEmailId, setSelectedEmailId] = useState(emails.length > 0 ? emails[0].id : null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Cursor pagination: each fetch (initial sync, search, or "load more")
+  // returns next_cursor - Graph's @odata.nextLink passed straight back as
+  // `cursor` to fetch the following page. null/undefined means no more pages.
+  const [inboxCursor, setInboxCursor] = useState(null);
+  const [isLoadingMoreInbox, setIsLoadingMoreInbox] = useState(false);
+
   // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
   // value, so periodic Supabase token refreshes don't re-trigger a refetch.
+  // (The authoritative unread count is fetched in WorkspaceContext so the
+  // sidebar badge shares it.)
   const hasAuthToken = Boolean(authToken);
   useEffect(() => {
     if (!authToken) return;
@@ -42,35 +72,43 @@ export default function EmailPage() {
       })
       .then(data => {
         if (!data) return;
-        const inboxEmails = (data.value || []).map(msg => ({
-          id: msg.id,
-          subject: msg.subject,
-          bodyPreview: msg.bodyPreview,
-          body: msg.body,
-          sender: msg.sender,
-          toRecipients: msg.toRecipients,
-          receivedDateTime: msg.receivedDateTime,
-          isRead: msg.isRead,
-          parentFolderId: 'inbox',
-        }));
-        handleSyncInboxEmails(inboxEmails);
+        handleSyncInboxEmails((data.value || []).map(msg => normalizeMessage(msg, 'inbox')));
+        setInboxCursor(data.next_cursor || null);
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsSyncingInbox(false));
   }, [hasAuthToken, t, showToast, setIsSyncingInbox, handleSyncInboxEmails, handleLogout]);
+
+  const handleLoadMoreInbox = () => {
+    if (!inboxCursor || isLoadingMoreInbox) return;
+    setIsLoadingMoreInbox(true);
+    fetch(`${API_URL}/api/graph/mail/inbox?cursor=${encodeURIComponent(inboxCursor)}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
+      .then(data => {
+        handleAppendInboxEmails((data.value || []).map(msg => normalizeMessage(msg, 'inbox')));
+        setInboxCursor(data.next_cursor || null);
+      })
+      .catch(() => showToast(t('email.syncFailed')))
+      .finally(() => setIsLoadingMoreInbox(false));
+  };
 
   // Compose modal states
   const [isComposing, setIsComposing] = useState(false);
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  // Set by handleUseDraftAsReply - when present, submit hits Graph's
+  // {id}/reply endpoint (keeps threading) instead of a fresh /send.
+  const [replyToEmailId, setReplyToEmailId] = useState(null);
 
   // Dora AI Assistant states
   const [isDoraActive, setIsDoraActive] = useState(true);
   const [aiDraft, setAiDraft] = useState('');
   const [isDrafting, setIsDrafting] = useState(false);
   const [aiInstruction, setAiInstruction] = useState('');
-  const [doraTab, setDoraTab] = useState('reply'); // 'reply' or 'summary'
 
   // Outlook Graph API Date Format Helpers
   const formatEmailTime = (isoString) => {
@@ -99,78 +137,141 @@ export default function EmailPage() {
     return true;
   });
 
-  // Filter emails by search query
-  const filteredEmails = folderEmails.filter(email => {
-    const query = searchQuery.toLowerCase();
-    const senderName = email.sender?.emailAddress?.name || '';
-    const subject = email.subject || '';
-    const bodyContent = email.body?.content || '';
-    return (
-      senderName.toLowerCase().includes(query) ||
-      subject.toLowerCase().includes(query) ||
-      bodyContent.toLowerCase().includes(query)
-    );
-  });
+  // Search hits the real backend (/api/graph/mail/search), debounced, scoped
+  // to the active folder. Empty query falls back to the locally synced list.
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchCursor, setSearchCursor] = useState(null);
+  const [isLoadingMoreSearch, setIsLoadingMoreSearch] = useState(false);
 
-  const selectedEmail = emails.find(e => e.id === selectedEmailId);
+  const searchGraphFolder = { inbox: 'inbox', sent: 'sent', trash: 'deleted' }[activeFolder] || 'inbox';
 
-  const handleComposeSubmit = (e) => {
+  useEffect(() => {
+    if (!authToken || !searchQuery.trim()) {
+      setSearchResults([]);
+      setSearchCursor(null);
+      return;
+    }
+    const controller = new AbortController();
+    setIsSearching(true);
+    const timer = setTimeout(() => {
+      fetch(
+        `${API_URL}/api/graph/mail/search?query=${encodeURIComponent(searchQuery)}&folder=${searchGraphFolder}&top=25`,
+        { headers: { Authorization: `Bearer ${authToken}` }, signal: controller.signal }
+      )
+        .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
+        .then(data => {
+          setSearchResults((data.value || []).map(msg => normalizeMessage(msg, activeFolder)));
+          setSearchCursor(data.next_cursor || null);
+        })
+        .catch(() => {})
+        .finally(() => setIsSearching(false));
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [searchQuery, activeFolder, authToken, searchGraphFolder]);
+
+  const handleLoadMoreSearch = () => {
+    if (!searchCursor || isLoadingMoreSearch) return;
+    setIsLoadingMoreSearch(true);
+    // Graph's $skip pagination is offset-based, so a shifting result set can
+    // return an email we already have; capture the query this page belongs to
+    // and drop the response if the user has since retyped (avoids mixing old
+    // and new results), then dedupe by id on append.
+    const forQuery = searchQuery;
+    fetch(`${API_URL}/api/graph/mail/search?cursor=${encodeURIComponent(searchCursor)}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
+      .then(data => {
+        if (forQuery !== searchQuery) return;
+        setSearchResults(prev => {
+          const seen = new Set(prev.map(e => e.id));
+          const next = (data.value || [])
+            .map(msg => normalizeMessage(msg, activeFolder))
+            .filter(e => !seen.has(e.id));
+          return [...prev, ...next];
+        });
+        setSearchCursor(data.next_cursor || null);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingMoreSearch(false));
+  };
+
+  const isSearchMode = Boolean(searchQuery.trim());
+  const filteredEmails = isSearchMode ? searchResults : folderEmails;
+  // Non-search "load more" only fetches the inbox; Sent/Trash are local-only
+  // for now, so don't offer it there (it would pull inbox mail into the store).
+  const canLoadMore = isSearchMode
+    ? Boolean(searchCursor)
+    : activeFolder === 'inbox' && Boolean(inboxCursor);
+  const isLoadingMore = isSearchMode ? isLoadingMoreSearch : isLoadingMoreInbox;
+  const handleLoadMore = isSearchMode ? handleLoadMoreSearch : handleLoadMoreInbox;
+
+  const selectedEmail = [...emails, ...searchResults].find(e => e.id === selectedEmailId);
+
+  const handleComposeSubmit = async (e) => {
     e.preventDefault();
     if (!composeTo || !composeSubject || !composeBody) {
       alert('Please fill out all fields');
       return;
     }
 
-    const newEmail = {
-      id: 'email_' + Date.now(),
-      subject: composeSubject,
-      bodyPreview: composeBody.substring(0, 120) + (composeBody.length > 120 ? '...' : ''),
-      body: {
-        content: composeBody,
-        contentType: 'text'
-      },
-      sender: {
-        emailAddress: {
-          name: 'You',
-          address: 'user@workspace.com'
-        }
-      },
-      toRecipients: [
-        {
-          emailAddress: {
-            name: composeTo.split('@')[0],
-            address: composeTo
-          }
-        }
-      ],
-      receivedDateTime: new Date().toISOString(),
-      isRead: true,
-      parentFolderId: 'sent'
-    };
+    const isZh = i18n.language === 'zh';
+    setIsSending(true);
+    try {
+      const res = replyToEmailId
+        ? await fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(replyToEmailId)}/reply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify({ body: composeBody }),
+          })
+        : await fetch(`${API_URL}/api/graph/mail/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify({ to: composeTo, subject: composeSubject, body: composeBody }),
+          });
 
-    handleAddEmail(newEmail);
-    setIsComposing(false);
-    setComposeTo('');
-    setComposeSubject('');
-    setComposeBody('');
-    showToast(t('email.sentSuccess'));
-  };
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (!res.ok) {
+        showToast(isZh ? '发送失败，请稍后重试' : 'Failed to send, please try again');
+        return;
+      }
 
-  const handleReply = () => {
-    if (!selectedEmail) return;
-    const senderAddress = selectedEmail.sender?.emailAddress?.address || selectedEmail.sender?.emailAddress?.name || '';
-    const senderName = selectedEmail.sender?.emailAddress?.name || 'Sender';
-    const emailTime = formatEmailTime(selectedEmail.receivedDateTime);
-    const emailDate = formatEmailDateFull(selectedEmail.receivedDateTime);
-    const bodyContent = selectedEmail.body?.content || '';
-
-    setComposeTo(senderAddress);
-    setComposeSubject(`Re: ${selectedEmail.subject}`);
-    setComposeBody(`\n\n--- On ${emailDate} at ${emailTime}, ${senderName} wrote:\n> ${bodyContent.split('\n').join('\n> ')}`);
-    setIsComposing(true);
+      // Sent/Trash are local-only for now (see the sync effect above), so
+      // this optimistic entry is what makes the Sent tab show it at all.
+      handleAddEmail({
+        id: 'email_' + Date.now(),
+        subject: composeSubject,
+        bodyPreview: composeBody.substring(0, 120) + (composeBody.length > 120 ? '...' : ''),
+        body: { content: composeBody, contentType: 'text' },
+        sender: { emailAddress: { name: 'You', address: user?.email || 'me@workspace.com' } },
+        toRecipients: [{ emailAddress: { name: composeTo.split('@')[0], address: composeTo } }],
+        receivedDateTime: new Date().toISOString(),
+        isRead: true,
+        parentFolderId: 'sent',
+      });
+      setIsComposing(false);
+      setReplyToEmailId(null);
+      setComposeTo('');
+      setComposeSubject('');
+      setComposeBody('');
+      showToast(t('email.sentSuccess'));
+    } catch {
+      showToast(isZh ? '无法连接到邮件服务，请稍后再试。' : "Couldn't reach the mail service, please try again later.");
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleDelete = (id) => {
+    const target = filteredEmails.find(e => e.id === id);
+    if (target && !target.isRead && target.parentFolderId === 'inbox') adjustInboxUnread(-1);
     handleDeleteEmail(id);
     showToast(t('email.movedToTrash'));
     const index = filteredEmails.findIndex(e => e.id === id);
@@ -180,59 +281,56 @@ export default function EmailPage() {
     } else {
       setSelectedEmailId(null);
     }
+
+    fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).catch(() => {});
   };
 
-  // Dora AI Draft Generator
-  const handleDoraAction = (actionType) => {
-    if (!selectedEmail) return;
+  const handleSelectEmail = (email) => {
+    setSelectedEmailId(email.id);
+    setIsSidebarCollapsed(true); // frees width for the Dora panel; reader still readable at 260px narrower
+    if (email.isRead) return;
+    handleMarkEmailRead(email.id, true);
+    if (email.parentFolderId === 'inbox') adjustInboxUnread(-1);
+    fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(email.id)}/read`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ is_read: true }),
+    }).catch(() => {});
+  };
+
+  // Dora reply generator: sends the selected email's id + the user's intent to
+  // the backend, which fetches & sanitizes the original mail and asks the LLM
+  // to write a reply carrying out that intent (not restating it).
+  const handleGenerateReply = async (intent) => {
+    if (!selectedEmail || !intent.trim()) return;
+    const isZh = i18n.language === 'zh';
     setIsDrafting(true);
     setAiDraft('');
-
-    setTimeout(() => {
-      setIsDrafting(false);
-      let text = '';
-      const senderName = (selectedEmail.sender?.emailAddress?.name || 'Friend').split(' ')[0];
-      const isZh = i18n.language === 'zh';
-
-      if (actionType === 'summary') {
-        setDoraTab('summary');
-        if (selectedEmail.id === 'email_1') {
-          text = isZh 
-            ? "• 欢迎使用全新的 Dora 统一工作空间。\n• 整合了电子邮件、日历、聊天室和持久便签。\n• 使用标准的 HTML 表单，并支持浏览器本地缓存。"
-            : "• Welcome to your new unified Dora Workspace.\n• Centralizes email, calendars, chat rooms, and persistent memos.\n• Uses standard HTML forms and supports persistent local browser cache.";
-        } else if (selectedEmail.id === 'email_2') {
-          text = isZh
-            ? "• Sarah 分享了设计草图以供评审。\n• 页面布局采用了温暖的、受纸张启发的极简主义色调。\n• 旨在征求关于字体大小和动画流畅度的反馈。"
-            : "• Sarah has shared mockup designs for review.\n• Layout relies on a warm, paper-inspired minimalist palette.\n• Aims for feedback on font readability and animation speed.";
-        } else if (selectedEmail.id === 'email_3') {
-          text = isZh
-            ? "• 本地开发构建正常，运行在默认端口 5173 上。\n• HMR（热模块替换）环境已激活。\n• 已准备好打包生产代码。"
-            : "• Local dev build is functional on default port 5173.\n• HMR environment is active.\n• Ready to bundle production code.";
-        } else {
-          text = isZh
-            ? `• 发件人: ${selectedEmail.sender?.emailAddress?.name || '未知'}\n• 主题: ${selectedEmail.subject}\n• 核心内容: 关于项目主要范围的请求。`
-            : `• Sender: ${selectedEmail.sender?.emailAddress?.name || 'Unknown'}\n• Subject: ${selectedEmail.subject}\n• Key Content: Request regarding the main project scope.`;
-        }
-      } else {
-        setDoraTab('reply');
-        if (actionType === 'professional') {
-          text = isZh
-            ? `你好 ${senderName}，\n\n感谢来信。关于“${selectedEmail.subject}”的相关事宜我已经收到，目前正在评估中。目前进度看起来非常顺利，我也同意目前的主要方向。如有需要进一步讨论的细节，我们再进行同步。\n\n顺祝商祺，\n用户`
-            : `Hi ${senderName},\n\nThank you for reaching out. I've received your note regarding "${selectedEmail.subject}" and am reviewing it. The progress looks solid, and I agree with the main directions. Let's sync up if we need to refine any parameters.\n\nBest regards,\nUser`;
-        } else if (actionType === 'decline') {
-          text = isZh
-            ? `你好 ${senderName}，\n\n感谢您的来信。很抱歉，由于本周有其他正在进行的项目以及较为紧张的交付期，我可能无法分配充足的时间来跟进此项事务。希望我们在下个周期能有机会合作！\n\n祝好，\n用户`
-            : `Hi ${senderName},\n\nThanks for your note. Unfortunately, due to other ongoing commitments and tight project deliverables this week, I won't be able to dedicate the time this deserves. I hope we can collaborate on the next cycle!\n\nBest,\nUser`;
-        } else if (actionType === 'custom') {
-          const detail = aiInstruction.trim() || 'I will review this and get back to you shortly.';
-          text = isZh
-            ? `你好 ${senderName}，\n\n感谢来信。关于此项事务：\n\n${detail}\n\n如有其他需要补充的事项，请随时告知。\n\n此致，\n用户`
-            : `Hi ${senderName},\n\nThanks for writing in. Regarding this:\n\n${detail}\n\nLet me know if there's anything else we need to cover.\n\nBest regards,\nUser`;
-        }
+    try {
+      const res = await fetch(`${API_URL}/api/agent/draft-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ email_id: selectedEmail.id, intent, my_name: user?.name || '' }),
+      });
+      if (res.status === 401) {
+        handleLogout();
+        return;
       }
-      setAiDraft(text);
-      showToast(actionType === 'summary' ? t('email.doraSummarized') : t('email.doraDrafted'));
-    }, 1200);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setAiDraft(data.draft);
+        showToast(t('email.doraDrafted'));
+      } else {
+        setAiDraft(isZh ? `出错了：${data.detail || '生成失败'}` : `Something went wrong: ${data.detail || 'failed'}`);
+      }
+    } catch {
+      setAiDraft(isZh ? '无法连接到助手服务，请稍后再试。' : "Couldn't reach the assistant service, please try again later.");
+    } finally {
+      setIsDrafting(false);
+    }
   };
 
   const handleUseDraftAsReply = () => {
@@ -241,6 +339,7 @@ export default function EmailPage() {
     setComposeTo(senderAddress);
     setComposeSubject(`Re: ${selectedEmail.subject}`);
     setComposeBody(aiDraft);
+    setReplyToEmailId(selectedEmail.id);
     setIsComposing(true);
   };
 
@@ -248,7 +347,7 @@ export default function EmailPage() {
     <div className="email-tab-container">
       {/* Email Sidebar */}
       <div className="email-sidebar">
-        <button className="compose-btn" onClick={() => setIsComposing(true)}>
+        <button className="compose-btn" onClick={() => { setReplyToEmailId(null); setIsComposing(true); }}>
           <Plus size={18} />
           <span>{t('email.compose')}</span>
         </button>
@@ -261,7 +360,7 @@ export default function EmailPage() {
             <Mail size={16} />
             <span className="folder-name">{t('email.inbox')}</span>
             <span className="folder-count">
-              {emails.filter(e => e.parentFolderId === 'inbox' && !e.isRead).length || ''}
+              {(inboxUnread ?? emails.filter(e => e.parentFolderId === 'inbox' && !e.isRead).length) || ''}
             </span>
           </button>
           <button 
@@ -294,7 +393,11 @@ export default function EmailPage() {
         </div>
 
         <div className="email-list">
-          {filteredEmails.length === 0 ? (
+          {isSearching ? (
+            <div className="email-empty-state">
+              <p>{t('common.search')}...</p>
+            </div>
+          ) : filteredEmails.length === 0 ? (
             <div className="email-empty-state">
               <Mail size={32} />
               <p>{t('email.emptyState')}</p>
@@ -309,10 +412,7 @@ export default function EmailPage() {
                 <div
                   key={email.id}
                   className={`email-list-item ${selectedEmailId === email.id ? 'selected' : ''} ${isUnread ? 'unread' : ''}`}
-                  onClick={() => {
-                    setSelectedEmailId(email.id);
-                    email.isRead = true;
-                  }}
+                  onClick={() => handleSelectEmail(email)}
                 >
                   <div className="email-item-header">
                     <span className="email-item-sender">{senderName}</span>
@@ -324,6 +424,12 @@ export default function EmailPage() {
                 </div>
               );
             })
+          )}
+
+          {!isSearching && canLoadMore && (
+            <button type="button" className="load-more-emails-btn" onClick={handleLoadMore} disabled={isLoadingMore}>
+              {isLoadingMore ? `${t('email.loadMore')}...` : t('email.loadMore')}
+            </button>
           )}
         </div>
       </div>
@@ -350,9 +456,6 @@ export default function EmailPage() {
                   <button className={`action-icon-btn dora-toggle-btn ${isDoraActive ? 'active' : ''}`} onClick={() => setIsDoraActive(!isDoraActive)}>
                     <Sparkles size={16} />
                     <span>{t('email.doraTitle')}</span>
-                  </button>
-                  <button className="action-icon-btn reply-btn" onClick={handleReply} title={t('email.reply')}>
-                    {t('email.reply')}
                   </button>
                   {selectedEmail.parentFolderId !== 'trash' && (
                     <button 
@@ -401,48 +504,26 @@ export default function EmailPage() {
                     <div className="dora-pulse-glow"></div>
                   </div>
                   <div className="dora-speech-bubble">
-                    <p>{i18n.language === 'zh' ? "你好，我是 Dora！让我帮你分析或回复这封邮件吧。" : "Hi, I'm Dora! Let me help you analyze or reply to this message."}</p>
+                    <p>{i18n.language === 'zh' ? "告诉我你想怎么回复，我会结合这封邮件帮你写好。" : "Tell me how you'd like to reply, and I'll draft it from this email."}</p>
                   </div>
                 </div>
 
                 <div className="dora-controls-section">
-                  <h5>{i18n.language === 'zh' ? "快速操作" : "Quick Actions"}</h5>
-                  <div className="dora-quick-actions">
-                    <button 
-                      className="dora-action-btn summary-btn"
-                      onClick={() => handleDoraAction('summary')}
-                    >
-                      {t('email.doraSummaryTab')}
-                    </button>
-                    <button 
-                      className="dora-action-btn"
-                      onClick={() => handleDoraAction('professional')}
-                    >
-                      {t('email.doraProfessional')}
-                    </button>
-                    <button 
-                      className="dora-action-btn"
-                      onClick={() => handleDoraAction('decline')}
-                    >
-                      {t('email.doraDecline')}
-                    </button>
-                  </div>
-
                   <div className="dora-custom-prompt-container">
-                    <h5>{t('email.doraCustom')}</h5>
+                    <h5>{i18n.language === 'zh' ? "你的意图" : "Your intent"}</h5>
                     <div className="dora-input-wrapper">
                       <textarea
                         value={aiInstruction}
                         onChange={(e) => setAiInstruction(e.target.value)}
-                        placeholder={t('email.doraCustomPlaceholder')}
-                        rows="2"
+                        placeholder={t('email.intentPlaceholder')}
+                        rows="3"
                       />
-                      <button 
-                        className="dora-draft-submit-btn" 
-                        onClick={() => handleDoraAction('custom')}
+                      <button
+                        className="dora-draft-submit-btn"
+                        onClick={() => handleGenerateReply(aiInstruction)}
                         disabled={!aiInstruction.trim() || isDrafting}
                       >
-                        {t('email.compose')}
+                        {t('email.generateReply')}
                       </button>
                     </div>
                   </div>
@@ -459,15 +540,13 @@ export default function EmailPage() {
                   {aiDraft && !isDrafting && (
                     <div className="dora-draft-result-card">
                       <div className="dora-result-header">
-                        <h6>{doraTab === 'summary' ? t('email.doraSummaryTab') : t('email.doraReplyTab')}</h6>
-                        {doraTab !== 'summary' && (
-                          <button 
-                            className="use-draft-btn"
-                            onClick={handleUseDraftAsReply}
-                          >
-                            {t('email.doraCopyDraft')}
-                          </button>
-                        )}
+                        <h6>{t('email.doraReplyTab')}</h6>
+                        <button
+                          className="use-draft-btn"
+                          onClick={handleUseDraftAsReply}
+                        >
+                          {t('email.doraCopyDraft')}
+                        </button>
                       </div>
                       <div className="dora-result-body">
                         {aiDraft.split('\n').map((line, i) => (
@@ -532,9 +611,9 @@ export default function EmailPage() {
                 />
               </div>
               <div className="compose-footer">
-                <button type="submit" className="send-btn">
+                <button type="submit" className="send-btn" disabled={isSending}>
                   <Send size={16} />
-                  <span>{t('email.send')}</span>
+                  <span>{isSending ? `${t('email.send')}...` : t('email.send')}</span>
                 </button>
               </div>
             </form>

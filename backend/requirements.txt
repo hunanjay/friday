@@ -9,3 +9,5 @@ psycopg[binary,pool]
 langgraph-cli[inmem]
 supabase
 python-dotenv
+qdrant-client
+fastembed
