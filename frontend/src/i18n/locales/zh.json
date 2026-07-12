@@ -75,7 +75,7 @@
     "sidebarTitle": "聊天列表",
     "startConversation": "会话开始。打个招呼吧！",
     "active": "在线",
-    "inputPlaceholderAI": "向 Claude 提问...（例如关于邮件、日历或便签）",
+    "inputPlaceholderAI": "向 Dora 提问...（例如关于邮件、日历或便签）",
     "attachmentsSimulated": "附件功能已模拟。您可以直接在聊天中输入文字！",
     "newSession": "新建对话",
     "newSessionTitle": "新对话",

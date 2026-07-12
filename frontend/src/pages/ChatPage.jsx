@@ -81,7 +81,7 @@ export default function ChatPage() {
       id: botMsgId,
       threadId: sessionId,
       sender: 'bot',
-      senderName: 'Claude AI',
+      senderName: 'Dora',
       text: '',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -212,7 +212,9 @@ export default function ChatPage() {
                 }}
               >
                 <div className="thread-avatar-container">
-                  <div className="claude-avatar">🪶</div>
+                  <div className="claude-avatar">
+                    <img src="/dora_assistant_avatar.png" alt="Dora" />
+                  </div>
                 </div>
                 <div className="thread-meta">
                   <div className="thread-name-row">
@@ -265,7 +267,7 @@ export default function ChatPage() {
                     <div key={msg.id} className={`message-row ${isUser ? 'user-row' : 'other-row'}`}>
                       {!isUser && (
                         <div className="message-avatar">
-                          {isBot ? '🪶' : msg.senderName[0]}
+                          {isBot ? <img src="/dora_assistant_avatar.png" alt="Dora" /> : msg.senderName[0]}
                         </div>
                       )}
                       <div className="message-bubble-wrapper">

@@ -9,7 +9,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 from app.agents import checkpointer  # noqa: E402  (needs load_dotenv() first)
-from app.api import agent, auth, calendar, github_auth, mail, memos  # noqa: E402  (needs load_dotenv() first)
+from app.api import agent, auth, calendar, github, github_auth, mail, memos  # noqa: E402  (needs load_dotenv() first)
 from app.db import chat_sessions  # noqa: E402  (needs load_dotenv() first)
 from app.db import memos as memos_db  # noqa: E402  (needs load_dotenv() first)
 from app.tools import github_client, graph_client, vector_store  # noqa: E402  (needs load_dotenv() first)
@@ -44,6 +44,7 @@ app.include_router(calendar.router)
 app.include_router(agent.router)
 app.include_router(memos.router)
 app.include_router(github_auth.router)
+app.include_router(github.router)
 
 
 @app.get("/health")

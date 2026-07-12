@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import { Mail, Calendar, MessageSquare, Edit3, Github, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
+import GithubRepoDropdown from '../common/GithubRepoDropdown';
 
 export default function MainLayout() {
   const {
@@ -21,11 +22,12 @@ export default function MainLayout() {
     handleConnectGithub
   } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsView, setSettingsView] = useState('main'); // 'main' | 'github'
   const settingsRef = useRef(null);
 
   // Redirect to login if not logged in
@@ -35,12 +37,14 @@ export default function MainLayout() {
     }
   }, [user, navigate]);
 
-  // Close the settings popover on an outside click.
+  // Close the settings popover on an outside click, resetting back to the
+  // main view so it doesn't reopen mid-drill-down next time.
   useEffect(() => {
     if (!isSettingsOpen) return;
     const onClickOutside = (e) => {
       if (settingsRef.current && !settingsRef.current.contains(e.target)) {
         setIsSettingsOpen(false);
+        setSettingsView('main');
       }
     };
     document.addEventListener('mousedown', onClickOutside);
@@ -118,6 +122,17 @@ export default function MainLayout() {
             <Edit3 size={20} />
             {!isSidebarCollapsed && <span>{t('common.memos')}</span>}
           </Link>
+          <Link 
+            to="/settings"
+            className={`nav-link ${activeTab === 'settings' ? 'active' : ''}`}
+            title={isSidebarCollapsed ? (i18n.language === 'zh' ? '设置' : 'Preferences') : ""}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-settings">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            {!isSidebarCollapsed && <span>{i18n.language === 'zh' ? '偏好设置' : 'Preferences'}</span>}
+          </Link>
         </nav>
 
         <div className="sidebar-footer" ref={settingsRef}>
@@ -133,27 +148,28 @@ export default function MainLayout() {
             )}
 
             {isSettingsOpen && (
-              <div className="settings-menu" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="settings-menu"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button 
+                  className="theme-toggle-btn" 
+                  onClick={() => { navigate('/settings'); setIsSettingsOpen(false); }} 
+                  title={i18n.language === 'zh' ? '偏好设置' : 'Preferences'}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-settings">
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                  <span>{i18n.language === 'zh' ? '偏好设置' : 'Preferences'}</span>
+                </button>
+
                 <button className="theme-toggle-btn" onClick={toggleTheme} title="Toggle Theme">
                   {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
                   <span>{theme === 'light' ? t('common.themeDark') : t('common.themeLight')}</span>
                 </button>
 
                 <LanguageSwitcher isSidebarCollapsed={false} />
-
-                {githubStatus && (
-                  githubStatus.connected ? (
-                    <div className="theme-toggle-btn" title="GitHub connected" style={{ cursor: 'default', opacity: 0.7 }}>
-                      <Github size={18} />
-                      <span>GitHub Connected</span>
-                    </div>
-                  ) : (
-                    <button className="theme-toggle-btn" onClick={handleConnectGithub} title="Connect GitHub">
-                      <Github size={18} />
-                      <span>Connect GitHub</span>
-                    </button>
-                  )
-                )}
 
                 <div className="settings-menu-divider" />
 

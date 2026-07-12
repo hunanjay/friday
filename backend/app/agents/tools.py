@@ -1,6 +1,4 @@
 import logging
-import os
-from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -8,7 +6,7 @@ from langchain_core.tools import tool
 
 from app.db import memos as memos_db
 from app.tools import vector_store
-from app.tools.github_client import github_get
+from app.tools.github_client import format_commits, list_commits
 from app.tools.graph_client import graph_delete, graph_get, graph_get_paginated, graph_patch, graph_post
 from app.tools.html_sanitizer import sanitize_html_to_text
 from app.tools.mail_queries import MAIL_FOLDERS, search_path
@@ -273,31 +271,15 @@ async def _github(coro):
 
 
 def make_github_tools(user_id: str) -> list:
-    repo = os.environ.get("GITHUB_REPORT_REPO", "hunanjay/friday")
-
     @tool
     async def list_todays_commits() -> str:
-        """List today's commits (Beijing time, UTC+8) on the user's project repo,
-        with full commit messages. Use this to gather raw material for a work
-        report - do not fabricate commits not returned here."""
-        beijing = timezone(timedelta(hours=8))
-        start_of_day = datetime.now(beijing).replace(hour=0, minute=0, second=0, microsecond=0)
-        now = datetime.now(beijing)
-        since = start_of_day.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        until = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        # ponytail: no author filter, single-contributor repo - add one if
-        # `friday` ever gets a second contributor.
-        data, err = await _github(
-            github_get(user_id, f"/repos/{repo}/commits?since={since}&until={until}&per_page=100")
-        )
+        """List today's commits (Beijing time, UTC+8) across all of the user's
+        selected GitHub repos, with full commit messages. Use this to gather
+        raw material for a work report - do not fabricate commits not
+        returned here."""
+        data, err = await _github(list_commits(user_id))
         if err:
             return err
-        if not data:
-            return "No commits today."
-        return "\n\n".join(
-            f"- sha={c['sha'][:7]} author={c['commit']['author']['name']} date={c['commit']['author']['date']}\n"
-            f"  {c['commit']['message']}"
-            for c in data
-        )
+        return format_commits(data)
 
     return [list_todays_commits, _make_create_memo_tool(user_id)]

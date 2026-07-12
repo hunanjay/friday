@@ -1,8 +1,11 @@
+import os
+from datetime import datetime, timedelta, timezone
+
 import httpx
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
-from app.db.token_store import get_github_token
+from app.db.token_store import get_github_repos, get_github_token
 
 GITHUB_BASE = "https://api.github.com"
 
@@ -47,3 +50,51 @@ async def github_get(user_id: str, path: str) -> dict | list:
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=f"GitHub API error: {resp.text}")
     return resp.json()
+
+
+def _today_beijing_window() -> tuple[str, str]:
+    beijing = timezone(timedelta(hours=8))
+    start_of_day = datetime.now(beijing).replace(hour=0, minute=0, second=0, microsecond=0)
+    since = start_of_day.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    until = datetime.now(beijing).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return since, until
+
+
+async def list_commits(user_id: str, since: str | None = None, until: str | None = None) -> list[dict]:
+    """Raw commit list across the user's selected repos (see /api/github/repos),
+    falling back to GITHUB_REPORT_REPO if none are selected yet, between
+    `since`/`until` (ISO 8601 UTC, e.g. 2026-07-10T00:00:00Z). Defaults to
+    today's Beijing-day window.
+    # ponytail: no author filter, single-contributor repos - add one if a
+    # tracked repo ever gets a second contributor."""
+    if since is None or until is None:
+        default_since, default_until = _today_beijing_window()
+        since = since or default_since
+        until = until or default_until
+
+    repos = await run_in_threadpool(get_github_repos, user_id)
+    if not repos:
+        repos = [os.environ.get("GITHUB_REPORT_REPO", "hunanjay/friday")]
+
+    all_commits = []
+    for repo in repos:
+        try:
+            data = await github_get(user_id, f"/repos/{repo}/commits?since={since}&until={until}&per_page=100")
+        except HTTPException as e:
+            if e.status_code == 404:
+                continue  # renamed/deleted/inaccessible - skip rather than fail the whole report
+            raise
+        for c in data:
+            c["_repo"] = repo
+        all_commits.extend(data)
+    return all_commits
+
+
+def format_commits(commits: list[dict]) -> str:
+    if not commits:
+        return "No commits in that range."
+    return "\n\n".join(
+        f"- repo={c.get('_repo', '?')} sha={c['sha'][:7]} author={c['commit']['author']['name']} "
+        f"date={c['commit']['author']['date']}\n  {c['commit']['message']}"
+        for c in commits
+    )

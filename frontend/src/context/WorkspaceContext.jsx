@@ -136,37 +136,17 @@ export function WorkspaceProvider({ children }) {
       // self-inflict a logout right after a successful sign-in, and force the
       // user to log in a second time.
       if (session.provider_token) {
-        // linkIdentity (Connect GitHub, triggered from an already-logged-in
-        // state) also lands here with session.provider_token set - but to
-        // GitHub's token, not Microsoft's. This flag (set right before
-        // calling linkIdentity, cleared here) is what tells the two apart;
-        // without it, a GitHub connection would silently get POSTed to the
-        // Microsoft endpoint and clobbered.
-        const pendingProvider = sessionStorage.getItem('pending_oauth_provider');
-        sessionStorage.removeItem('pending_oauth_provider');
-        if (pendingProvider === 'github') {
-          await fetch(`${API_URL}/api/github/token`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({ github_token: session.provider_token }),
-          }).catch(() => {});
-          setGithubStatus({ connected: true });
-        } else {
-          await fetch(`${API_URL}/api/graph/token`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({
-              ms_token: session.provider_token,
-              refresh_token: session.provider_refresh_token,
-            }),
-          }).catch(() => {});
-        }
+        await fetch(`${API_URL}/api/graph/token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            ms_token: session.provider_token,
+            refresh_token: session.provider_refresh_token,
+          }),
+        }).catch(() => {});
       }
       setAuthToken(prev => (prev === session.access_token ? prev : session.access_token));
     };
@@ -254,17 +234,47 @@ export function WorkspaceProvider({ children }) {
       .catch(() => {});
   }, [authToken]);
 
-  const handleConnectGithub = useCallback(async () => {
-    sessionStorage.setItem('pending_oauth_provider', 'github');
-    const { error } = await supabase.auth.linkIdentity({
-      provider: 'github',
-      options: { redirectTo: window.location.origin },
-    });
-    if (error) {
-      sessionStorage.removeItem('pending_oauth_provider');
-      showToast(error.message);
+  // Prefetched as soon as GitHub is known to be connected, not lazily when
+  // the settings panel opens - so opening it never shows a loading flash.
+  const [githubRepos, setGithubRepos] = useState({ available: [], selected: [] });
+  useEffect(() => {
+    if (!authToken || !githubStatus?.connected) {
+      setGithubRepos({ available: [], selected: [] });
+      return;
     }
-  }, [showToast]);
+    fetch(`${API_URL}/api/github/repos`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => data && setGithubRepos({ available: data.repos || [], selected: data.selected || [] }))
+      .catch(() => {});
+  }, [authToken, githubStatus?.connected]);
+
+  const handleSaveGithubRepos = useCallback(async (repos) => {
+    await fetch(`${API_URL}/api/github/repos`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ repos }),
+    });
+    setGithubRepos(prev => ({ ...prev, selected: repos }));
+  }, [authToken]);
+
+  // Not supabase.auth.linkIdentity() - that only verifies a second identity
+  // for login purposes and doesn't hand back a usable GitHub API token. This
+  // is a plain browser navigation into GitHub's own OAuth flow, handled
+  // entirely by the backend (see api/github_auth.py's /connect + /callback).
+  const handleConnectGithub = useCallback(() => {
+    window.location.href = `${API_URL}/api/github/connect?token=${encodeURIComponent(authToken)}`;
+  }, [authToken]);
+
+  const handleDisconnectGithub = useCallback(async () => {
+    await fetch(`${API_URL}/api/github/token`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).catch(() => {});
+    setGithubStatus({ connected: false, expired: false });
+    setGithubRepos({ available: [], selected: [] });
+  }, [authToken]);
 
   const handleCreateSession = useCallback(async (title) => {
     const res = await fetch(`${API_URL}/api/agent/sessions`, {
@@ -394,6 +404,9 @@ export function WorkspaceProvider({ children }) {
         authToken,
         githubStatus,
         handleConnectGithub,
+        handleDisconnectGithub,
+        githubRepos,
+        handleSaveGithubRepos,
         isSyncingInbox,
         setIsSyncingInbox,
         isSyncingEvents,
