@@ -1,9 +1,11 @@
 import os
 from datetime import datetime, timedelta, timezone
 
+from langchain_core.messages import trim_messages
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
-from langgraph_supervisor import create_supervisor
+from langgraph_supervisor import create_handoff_tool, create_supervisor
 
 from app.agents.checkpointer import get_checkpointer
 from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
@@ -38,79 +40,185 @@ def _get_model() -> ChatOpenAI:
     return _model
 
 
+def _today_str() -> str:
+    # Beijing time (UTC+8, no DST) - matches the timezone create_event/list_events
+    # write and read in (see agents/tools.py's _BEIJING_TZ), so "tomorrow" etc.
+    # resolve against the user's actual calendar day.
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8))).strftime(
+        "%Y-%m-%d (%A), Beijing time (UTC+8)"
+    )
+
+
+AGENT_NAMES = ("mail_agent", "calendar_agent", "memos_agent", "github_agent")
+
+# What each sub-agent actually handles, in terms specific enough for the
+# supervisor LLM to route on. This is the handoff tool's `description` (see
+# build_supervisor) - langgraph_supervisor's default is just "Ask agent 'X'
+# for help", which gives the router nothing to match a request against and is
+# why the supervisor's own routing silently missed cases in practice (see the
+# api/agent.py comment on the "/agent_name" tag bypass).
+_ROUTING_HINTS = {
+    "mail_agent": (
+        "Route here for anything about the user's email/inbox: listing, searching, or "
+        "reading messages, sending new ones, marking read/unread, or deleting existing ones."
+    ),
+    "calendar_agent": (
+        "Route here for anything about scheduling: listing, creating, or deleting "
+        "calendar events, or accepting/declining event invitations."
+    ),
+    "memos_agent": (
+        "Route here when the user wants to save an idea/note, or find or recall "
+        "something they previously wrote down."
+    ),
+    "github_agent": (
+        "Route here when the user asks for a work report, daily report, 日报, "
+        "or a summary of today's GitHub commit activity."
+    ),
+}
+
+_MAX_HISTORY_TOKENS = 20000
+
+
+def _trim_history(state: dict) -> dict:
+    """pre_model_hook: caps what each LLM call sees so a long-running chat
+    session doesn't grow the prompt (and cost/latency) without bound. Only
+    trims the model's input, not what's persisted - the full history stays in
+    the Postgres checkpoint via `messages`."""
+    trimmed = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=_MAX_HISTORY_TOKENS,
+        start_on="human",
+        end_on=("human", "tool"),
+        include_system=True,
+    )
+    return {"llm_input_messages": trimmed}
+
+
+def build_agent(user_id: str, name: str):
+    """Builds one domain sub-agent standalone. Used both as a node inside
+    build_supervisor()'s graph, and to route a "/agent_name ..." tagged chat
+    message directly to it, bypassing the supervisor LLM's own routing
+    decision (see api/agent.py's chat route)."""
+    model = _get_model()
+    today = _today_str()
+    if name == "mail_agent":
+        return create_react_agent(
+            model,
+            tools=make_mail_tools(user_id),
+            name="mail_agent",
+            pre_model_hook=_trim_history,
+            prompt=(
+                "You handle the user's email: listing, searching, and reading messages, "
+                "sending new ones, and marking read/unread or deleting existing ones. "
+                "send_email and delete_email default to a preview (confirm=False) instead "
+                "of acting - describe the action to the user and only call the tool again "
+                "with confirm=True once they've explicitly agreed to it in this conversation."
+            ),
+        )
+    if name == "calendar_agent":
+        return create_react_agent(
+            model,
+            tools=make_calendar_tools(user_id),
+            name="calendar_agent",
+            pre_model_hook=_trim_history,
+            prompt=(
+                f"Today is {today}. You handle the user's calendar: listing, creating, and "
+                "deleting events, and accepting/declining event invitations. Resolve relative "
+                "dates (\"tomorrow\", \"next Wednesday\") against today's date."
+            ),
+        )
+    if name == "memos_agent":
+        return create_react_agent(
+            model,
+            tools=make_memos_tools(user_id),
+            name="memos_agent",
+            pre_model_hook=_trim_history,
+            prompt=(
+                "You manage the user's memos. Tools: list_memos (browse all), "
+                "search_memos(query) (answer a question from memos), create_memo(title, "
+                "content, category) (save something new).\n"
+                "Always call exactly one tool before replying. Never answer from "
+                "assumption. Never claim something is saved without calling create_memo "
+                "first. Never claim something was found without calling search_memos or "
+                "list_memos first."
+            ),
+        )
+    if name == "github_agent":
+        return create_react_agent(
+            model,
+            tools=make_github_tools(user_id),
+            name="github_agent",
+            pre_model_hook=_trim_history,
+            prompt=(
+                f"Today is {today}. You generate the user's daily work report (日报) from "
+                "GitHub commit activity on their project repo. On every turn, call "
+                "list_todays_commits before you reply - do not ask for permission first, "
+                "just call it immediately. Write a concise report (grouped bullet points, "
+                "matching the language the user asked in) based only on the commit messages "
+                "the tool actually returned - never invent commits. Then call create_memo "
+                "with category='work', a title like 'Daily Report - <date>', and the "
+                "synthesized report as content. Confirm to the user once saved. If there "
+                "were no commits today, tell them that instead of saving an empty report."
+            ),
+        )
+    raise ValueError(f"Unknown agent: {name}")
+
+
 def build_supervisor(user_id: str):
     """Builds a fresh supervisor graph per request, its tools closed over
     this user's id so each sub-agent only ever touches this user's mailbox
     and calendar."""
     model = _get_model()
-    # Beijing time (UTC+8, no DST) - matches the timezone create_event/list_events
-    # write and read in (see agents/tools.py's _BEIJING_TZ), so "tomorrow" etc.
-    # resolve against the user's actual calendar day.
-    today = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8))).strftime(
-        "%Y-%m-%d (%A), Beijing time (UTC+8)"
-    )
-    mail_agent = create_react_agent(
-        model,
-        tools=make_mail_tools(user_id),
-        name="mail_agent",
-        prompt=(
-            "You handle the user's email: listing, searching, and reading messages, "
-            "sending new ones, and marking read/unread or deleting existing ones."
-        ),
-    )
-    calendar_agent = create_react_agent(
-        model,
-        tools=make_calendar_tools(user_id),
-        name="calendar_agent",
-        prompt=(
-            f"Today is {today}. You handle the user's calendar: listing, creating, and "
-            "deleting events, and accepting/declining event invitations. Resolve relative "
-            "dates (\"tomorrow\", \"next Wednesday\") against today's date."
-        ),
-    )
-    memos_agent = create_react_agent(
-        model,
-        tools=make_memos_tools(user_id),
-        name="memos_agent",
-        prompt=(
-            "You manage the user's memos. Tools: list_memos (browse all), "
-            "search_memos(query) (answer a question from memos), create_memo(title, "
-            "content, category) (save something new).\n"
-            "Always call exactly one tool before replying. Never answer from "
-            "assumption. Never claim something is saved without calling create_memo "
-            "first. Never claim something was found without calling search_memos or "
-            "list_memos first."
-        ),
-    )
+    today = _today_str()
+    agents = [build_agent(user_id, name) for name in AGENT_NAMES]
 
-    github_agent = create_react_agent(
-        model,
-        tools=make_github_tools(user_id),
-        name="github_agent",
-        prompt=(
-            f"Today is {today}. You generate the user's daily work report (日报) from "
-            "GitHub commit activity on their project repo. On every turn, call "
-            "list_todays_commits before you reply - do not ask for permission first, "
-            "just call it immediately. Write a concise report (grouped bullet points, "
-            "matching the language the user asked in) based only on the commit messages "
-            "the tool actually returned - never invent commits. Then call create_memo "
-            "with category='work', a title like 'Daily Report - <date>', and the "
-            "synthesized report as content. Confirm to the user once saved. If there "
-            "were no commits today, tell them that instead of saving an empty report."
-        ),
-    )
+    # Custom handoff tools carrying task-specific descriptions (_ROUTING_HINTS)
+    # instead of langgraph_supervisor's default "Ask agent 'X' for help" -
+    # that default gives the router nothing to match a request against, which
+    # is why routing silently missed cases in practice (see api/agent.py's
+    # "/agent_name" tag bypass).
+    handoff_tools = [
+        create_handoff_tool(agent_name=name, description=_ROUTING_HINTS[name])
+        for name in AGENT_NAMES
+    ]
+    agent_lines = "\n".join(f"- {name}: {hint}" for name, hint in _ROUTING_HINTS.items())
 
     workflow = create_supervisor(
-        [mail_agent, calendar_agent, memos_agent, github_agent],
+        agents,
         model=model,
+        tools=handoff_tools,
+        pre_model_hook=_trim_history,
         prompt=(
-            f"Today is {today}. You are a supervisor coordinating four agents: "
-            "mail_agent (email), calendar_agent (scheduling), memos_agent (notes), and "
-            "github_agent (daily work reports from GitHub commits). Route each user "
-            "request to the right agent(s) and relay their results back concisely."
+            f"Today is {today}. You are a supervisor coordinating four agents:\n"
+            f"{agent_lines}\n"
+            "Route each user request to the right agent(s) and relay their results "
+            "back concisely."
+            # Note: explicit "/agent_name ..." tags are intercepted and routed
+            # deterministically in code (api/agent.py) before this graph ever
+            # runs, so the supervisor LLM never has to parse them itself.
         ),
     )
     return workflow.compile(checkpointer=get_checkpointer())
+
+
+async def generate_session_title(message: str) -> str:
+    """One-shot short title for a freshly created chat, generated from the
+    first user message - the same "summarize it into a title" step Claude's
+    and ChatGPT's UIs do, done here with a single cheap LLM call."""
+    resp = await _get_model().ainvoke([
+        {
+            "role": "system",
+            "content": (
+                "Summarize the user's message into a short chat title (max 6 "
+                "words, no trailing punctuation, same language as the "
+                "message). Reply with only the title, nothing else."
+            ),
+        },
+        {"role": "user", "content": message},
+    ])
+    return resp.content.strip().strip('"')
 
 
 def make_graph(config: dict | None = None):

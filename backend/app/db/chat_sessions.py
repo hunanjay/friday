@@ -57,6 +57,24 @@ async def session_exists(user_id: str, session_id: str) -> bool:
         return await cur.fetchone() is not None
 
 
+async def get_session(user_id: str, session_id: str) -> dict | None:
+    async with _pool.connection() as conn:
+        cur = await conn.execute(
+            "select id, title, created_at from chat_sessions where id = %s and user_id = %s",
+            (session_id, user_id),
+        )
+        row = await cur.fetchone()
+    return {"id": str(row[0]), "title": row[1], "created_at": row[2].isoformat()} if row else None
+
+
+async def update_session_title(user_id: str, session_id: str, title: str) -> None:
+    async with _pool.connection() as conn:
+        await conn.execute(
+            "update chat_sessions set title = %s where id = %s and user_id = %s",
+            (title, session_id, user_id),
+        )
+
+
 async def delete_session(user_id: str, session_id: str) -> bool:
     """Deletes the session row plus its LangGraph checkpoint history. Returns
     False if the session doesn't exist or belongs to another user."""

@@ -2,10 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useTranslation } from 'react-i18next';
-import { Send, Paperclip, Plus, Trash } from '../components/common/Icons';
+import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+
+// Mirrors the sub-agent names in backend/app/agents/supervisor.py.
+const AGENT_ICONS = { mail_agent: Mail, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
+const AGENT_IDS = Object.keys(AGENT_ICONS);
 
 export default function ChatPage() {
   const {
@@ -15,6 +19,7 @@ export default function ChatPage() {
     handleSimulateBotReply,
     handleUpdateMessageText,
     handleCreateSession,
+    handleUpdateSessionTitle,
     handleDeleteSession,
     handleLogout,
     authToken
@@ -26,10 +31,38 @@ export default function ChatPage() {
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   const activeThread = chatThreads.find(s => s.id === activeThreadId) || null;
   const threadMessages = messages.filter(m => m.threadId === activeThreadId);
+
+  // Slash-command agent picker: only while the whole box is still "/query"
+  // (no space typed yet) — mirrors the Slack/Notion "/" mention pattern.
+  const slashMatch = inputText.match(/^\/(\w*)$/);
+  const agents = AGENT_IDS.map(id => ({
+    id,
+    Icon: AGENT_ICONS[id],
+    label: t(`chat.agents.${id}.label`),
+    desc: t(`chat.agents.${id}.desc`),
+  }));
+  const filteredAgents = slashMatch
+    ? agents.filter(a => {
+        const q = slashMatch[1].toLowerCase();
+        return a.id.includes(q) || a.label.toLowerCase().includes(q);
+      })
+    : [];
+  const showAgentMenu = filteredAgents.length > 0;
+
+  useEffect(() => {
+    setAgentMenuIndex(0);
+  }, [inputText]);
+
+  const selectAgent = (agent) => {
+    setInputText(`/${agent.id} `);
+    inputRef.current?.focus();
+  };
 
   // Sessions load asynchronously after login; pick the most recent one once
   // they arrive (or if the active one got deleted from under us).
@@ -145,6 +178,8 @@ export default function ChatPage() {
               } else if (data.chunk) {
                 botText += data.chunk;
                 handleUpdateMessageText(botMsgId, botText);
+              } else if (data.title) {
+                handleUpdateSessionTitle(sessionId, data.title);
               }
             } catch (err) {
               console.error('Failed to parse SSE data', err);
@@ -162,6 +197,8 @@ export default function ChatPage() {
             if (data.chunk) {
               botText += data.chunk;
               handleUpdateMessageText(botMsgId, botText);
+            } else if (data.title) {
+              handleUpdateSessionTitle(sessionId, data.title);
             }
           } catch (err) {
             console.error('Failed to parse final SSE data', err);
@@ -181,6 +218,29 @@ export default function ChatPage() {
   };
 
   const handleKeyDown = (e) => {
+    if (showAgentMenu) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setAgentMenuIndex(i => (i + 1) % filteredAgents.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setAgentMenuIndex(i => (i - 1 + filteredAgents.length) % filteredAgents.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectAgent(filteredAgents[agentMenuIndex] || filteredAgents[0]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setInputText('');
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       handleSend(e);
@@ -293,11 +353,31 @@ export default function ChatPage() {
             </div>
 
             <form onSubmit={handleSend} className="chat-input-area">
+              {showAgentMenu && (
+                <div className="agent-slash-menu">
+                  <span className="agent-slash-menu-hint">{t('chat.agentMenuHint')}</span>
+                  {filteredAgents.map((agent, idx) => (
+                    <div
+                      key={agent.id}
+                      className={`agent-slash-menu-item ${idx === agentMenuIndex ? 'active' : ''}`}
+                      onMouseDown={(e) => { e.preventDefault(); selectAgent(agent); }}
+                      onMouseEnter={() => setAgentMenuIndex(idx)}
+                    >
+                      <agent.Icon size={16} />
+                      <div className="agent-slash-menu-item-text">
+                        <span className="agent-slash-menu-item-label">{agent.label}</span>
+                        <span className="agent-slash-menu-item-desc">{agent.desc}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="chat-input-wrapper">
                 <button type="button" className="attachment-btn" title="Attach file" onClick={() => alert(t('chat.attachmentsSimulated'))}>
                   <Paperclip size={18} />
                 </button>
                 <textarea
+                  ref={inputRef}
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={handleKeyDown}

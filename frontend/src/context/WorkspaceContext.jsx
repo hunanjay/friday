@@ -287,6 +287,10 @@ export function WorkspaceProvider({ children }) {
     return session;
   }, [authToken]);
 
+  const handleUpdateSessionTitle = useCallback((sessionId, title) => {
+    setChatThreads(prev => prev.map(s => (s.id === sessionId ? { ...s, title } : s)));
+  }, []);
+
   const handleDeleteSession = useCallback(async (sessionId) => {
     await fetch(`${API_URL}/api/agent/sessions/${sessionId}`, {
       method: 'DELETE',
@@ -417,6 +421,7 @@ export function WorkspaceProvider({ children }) {
         handleAppendInboxEmails,
         handleSyncEvents,
         handleCreateSession,
+        handleUpdateSessionTitle,
         handleDeleteSession,
         handleLogin,
         handleLogout,

@@ -102,9 +102,22 @@ def make_mail_tools(user_id: str) -> list:
             f"{text}"
         )
 
+    # ponytail: confirm is a soft gate - enforced by confirm=False previewing
+    # instead of sending/deleting, plus the mail_agent prompt telling the model
+    # when it's allowed to flip it. Not tamper-proof against a model that sets
+    # confirm=True immediately. Upgrade to a LangGraph interrupt() + frontend
+    # confirm dialog if that ever needs to be a hard (non-prompt-based) gate.
     @tool
-    async def send_email(to: str, subject: str, body: str) -> str:
-        """Send an email on the user's behalf. `to` is a single recipient email address."""
+    async def send_email(to: str, subject: str, body: str, confirm: bool = False) -> str:
+        """Send an email on the user's behalf. `to` is a single recipient email address.
+        Sending is irreversible: leave confirm=False first to preview the email without
+        sending it, then call again with confirm=True only after the user has explicitly
+        agreed to send it in this conversation."""
+        if not confirm:
+            return (
+                f"Not sent yet - preview only.\nTo: {to}\nSubject: {subject}\n\n{body}\n\n"
+                "Ask the user to confirm, then call send_email again with confirm=True."
+            )
         _, err = await _graph(
             graph_post(
                 user_id,
@@ -132,9 +145,17 @@ def make_mail_tools(user_id: str) -> list:
         return f"Email {email_id} marked as {'read' if is_read else 'unread'}."
 
     @tool
-    async def delete_email(email_id: str, permanent: bool = False) -> str:
+    async def delete_email(email_id: str, permanent: bool = False, confirm: bool = False) -> str:
         """Delete an email by id. By default moves it to Deleted Items; pass
-        permanent=True to bypass Deleted Items and remove it immediately."""
+        permanent=True to bypass Deleted Items and remove it immediately. Deleting is
+        hard to reverse: leave confirm=False first to preview what would happen, then
+        call again with confirm=True only after the user has explicitly agreed to it."""
+        if not confirm:
+            return (
+                f"Not deleted yet - preview only. Would delete email {email_id}"
+                f"{' permanently' if permanent else ' (move to Deleted Items)'}. "
+                "Ask the user to confirm, then call delete_email again with confirm=True."
+            )
         if permanent:
             _, err = await _graph(graph_post(user_id, f"/me/messages/{quote(email_id)}/permanentDelete", {}))
         else:

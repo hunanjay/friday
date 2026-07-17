@@ -123,6 +123,19 @@ export default function EmailPage() {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  // List row: always date + time together (e.g. "Jul 10 11:43") so a row
+  // never shows a bare clock time with no way to tell which day it's from.
+  // Locale follows the app's language (i18n), not the browser's.
+  const formatEmailListDate = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const day = i18n.language === 'zh'
+      ? date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
+      : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${day} ${time}`;
+  };
+
   // Clear AI draft when selecting a new email
   useEffect(() => {
     setAiDraft('');
@@ -406,7 +419,7 @@ export default function EmailPage() {
             filteredEmails.map(email => {
               const isUnread = !email.isRead;
               const senderName = email.sender?.emailAddress?.name || 'Unknown';
-              const emailTime = formatEmailTime(email.receivedDateTime);
+              const emailTime = formatEmailListDate(email.receivedDateTime);
 
               return (
                 <div

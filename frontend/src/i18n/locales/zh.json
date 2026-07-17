@@ -80,7 +80,14 @@
     "newSession": "新建对话",
     "newSessionTitle": "新对话",
     "deleteSession": "删除对话",
-    "aiAssistantDesc": "AI 助手"
+    "aiAssistantDesc": "AI 助手",
+    "agentMenuHint": "跳转到指定 Agent",
+    "agents": {
+      "mail_agent": { "label": "邮件", "desc": "查找、阅读、发送邮件" },
+      "calendar_agent": { "label": "日历", "desc": "安排和管理日程" },
+      "memos_agent": { "label": "便签", "desc": "保存和查找笔记" },
+      "github_agent": { "label": "日报", "desc": "根据 GitHub 提交生成日报" }
+    }
   },
   "memos": {
     "searchPlaceholder": "搜索便签...",
