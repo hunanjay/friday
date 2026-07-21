@@ -13,11 +13,7 @@ const AGENT_IDS = Object.keys(AGENT_ICONS);
 
 export default function ChatPage() {
   const {
-    messages,
     chatThreads,
-    handleSendMessage,
-    handleSimulateBotReply,
-    handleUpdateMessageText,
     handleCreateSession,
     handleUpdateSessionTitle,
     handleDeleteSession,
@@ -35,8 +31,11 @@ export default function ChatPage() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Per-thread message list, populated from the LangGraph checkpoint on
+  // thread switch. New messages from the streaming response are appended here.
+  const [threadMessages, setThreadMessages] = useState([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const activeThread = chatThreads.find(s => s.id === activeThreadId) || null;
-  const threadMessages = messages.filter(m => m.threadId === activeThreadId);
 
   // Slash-command agent picker: only while the whole box is still "/query"
   // (no space typed yet) — mirrors the Slack/Notion "/" mention pattern.
@@ -63,6 +62,26 @@ export default function ChatPage() {
     setInputText(`/${agent.id} `);
     inputRef.current?.focus();
   };
+
+  // Fetch conversation history from the LangGraph checkpoint whenever the
+  // active thread changes. This replaces localStorage as the source of truth,
+  // so history survives across browsers and devices.
+  useEffect(() => {
+    if (!activeThreadId || !authToken) {
+      setThreadMessages([]);
+      return;
+    }
+    setIsLoadingMessages(true);
+    fetch(`${API_URL}/api/agent/sessions/${activeThreadId}/messages`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : { messages: [] }))
+      .then(data => setThreadMessages(
+        (data.messages || []).map(m => ({ ...m, threadId: activeThreadId }))
+      ))
+      .catch(() => {})
+      .finally(() => setIsLoadingMessages(false));
+  }, [activeThreadId, authToken]);
 
   // Sessions load asynchronously after login; pick the most recent one once
   // they arrive (or if the active one got deleted from under us).
@@ -106,7 +125,7 @@ export default function ChatPage() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    handleSendMessage(userMsg);
+    setThreadMessages(prev => [...prev, userMsg]);
 
     const isZh = i18n.language === 'zh';
     const botMsgId = 'msg_bot_' + Date.now();
@@ -118,7 +137,7 @@ export default function ChatPage() {
       text: '',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    handleSimulateBotReply(botMsg);
+    setThreadMessages(prev => [...prev, botMsg]);
     
     setIsTyping(true);
 
@@ -173,14 +192,14 @@ export default function ChatPage() {
             try {
               const data = JSON.parse(dataStr);
               if (data.error) {
-                botText += `\n[Error: ${data.error}]`;
-                handleUpdateMessageText(botMsgId, botText);
-              } else if (data.chunk) {
-                botText += data.chunk;
-                handleUpdateMessageText(botMsgId, botText);
-              } else if (data.title) {
-                handleUpdateSessionTitle(sessionId, data.title);
-              }
+                  botText += `\n[Error: ${data.error}]`;
+                  setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
+                } else if (data.chunk) {
+                  botText += data.chunk;
+                  setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
+                } else if (data.title) {
+                  handleUpdateSessionTitle(sessionId, data.title);
+                }
             } catch (err) {
               console.error('Failed to parse SSE data', err);
             }
@@ -196,7 +215,7 @@ export default function ChatPage() {
             const data = JSON.parse(dataStr);
             if (data.chunk) {
               botText += data.chunk;
-              handleUpdateMessageText(botMsgId, botText);
+              setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
             } else if (data.title) {
               handleUpdateSessionTitle(sessionId, data.title);
             }
@@ -211,7 +230,7 @@ export default function ChatPage() {
       const errMsg = isZh
         ? '无法连接到助手服务，请稍后再试。'
         : "Couldn't reach the assistant service, please try again later.";
-      handleUpdateMessageText(botMsgId, errMsg);
+      setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: errMsg } : m));
     } finally {
       setIsTyping(false);
     }
@@ -241,7 +260,7 @@ export default function ChatPage() {
       }
     }
 
-    if (e.key === 'Enter' && e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend(e);
     }
@@ -260,7 +279,7 @@ export default function ChatPage() {
 
         <div className="chat-threads-list">
           {chatThreads.map(thread => {
-            const lastMsg = messages.filter(m => m.threadId === thread.id).slice(-1)[0];
+
             const isSelected = thread.id === activeThreadId;
 
             return (
@@ -279,10 +298,9 @@ export default function ChatPage() {
                 <div className="thread-meta">
                   <div className="thread-name-row">
                     <span className="thread-name">{thread.title}</span>
-                    {lastMsg && <span className="thread-time">{lastMsg.timestamp}</span>}
                   </div>
                   <p className="thread-preview">
-                    {lastMsg ? `${lastMsg.senderName}: ${lastMsg.text}` : (i18n.language === 'zh' ? '暂无消息' : 'No messages yet')}
+                    {i18n.language === 'zh' ? '暂无消息预览' : 'No preview available'}
                   </p>
                 </div>
                 <button

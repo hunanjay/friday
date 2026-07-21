@@ -12,11 +12,14 @@ _dense_embedder: OpenAIEmbeddings | None = None
 _sparse_embedder: SparseTextEmbedding | None = None
 
 
-def _get_client() -> AsyncQdrantClient:
+def _get_client() -> AsyncQdrantClient | None:
     global _client
     if _client is None:
+        url = os.environ.get("QDRANT_URL")
+        if not url:
+            return None
         _client = AsyncQdrantClient(
-            url=os.environ["QDRANT_URL"],
+            url=url,
             api_key=os.environ.get("QDRANT_API_KEY") or None,
         )
     return _client
@@ -57,27 +60,41 @@ def _sparse_vector(text: str) -> models.SparseVector:
 async def init_collection():
     """Creates the `memos` Qdrant collection (and its user_id payload index)
     if missing. Call once from the FastAPI lifespan startup - idempotent, so
-    safe to call again against an already-set-up collection."""
+    safe to call again against an already-set-up collection.
+
+    If Qdrant is unavailable (missing QDRANT_URL or connection refused), logs
+    a warning and continues - vector search is best-effort and the rest of the
+    app works without it."""
+    import logging
     client = _get_client()
-    if not await client.collection_exists(COLLECTION):
-        await client.create_collection(
+    if client is None:
+        logging.warning("QDRANT_URL not set - Qdrant vector search disabled")
+        return
+    try:
+        if not await client.collection_exists(COLLECTION):
+            await client.create_collection(
+                collection_name=COLLECTION,
+                vectors_config={"dense": models.VectorParams(size=_DENSE_SIZE, distance=models.Distance.COSINE)},
+                sparse_vectors_config={"bm25": models.SparseVectorParams()},
+            )
+        # Every search/upsert filters on user_id (multi-tenant isolation) - Qdrant
+        # refuses to filter on a payload field with no index for it.
+        await client.create_payload_index(
             collection_name=COLLECTION,
-            vectors_config={"dense": models.VectorParams(size=_DENSE_SIZE, distance=models.Distance.COSINE)},
-            sparse_vectors_config={"bm25": models.SparseVectorParams()},
+            field_name="user_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
         )
-    # Every search/upsert filters on user_id (multi-tenant isolation) - Qdrant
-    # refuses to filter on a payload field with no index for it.
-    await client.create_payload_index(
-        collection_name=COLLECTION,
-        field_name="user_id",
-        field_schema=models.PayloadSchemaType.KEYWORD,
-    )
+    except Exception:
+        logging.warning("Qdrant init failed - vector search unavailable", exc_info=True)
 
 
 async def upsert_memo(user_id: str, memo_id: str, title: str, content: str, category: str) -> None:
+    client = _get_client()
+    if client is None:
+        raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
     text = _memo_text(title, content)
     dense_vec = await _get_dense().aembed_query(text)
-    await _get_client().upsert(
+    await client.upsert(
         collection_name=COLLECTION,
         points=[
             models.PointStruct(
@@ -90,15 +107,21 @@ async def upsert_memo(user_id: str, memo_id: str, title: str, content: str, cate
 
 
 async def delete_memo(memo_id: str) -> None:
-    await _get_client().delete(collection_name=COLLECTION, points_selector=models.PointIdsList(points=[memo_id]))
+    client = _get_client()
+    if client is None:
+        raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
+    await client.delete(collection_name=COLLECTION, points_selector=models.PointIdsList(points=[memo_id]))
 
 
 async def search_memos(user_id: str, query: str, limit: int = 5) -> list[dict]:
     """Hybrid search (dense semantic + BM25 keyword) over one user's memos,
     fused with Reciprocal Rank Fusion."""
+    client = _get_client()
+    if client is None:
+        raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
     dense_vec = await _get_dense().aembed_query(query)
     user_filter = models.Filter(must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))])
-    result = await _get_client().query_points(
+    result = await client.query_points(
         collection_name=COLLECTION,
         prefetch=[
             models.Prefetch(query=dense_vec, using="dense", limit=20, filter=user_filter),

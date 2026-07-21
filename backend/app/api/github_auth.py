@@ -1,4 +1,6 @@
 import os
+import secrets
+import time
 from urllib.parse import urlencode
 
 import httpx
@@ -15,31 +17,66 @@ router = APIRouter(prefix="/api/github", tags=["auth"])
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 
+# In-process nonce store: nonce -> (user_id, expires_at).
+# The OAuth round-trip is seconds; 5 min TTL is generous.
+# ponytail: single-instance deployment (see docker-compose) so a plain dict is
+# fine. Multi-worker / multi-instance setups should move this to Redis or a
+# one-column Postgres table (nonce TEXT PK, user_id TEXT, expires_at TIMESTAMPTZ).
+_TTL_SECONDS = 300
+_pending: dict[str, tuple[str, float]] = {}
+
+
+def _issue_nonce(user_id: str) -> str:
+    """Generates a cryptographically random nonce, records it against user_id,
+    and prunes any expired entries from the map."""
+    nonce = secrets.token_urlsafe(32)
+    now = time.monotonic()
+    _pending[nonce] = (user_id, now + _TTL_SECONDS)
+    # Prune stale entries so the dict doesn't grow unbounded in long-running procs.
+    expired = [k for k, (_, exp) in _pending.items() if exp < now]
+    for k in expired:
+        del _pending[k]
+    return nonce
+
+
+def _redeem_nonce(nonce: str) -> str | None:
+    """Looks up a nonce and immediately removes it (one-time use).
+    Returns the associated user_id, or None if missing/expired."""
+    entry = _pending.pop(nonce, None)
+    if entry is None:
+        return None
+    user_id, expires_at = entry
+    return user_id if time.monotonic() < expires_at else None
+
 
 @router.get("/connect")
 async def connect_github(token: str):
     """Redirects the browser into GitHub's own OAuth authorize page - not
     Supabase's. `token` (the caller's Supabase access token) arrives as a
-    query param, not a header, since this is a plain browser navigation, not
-    a fetch() call. It's round-tripped back to us as `state` so /callback
-    knows which user this is, without needing a server-side session store.
+    query param since this is a plain browser navigation, not a fetch() call.
 
-    # ponytail: Supabase's linkIdentity() looked like the natural fit here,
-    but it only verifies a second identity for login purposes - it doesn't
-    hand back a usable GitHub API token via session.provider_token the way
-    signInWithOAuth does for the primary provider. Confirmed by inspecting a
-    captured "GitHub" token that was actually Microsoft-shaped. This raw
-    OAuth flow talks to GitHub directly instead.
+    The token is resolved to a user_id here and then discarded - it is NOT
+    forwarded to GitHub. Only a random one-time nonce is sent as `state`, so
+    the Supabase JWT never appears in GitHub's logs, the browser history bar
+    beyond this server, or nginx access logs past the initial /connect hit.
+
+    # ponytail: the token still arrives in the /connect query string - there is
+    no way to avoid this for a browser navigation (headers aren't available).
+    The attack surface is therefore limited to: this server's own access log
+    (acceptable) and the browser history entry for this URL. Users on shared
+    machines should be warned that the history entry for /connect contains their
+    session token, but this is a much smaller exposure than leaking it to GitHub.
     """
     user_id = await resolve_user_id(token)
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid session")
+    nonce = _issue_nonce(user_id)
     backend_url = os.environ.get("BACKEND_URL", "http://localhost:8005")
     query = urlencode({
         "client_id": os.environ["GITHUB_CLIENT_ID"],
         "redirect_uri": f"{backend_url}/api/github/callback",
         "scope": "repo",
-        "state": token,
+        "state": nonce,
     })
     return RedirectResponse(f"{GITHUB_AUTHORIZE_URL}?{query}")
 
@@ -47,10 +84,9 @@ async def connect_github(token: str):
 @router.get("/callback")
 async def github_callback(code: str, state: str):
     """GitHub redirects the user's browser here after they approve access.
-    `state` is the same Supabase JWT /connect embedded - resolved back to a
-    user id so we know whose github_tokens row to write."""
+    `state` is the nonce /connect issued - redeemed here for the user_id."""
     frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3005")
-    user_id = await resolve_user_id(state)
+    user_id = _redeem_nonce(state)
     if not user_id:
         return RedirectResponse(f"{frontend_url}?github_error=invalid_session")
 

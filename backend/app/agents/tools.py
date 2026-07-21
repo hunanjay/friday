@@ -145,41 +145,65 @@ def make_mail_tools(user_id: str) -> list:
         return f"Email {email_id} marked as {'read' if is_read else 'unread'}."
 
     @tool
-    async def delete_email(email_id: str, permanent: bool = False, confirm: bool = False) -> str:
-        """Delete an email by id. By default moves it to Deleted Items; pass
-        permanent=True to bypass Deleted Items and remove it immediately. Deleting is
-        hard to reverse: leave confirm=False first to preview what would happen, then
-        call again with confirm=True only after the user has explicitly agreed to it."""
+    async def delete_email(email_id: str, confirm: bool = False) -> str:
+        """Move an email to Deleted Items by id. Deleting is hard to reverse:
+        leave confirm=False first to preview what would happen, then call again
+        with confirm=True only after the user has explicitly agreed to it.
+        Note: permanent deletion is not available via this tool - only move to
+        Deleted Items. The user can permanently delete from the Deleted Items
+        folder themselves."""
         if not confirm:
             return (
-                f"Not deleted yet - preview only. Would delete email {email_id}"
-                f"{' permanently' if permanent else ' (move to Deleted Items)'}. "
-                "Ask the user to confirm, then call delete_email again with confirm=True."
+                f"Not deleted yet - preview only. Would move email {email_id} to "
+                "Deleted Items. Ask the user to confirm, then call delete_email "
+                "again with confirm=True."
             )
-        if permanent:
-            _, err = await _graph(graph_post(user_id, f"/me/messages/{quote(email_id)}/permanentDelete", {}))
-        else:
-            _, err = await _graph(
-                graph_post(user_id, f"/me/messages/{quote(email_id)}/move", {"destinationId": "deleteditems"})
-            )
+        _, err = await _graph(
+            graph_post(user_id, f"/me/messages/{quote(email_id)}/move", {"destinationId": "deleteditems"})
+        )
         if err:
             return err
-        return f"Email {email_id} deleted{' permanently' if permanent else ' (moved to Deleted Items)'}."
+        return f"Email {email_id} moved to Deleted Items."
 
     return [list_inbox, search_emails, read_email, send_email, mark_email_read, delete_email]
 
 
-_BEIJING_TZ = "China Standard Time"  # Graph's Windows tz id for UTC+8, no DST
+# Maps IANA timezone names to Microsoft Graph's Windows tz IDs.
+# Graph's calendarView requires the Windows format; add entries here as needed.
+_IANA_TO_GRAPH_TZ = {
+    "Asia/Shanghai": "China Standard Time",
+    "Asia/Hong_Kong": "China Standard Time",
+    "Asia/Taipei": "Taipei Standard Time",
+    "Asia/Tokyo": "Tokyo Standard Time",
+    "America/New_York": "Eastern Standard Time",
+    "America/Los_Angeles": "Pacific Standard Time",
+    "Europe/London": "GMT Standard Time",
+    "Europe/Berlin": "W. Europe Standard Time",
+    "UTC": "UTC",
+}
+
+
+def _graph_tz() -> str:
+    """Returns the Graph Windows tz ID for the configured TIMEZONE, falling
+    back to China Standard Time (UTC+8) if the env var is unset or unrecognised."""
+    iana = os.environ.get("TIMEZONE", "Asia/Shanghai")
+    graph_tz = _IANA_TO_GRAPH_TZ.get(iana)
+    if not graph_tz:
+        import logging
+        logging.warning("TIMEZONE %r has no Graph mapping, falling back to China Standard Time", iana)
+        return "China Standard Time"
+    return graph_tz
 
 
 def make_calendar_tools(user_id: str) -> list:
     @tool
     async def list_events(start: str, end: str) -> str:
-        """List calendar events between two ISO 8601 datetimes in Beijing time
-        (Asia/Shanghai, UTC+8), e.g. 2026-07-01T00:00:00."""
+        """List calendar events between two ISO 8601 datetimes in the user's
+        local timezone (configured via TIMEZONE env var, default Asia/Shanghai).
+        Example: 2026-07-01T00:00:00."""
         path = f"/me/calendarView?startDateTime={start}&endDateTime={end}&$top=50&$orderby=start/dateTime"
         data, err = await _graph(
-            graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_BEIJING_TZ}"'})
+            graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_graph_tz()}"'})
         )
         if err:
             return err
@@ -193,12 +217,14 @@ def make_calendar_tools(user_id: str) -> list:
 
     @tool
     async def create_event(subject: str, start: str, end: str, location: str = "") -> str:
-        """Create a calendar event. `start`/`end` are ISO 8601 datetimes in Beijing
-        time (Asia/Shanghai, UTC+8), e.g. 2026-07-10T20:00:00 for 8pm Beijing time."""
+        """Create a calendar event. `start`/`end` are ISO 8601 datetimes in the
+        user's local timezone (configured via TIMEZONE env var, default Asia/Shanghai).
+        Example: 2026-07-10T20:00:00 for 8pm local time."""
+        tz = _graph_tz()
         body = {
             "subject": subject,
-            "start": {"dateTime": start, "timeZone": _BEIJING_TZ},
-            "end": {"dateTime": end, "timeZone": _BEIJING_TZ},
+            "start": {"dateTime": start, "timeZone": tz},
+            "end": {"dateTime": end, "timeZone": tz},
         }
         if location:
             body["location"] = {"displayName": location}

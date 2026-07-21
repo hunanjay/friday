@@ -53,6 +53,58 @@ async def delete_session(session_id: str, user_id: str = Depends(get_user_id)):
     return {"status": "ok"}
 
 
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str, user_id: str = Depends(get_user_id)):
+    """Returns the conversation history for a session, read from the LangGraph
+    checkpoint stored in Postgres.  Only HumanMessages and final AI text
+    responses are returned - tool calls and tool results are filtered out so
+    the frontend only shows what the user typed and what Dora actually replied.
+
+    Shape: [{id, sender, text, timestamp}] - matches the message objects
+    ChatPage already renders, so no frontend schema change is needed.
+    """
+    session = await chat_sessions.get_session(user_id, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    supervisor = build_supervisor(user_id)
+    config = {"configurable": {"thread_id": session_id}}
+    state = await supervisor.aget_state(config)
+    raw_messages = (state.values or {}).get("messages", [])
+
+    results = []
+    for msg in raw_messages:
+        # langchain message objects have a `type` attribute; dicts have a "role" key.
+        msg_type = getattr(msg, "type", None) or (msg.get("role") if isinstance(msg, dict) else None)
+        content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else None)
+        msg_id = getattr(msg, "id", None) or (msg.get("id") if isinstance(msg, dict) else None)
+
+        if not content or not isinstance(content, str):
+            # Skip empty messages, tool call objects, and tool result lists.
+            continue
+
+        if msg_type == "human":
+            results.append({
+                "id": str(msg_id) if msg_id else f"h_{len(results)}",
+                "sender": "user",
+                "senderName": "You",
+                "text": content,
+                "timestamp": "",
+            })
+        elif msg_type == "ai":
+            # AI messages that are only tool_calls (content is empty string) are
+            # already filtered above by the `not content` check.
+            results.append({
+                "id": str(msg_id) if msg_id else f"a_{len(results)}",
+                "sender": "bot",
+                "senderName": "Dora",
+                "text": content,
+                "timestamp": "",
+            })
+
+    return {"messages": results}
+
+
 @router.post("/chat")
 async def chat(body: dict, user_id: str = Depends(get_user_id)):
     message = body.get("message")

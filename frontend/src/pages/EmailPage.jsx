@@ -8,12 +8,14 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
 // Shared shape for both the inbox sync and search responses, since both are
 // arrays of raw Graph message objects.
+// NOTE: `body` (full HTML) is intentionally omitted here - large HTML bodies
+// are fetched on demand (per selected email) and held in component-local
+// bodyCache state, not persisted to localStorage.
 function normalizeMessage(msg, parentFolderId) {
   return {
     id: msg.id,
     subject: msg.subject,
     bodyPreview: msg.bodyPreview,
-    body: msg.body,
     sender: msg.sender,
     toRecipients: msg.toRecipients,
     receivedDateTime: msg.receivedDateTime,
@@ -51,6 +53,12 @@ export default function EmailPage() {
   // `cursor` to fetch the following page. null/undefined means no more pages.
   const [inboxCursor, setInboxCursor] = useState(null);
   const [isLoadingMoreInbox, setIsLoadingMoreInbox] = useState(false);
+
+  // Per-session body cache: maps email id -> Graph body object (content +
+  // contentType). Not persisted - fetched on demand when an email is selected.
+  // Keyed separately from `emails` so re-renders from inbox updates don't
+  // evict already-loaded bodies.
+  const [bodyCache, setBodyCache] = useState({});
 
   // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
   // value, so periodic Supabase token refreshes don't re-trigger a refetch.
@@ -304,14 +312,28 @@ export default function EmailPage() {
   const handleSelectEmail = (email) => {
     setSelectedEmailId(email.id);
     setIsSidebarCollapsed(true); // frees width for the Dora panel; reader still readable at 260px narrower
-    if (email.isRead) return;
-    handleMarkEmailRead(email.id, true);
-    if (email.parentFolderId === 'inbox') adjustInboxUnread(-1);
-    fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(email.id)}/read`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ is_read: true }),
-    }).catch(() => {});
+    if (!email.isRead) {
+      handleMarkEmailRead(email.id, true);
+      if (email.parentFolderId === 'inbox') adjustInboxUnread(-1);
+      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(email.id)}/read`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ is_read: true }),
+      }).catch(() => {});
+    }
+    // Fetch full body on demand if not already cached.
+    if (!bodyCache[email.id]) {
+      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(email.id)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => {
+          if (data?.body) {
+            setBodyCache(prev => ({ ...prev, [email.id]: data.body }));
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   // Dora reply generator: sends the selected email's id + the user's intent to
@@ -490,7 +512,7 @@ export default function EmailPage() {
               </div>
 
               <div className="email-detail-body">
-                <EmailContentRenderer body={selectedEmail.body} />
+                <EmailContentRenderer body={bodyCache[selectedEmailId]} />
               </div>
             </div>
 

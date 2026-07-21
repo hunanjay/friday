@@ -48,14 +48,6 @@ async def create_session(user_id: str, title: str = "New chat") -> dict:
     return {"id": str(row[0]), "title": row[1], "created_at": row[2].isoformat()}
 
 
-async def session_exists(user_id: str, session_id: str) -> bool:
-    async with _pool.connection() as conn:
-        cur = await conn.execute(
-            "select 1 from chat_sessions where id = %s and user_id = %s",
-            (session_id, user_id),
-        )
-        return await cur.fetchone() is not None
-
 
 async def get_session(user_id: str, session_id: str) -> dict | None:
     async with _pool.connection() as conn:

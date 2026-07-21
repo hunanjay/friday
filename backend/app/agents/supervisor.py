@@ -41,12 +41,19 @@ def _get_model() -> ChatOpenAI:
 
 
 def _today_str() -> str:
-    # Beijing time (UTC+8, no DST) - matches the timezone create_event/list_events
-    # write and read in (see agents/tools.py's _BEIJING_TZ), so "tomorrow" etc.
-    # resolve against the user's actual calendar day.
-    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8))).strftime(
-        "%Y-%m-%d (%A), Beijing time (UTC+8)"
-    )
+    # Timezone is configurable via the TIMEZONE env var (default Asia/Shanghai).
+    # Must match the Windows tz id used by create_event/list_events (see
+    # agents/tools.py's _GRAPH_TZ), so relative dates ("tomorrow") resolve
+    # against the user's actual calendar day.
+    import zoneinfo
+    tz_name = os.environ.get("TIMEZONE", "Asia/Shanghai")
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except Exception:
+        import logging
+        logging.warning("Invalid TIMEZONE %r, falling back to Asia/Shanghai", tz_name)
+        tz = zoneinfo.ZoneInfo("Asia/Shanghai")
+    return datetime.now(tz).strftime(f"%Y-%m-%d (%A), {tz_name} time")
 
 
 AGENT_NAMES = ("mail_agent", "calendar_agent", "memos_agent", "github_agent")

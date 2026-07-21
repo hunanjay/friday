@@ -14,13 +14,24 @@ MAIL_FOLDERS = {
 }
 
 
-def search_path(folder: str, query: str, unread_only: bool, has_attachments: bool, top: int) -> str:
+def search_path(
+    folder: str,
+    query: str,
+    unread_only: bool,
+    has_attachments: bool,
+    top: int,
+    select: str | None = None,
+) -> str:
     """Builds the Graph request path. `top` sets Graph's per-page size (capped
     at 50); callers wanting more than one page should follow `@odata.nextLink`
-    (see graph_client.graph_get_paginated) rather than raising this further."""
+    (see graph_client.graph_get_paginated) rather than raising this further.
+    Pass `select` to restrict which fields Graph returns (e.g. omit `body` for
+    list views so the response stays within the browser's localStorage quota)."""
     graph_folder = MAIL_FOLDERS.get(folder, "inbox")
     page_size = min(top, 50)
     path = f"/me/mailFolders/{graph_folder}/messages?$top={page_size}"
+    if select:
+        path += f"&$select={select}"
     if query:
         path += f'&$search="{quote(query)}"'
     else:

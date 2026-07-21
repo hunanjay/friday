@@ -8,6 +8,15 @@ from app.tools.mail_queries import MAIL_FOLDERS, search_path
 
 router = APIRouter(prefix="/api/graph/mail", tags=["mail"])
 
+# Fields fetched for list views (inbox / search). Full body is intentionally
+# omitted - it can be hundreds of KB of HTML per message and would blow the
+# browser's 5 MB localStorage quota. Callers request the full body
+# separately via GET /{email_id} when the user opens a message.
+_LIST_SELECT = (
+    "id,subject,bodyPreview,sender,toRecipients,"
+    "receivedDateTime,isRead,parentFolderId"
+)
+
 
 def _paged(data: dict) -> dict:
     """Reshapes a raw Graph list response into {value, next_cursor} - the
@@ -26,7 +35,10 @@ def _paged(data: dict) -> dict:
 
 @router.get("/inbox")
 async def inbox(top: int = 25, cursor: str | None = None, user_id: str = Depends(get_user_id)):
-    path = cursor or f"/me/mailFolders/inbox/messages?$top={min(top, 50)}&$orderby=receivedDateTime desc"
+    path = cursor or (
+        f"/me/mailFolders/inbox/messages"
+        f"?$top={min(top, 50)}&$orderby=receivedDateTime desc&$select={_LIST_SELECT}"
+    )
     return _paged(await graph_get(user_id, path))
 
 
@@ -40,7 +52,7 @@ async def search(
     cursor: str | None = None,
     user_id: str = Depends(get_user_id),
 ):
-    path = cursor or search_path(folder, query, unread_only, has_attachments, top)
+    path = cursor or search_path(folder, query, unread_only, has_attachments, top, select=_LIST_SELECT)
     return _paged(await graph_get(user_id, path))
 
 

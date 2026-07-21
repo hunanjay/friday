@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# LangGraph dev-server in-memory store checkpoints. These are created by
+# `langgraph dev` and contain serialized agent state (real thread_ids,
+# user_ids, message history). They have no place in version control.
+.langgraph_api/*.pckl

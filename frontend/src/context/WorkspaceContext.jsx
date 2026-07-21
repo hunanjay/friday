@@ -3,6 +3,30 @@ import { supabase } from '../supabaseClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
+// All keys written to localStorage for this app's workspace data.
+// Clearing all of them on logout prevents a subsequent user on the same
+// machine from reading prior session data via DevTools.
+const _WORKSPACE_KEYS = ['user', 'emails', 'events', 'messages'];
+
+function clearWorkspaceStorage() {
+  _WORKSPACE_KEYS.forEach(k => localStorage.removeItem(k));
+}
+
+// Safe localStorage.setItem: if the storage quota is exceeded (common with
+// large inboxes), log a warning and keep the in-memory state intact rather
+// than letting the unhandled QuotaExceededError crash the whole provider.
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+      console.warn(`localStorage quota exceeded for key '${key}', skipping cache`);
+    } else {
+      throw err;
+    }
+  }
+}
+
 // Backend returns updated_at as an ISO string; MemosPage sorts/displays via
 // the derived updatedAt (epoch ms) and dateStr fields it already expects.
 function mapMemo(memo) {
@@ -36,10 +60,10 @@ export function WorkspaceProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [messages, setMessages] = useState(() => {
-    const saved = localStorage.getItem('messages');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // messages are no longer persisted to localStorage - they come from the
+  // backend checkpoint (GET /api/agent/sessions/:id/messages) so they survive
+  // cross-device / cross-browser sessions without a second source of truth.
+  const [messages, setMessages] = useState([]);
 
   // Real chat sessions (thread_id for the LangGraph agent + Postgres
   // checkpointer), fetched from the backend rather than hardcoded.
@@ -70,17 +94,15 @@ export function WorkspaceProvider({ children }) {
   }, [toast.visible]);
 
   // Sync to Local Storage
+  // emails and events are cached for fast initial render; messages are NOT
+  // cached here (they come from the backend checkpoint - see 1.1).
   useEffect(() => {
-    localStorage.setItem('emails', JSON.stringify(emails));
+    safeSetItem('emails', JSON.stringify(emails));
   }, [emails]);
 
   useEffect(() => {
-    localStorage.setItem('events', JSON.stringify(events));
+    safeSetItem('events', JSON.stringify(events));
   }, [events]);
-
-  useEffect(() => {
-    localStorage.setItem('messages', JSON.stringify(messages));
-  }, [messages]);
 
   useEffect(() => {
     localStorage.setItem('sidebar_collapsed', String(isSidebarCollapsed));
@@ -114,11 +136,13 @@ export function WorkspaceProvider({ children }) {
     const applySession = async (session) => {
       if (!session) {
         // Supabase session gone (expired refresh_token, signed out elsewhere,
-        // or never logged in) - clear the stale `user` we persisted to
-        // localStorage so MainLayout's guard redirects to /login instead of
-        // rendering with a null authToken.
-        setUser(prev => (prev === null ? prev : null));
-        localStorage.removeItem('user');
+        // or never logged in) - wipe all cached workspace data so a subsequent
+        // user on the same machine can't read it from DevTools / localStorage.
+        clearWorkspaceStorage();
+        setUser(null);
+        setEmails([]);
+        setEvents([]);
+        setMessages([]);
         setAuthToken(null);
         return;
       }
@@ -323,8 +347,13 @@ export function WorkspaceProvider({ children }) {
 
   const handleLogout = useCallback(() => {
     supabase.auth.signOut();
+    // Wipe all workspace data from both memory and localStorage so the next
+    // user on this machine can't see prior session data.
+    clearWorkspaceStorage();
     setUser(null);
-    localStorage.removeItem('user');
+    setEmails([]);
+    setEvents([]);
+    setMessages([]);
   }, []);
 
   // State modifiers
