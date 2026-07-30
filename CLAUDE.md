@@ -34,7 +34,7 @@ No test suite exists in either package yet.
 
 **Chat route** (`app/api/agent.py`): SSE streaming (`/api/agent/chat`). A message prefixed `/agent_name ...` (from ChatPage's slash-command picker) bypasses the supervisor LLM and routes deterministically to that sub-agent — supervisor LLM routing silently missed cases in practice — while reading/writing the supervisor's own checkpoint so context stays shared. New sessions get an auto-generated title (one cheap LLM call) streamed back as a `title` event.
 
-**Destructive-action gate**: `send_email` / `delete_email` tools default to `confirm=False` (preview only); the model may only pass `confirm=True` after the user explicitly agrees in conversation. It's a soft, prompt-enforced gate — see the `ponytail:` comment in `agents/tools.py` for the upgrade path (LangGraph `interrupt()`).
+**Destructive-action gate**: `send_email` / `delete_email` tools cannot mutate Microsoft Graph. They only write a 15-minute pending request to `pending_agent_actions`; the chat UI renders the trusted request data and calls an authenticated `/api/agent/actions/{id}/confirm` endpoint after an explicit click. The endpoint atomically changes `pending → executing` before the Graph call, preventing model self-approval and duplicate execution. Cancellation and expiry are persisted as terminal states.
 
 **Integrations** (`app/tools/`): `graph_client.py` (Microsoft Graph — Outlook mail/calendar, with token refresh-and-retry), `github_client.py` (commit activity for the daily report), `vector_store.py` (Qdrant + fastembed hybrid search over memos), `html_sanitizer.py`.
 

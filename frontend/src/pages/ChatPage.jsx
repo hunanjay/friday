@@ -16,6 +16,7 @@ export default function ChatPage() {
     chatThreads,
     handleCreateSession,
     handleUpdateSessionTitle,
+    handleUpdateSessionPreview,
     handleDeleteSession,
     handleLogout,
     authToken
@@ -35,6 +36,7 @@ export default function ChatPage() {
   // thread switch. New messages from the streaming response are appended here.
   const [threadMessages, setThreadMessages] = useState([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [pendingActions, setPendingActions] = useState([]);
   const activeThread = chatThreads.find(s => s.id === activeThreadId) || null;
 
   // Slash-command agent picker: only while the whole box is still "/query"
@@ -69,19 +71,66 @@ export default function ChatPage() {
   useEffect(() => {
     if (!activeThreadId || !authToken) {
       setThreadMessages([]);
+      setPendingActions([]);
       return;
     }
+    let ignore = false;
     setIsLoadingMessages(true);
-    fetch(`${API_URL}/api/agent/sessions/${activeThreadId}/messages`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { messages: [] }))
-      .then(data => setThreadMessages(
-        (data.messages || []).map(m => ({ ...m, threadId: activeThreadId }))
-      ))
-      .catch(() => {})
-      .finally(() => setIsLoadingMessages(false));
-  }, [activeThreadId, authToken]);
+    const headers = { Authorization: `Bearer ${authToken}` };
+    Promise.all([
+      fetch(`${API_URL}/api/agent/sessions/${activeThreadId}/messages`, { headers })
+        .then(res => (res.ok ? res.json() : { messages: [] })),
+      fetch(`${API_URL}/api/agent/actions?session_id=${encodeURIComponent(activeThreadId)}`, { headers })
+        .then(res => (res.ok ? res.json() : { actions: [] })),
+    ])
+      .then(([messageData, actionData]) => {
+        if (ignore) return;
+        const loadedMessages = (messageData.messages || []).map(m => ({ ...m, threadId: activeThreadId }));
+        setThreadMessages(loadedMessages);
+        handleUpdateSessionPreview(activeThreadId, messageData.preview);
+        const lastBotMessageId = [...loadedMessages].reverse().find(message => message.sender === 'bot')?.id;
+        const usedAnchorIds = new Set();
+        setPendingActions((actionData.actions || []).map(action => {
+          const recipient = action.payload?.to?.toLowerCase();
+          let matchingMessage = null;
+          if (recipient) {
+            for (let index = 0; index < loadedMessages.length; index += 1) {
+              const message = loadedMessages[index];
+              if (message.sender !== 'user' || !message.text?.toLowerCase().includes(recipient)) continue;
+              matchingMessage = loadedMessages.slice(index + 1).find(candidate => (
+                candidate.sender === 'bot' && !usedAnchorIds.has(candidate.id)
+              ));
+              if (matchingMessage) break;
+            }
+          }
+          if (!matchingMessage && recipient) {
+            matchingMessage = loadedMessages.find(message => (
+              message.sender === 'bot'
+              && !usedAnchorIds.has(message.id)
+              && message.text?.toLowerCase().includes(recipient)
+            ));
+          }
+          const anchorMessageId = action.anchor_message_id || matchingMessage?.id || lastBotMessageId;
+          if (anchorMessageId) usedAnchorIds.add(anchorMessageId);
+          return {
+            ...action,
+            resolved: action.status === 'completed',
+            anchorMessageId,
+          };
+        }));
+      })
+      .catch(() => {
+        if (ignore) return;
+        setThreadMessages([]);
+        setPendingActions([]);
+      })
+      .finally(() => {
+        if (!ignore) setIsLoadingMessages(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [activeThreadId, authToken, handleUpdateSessionPreview]);
 
   // Sessions load asynchronously after login; pick the most recent one once
   // they arrive (or if the active one got deleted from under us).
@@ -96,7 +145,7 @@ export default function ChatPage() {
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [threadMessages, isTyping]);
+  }, [threadMessages, pendingActions, isTyping]);
 
   const handleNewSession = async () => {
     const session = await handleCreateSession(t('chat.newSessionTitle'));
@@ -108,6 +157,47 @@ export default function ChatPage() {
     handleDeleteSession(sessionId);
   };
 
+  const handleUpdateMessageText = (id, newText) => {
+    setThreadMessages(prev => prev.map(m => m.id === id ? { ...m, text: newText } : m));
+  };
+
+  const handleActionDecision = async (action, decision) => {
+    setPendingActions(prev => prev.map(item => (
+      item.id === action.id ? { ...item, busy: true, error: '' } : item
+    )));
+    try {
+      const res = await fetch(`${API_URL}/api/agent/actions/${action.id}/${decision}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.status === 401) {
+        handleLogout();
+        navigate('/login');
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || t('chat.approvalFailed'));
+
+      // Keep the action in the message stream and replace the confirmation
+      // card with a plain result message. This makes the completed state read
+      // naturally in place instead of jumping to the bottom of the chat.
+      if (decision === 'confirm') {
+        setPendingActions(prev => prev.map(item => (
+          item.id === action.id
+            ? { ...item, busy: false, resolved: true, status: 'completed' }
+            : item
+        )));
+      } else {
+        setPendingActions(prev => prev.filter(item => item.id !== action.id));
+      }
+      handleUpdateSessionPreview(activeThreadId, data.preview);
+    } catch (error) {
+      setPendingActions(prev => prev.map(item => (
+        item.id === action.id ? { ...item, busy: false, error: error.message } : item
+      )));
+    }
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     if (!inputText.trim() || !activeThreadId) return;
@@ -115,6 +205,7 @@ export default function ChatPage() {
     const sessionId = activeThreadId;
     const sentText = inputText;
     setInputText('');
+    handleUpdateSessionPreview(sessionId, sentText);
 
     const userMsg = {
       id: 'msg_' + Date.now(),
@@ -199,6 +290,17 @@ export default function ChatPage() {
                   setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
                 } else if (data.title) {
                   handleUpdateSessionTitle(sessionId, data.title);
+                } else if (data.preview) {
+                  handleUpdateSessionPreview(sessionId, data.preview);
+                } else if (data.pending_actions) {
+                  setPendingActions(prev => {
+                    const existingById = new Map(prev.map(action => [action.id, action]));
+                    return data.pending_actions.map(action => ({
+                      ...action,
+                      resolved: action.status === 'completed',
+                      anchorMessageId: action.anchor_message_id || existingById.get(action.id)?.anchorMessageId || botMsgId,
+                    }));
+                  });
                 }
             } catch (err) {
               console.error('Failed to parse SSE data', err);
@@ -218,6 +320,17 @@ export default function ChatPage() {
               setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
             } else if (data.title) {
               handleUpdateSessionTitle(sessionId, data.title);
+            } else if (data.preview) {
+              handleUpdateSessionPreview(sessionId, data.preview);
+            } else if (data.pending_actions) {
+              setPendingActions(prev => {
+                const existingById = new Map(prev.map(action => [action.id, action]));
+                return data.pending_actions.map(action => ({
+                  ...action,
+                  resolved: action.status === 'completed',
+                  anchorMessageId: action.anchor_message_id || existingById.get(action.id)?.anchorMessageId || botMsgId,
+                }));
+              });
             }
           } catch (err) {
             console.error('Failed to parse final SSE data', err);
@@ -260,10 +373,41 @@ export default function ChatPage() {
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSend(e);
     }
+  };
+
+  const renderApprovalAction = (action) => {
+    if (action.resolved) {
+      return (
+        <div key={action.id} className="approval-card approval-card-resolved" role="status">
+          <div className="approval-resolved-status"><span className="approval-status approval-status-sent">{t('chat.approvalStatusSent')}</span></div>
+          {action.action_type === 'send_email' ? (
+            <div className="approval-email-preview">
+              <div className="approval-email-recipient"><span>{t('email.to')}</span><strong>{action.payload.to}</strong></div>
+              <h4 className="approval-email-subject">{action.payload.subject}</h4>
+              <div className="approval-email-body"><span>{t('email.body')}</span><p>{action.payload.body}</p></div>
+            </div>
+          ) : (
+            <div className="approval-details"><div><span>{t('email.subject')}</span><strong>{action.payload.subject}</strong></div>{action.payload.sender && <div><span>{t('chat.sender')}</span><strong>{action.payload.sender}</strong></div>}</div>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div key={action.id} className="approval-card" role="group" aria-label={t('chat.approvalRequired')}>
+        <div className="approval-card-header"><span className="approval-card-icon">{action.action_type === 'send_email' ? <Mail size={18} /> : <Trash size={18} />}</span><div><div className="approval-title-row"><strong>{action.action_type === 'send_email' ? t('chat.reviewEmail') : t('chat.reviewDelete')}</strong><span className="approval-status approval-status-pending">{t('chat.approvalStatusPending')}</span></div><p>{t('chat.approvalRequired')}</p></div></div>
+        {action.action_type === 'send_email' ? (
+          <div className="approval-email-preview"><div className="approval-email-recipient"><span>{t('email.to')}</span><strong>{action.payload.to}</strong></div><h4 className="approval-email-subject">{action.payload.subject}</h4><div className="approval-email-body"><span>{t('email.body')}</span><p>{action.payload.body}</p></div></div>
+        ) : (
+          <div className="approval-details"><div><span>{t('email.subject')}</span><strong>{action.payload.subject}</strong></div>{action.payload.sender && <div><span>{t('chat.sender')}</span><strong>{action.payload.sender}</strong></div>}</div>
+        )}
+        {action.error && <p className="approval-error" role="alert">{action.error}</p>}
+        <div className="approval-actions"><button type="button" className="approval-cancel-btn" disabled={action.busy} onClick={() => handleActionDecision(action, 'cancel')}>{t('common.cancel')}</button><button type="button" className="approval-confirm-btn" disabled={action.busy} onClick={() => handleActionDecision(action, 'confirm')}>{action.busy ? t('chat.approvalWorking') : action.action_type === 'send_email' ? t('chat.confirmSend') : t('chat.confirmDelete')}</button></div>
+      </div>
+    );
   };
 
   return (
@@ -300,7 +444,7 @@ export default function ChatPage() {
                     <span className="thread-name">{thread.title}</span>
                   </div>
                   <p className="thread-preview">
-                    {i18n.language === 'zh' ? '暂无消息预览' : 'No preview available'}
+                    {thread.preview || t('chat.noPreview')}
                   </p>
                 </div>
                 <button
@@ -332,17 +476,22 @@ export default function ChatPage() {
             </div>
 
             <div className="chat-messages-area">
-              {threadMessages.length === 0 ? (
+              {isLoadingMessages ? (
+                <div className="chat-empty-state">
+                  <p>{t('chat.loading')}</p>
+                </div>
+              ) : threadMessages.length === 0 && pendingActions.length === 0 ? (
                 <div className="chat-empty-state">
                   <p>{t('chat.startConversation')}</p>
                 </div>
-              ) : (
+            ) : (
                 threadMessages.map(msg => {
                   const isUser = msg.sender === 'user';
                   const isBot = msg.sender === 'bot';
 
                   return (
-                    <div key={msg.id} className={`message-row ${isUser ? 'user-row' : 'other-row'}`}>
+                    <React.Fragment key={msg.id}>
+                    <div className={`message-row ${isUser ? 'user-row' : 'other-row'}`}>
                       {!isUser && (
                         <div className="message-avatar">
                           {isBot ? <img src="/dora_assistant_avatar.png" alt="Dora" /> : msg.senderName[0]}
@@ -363,9 +512,13 @@ export default function ChatPage() {
                         <span className="message-time">{msg.timestamp}</span>
                       </div>
                     </div>
+                    {pendingActions.filter(action => action.anchorMessageId === msg.id).map(renderApprovalAction)}
+                    </React.Fragment>
                   );
                 })
               )}
+
+              {pendingActions.filter(action => !action.anchorMessageId).map(renderApprovalAction)}
 
               <div ref={messagesEndRef} />
             </div>
@@ -402,10 +555,17 @@ export default function ChatPage() {
                   placeholder={t('chat.inputPlaceholderAI')}
                   rows="1"
                 />
-                <button type="submit" className="send-msg-btn" disabled={!inputText.trim()}>
+                <button
+                  type="submit"
+                  className="send-msg-btn"
+                  disabled={!inputText.trim()}
+                  title={t('chat.sendMessage')}
+                  aria-label={t('chat.sendMessage')}
+                >
                   <Send size={16} />
                 </button>
               </div>
+              <span className="chat-send-hint">{t('chat.sendHint')}</span>
             </form>
           </>
         ) : (

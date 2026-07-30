@@ -1,10 +1,12 @@
 import logging
+import os
 from urllib.parse import quote
 
 from fastapi import HTTPException
 from langchain_core.tools import tool
 
 from app.db import memos as memos_db
+from app.db import pending_actions
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
 from app.tools.graph_client import graph_delete, graph_get, graph_get_paginated, graph_patch, graph_post
@@ -44,7 +46,7 @@ def _format_email_row(m: dict) -> str:
     )
 
 
-def make_mail_tools(user_id: str) -> list:
+def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
     @tool
     async def list_inbox(top: int = 10, folder: str = "inbox") -> str:
         """List the most recent messages in a mail folder (subject, sender, preview).
@@ -102,39 +104,23 @@ def make_mail_tools(user_id: str) -> list:
             f"{text}"
         )
 
-    # ponytail: confirm is a soft gate - enforced by confirm=False previewing
-    # instead of sending/deleting, plus the mail_agent prompt telling the model
-    # when it's allowed to flip it. Not tamper-proof against a model that sets
-    # confirm=True immediately. Upgrade to a LangGraph interrupt() + frontend
-    # confirm dialog if that ever needs to be a hard (non-prompt-based) gate.
     @tool
-    async def send_email(to: str, subject: str, body: str, confirm: bool = False) -> str:
-        """Send an email on the user's behalf. `to` is a single recipient email address.
-        Sending is irreversible: leave confirm=False first to preview the email without
-        sending it, then call again with confirm=True only after the user has explicitly
-        agreed to send it in this conversation."""
-        if not confirm:
-            return (
-                f"Not sent yet - preview only.\nTo: {to}\nSubject: {subject}\n\n{body}\n\n"
-                "Ask the user to confirm, then call send_email again with confirm=True."
-            )
-        _, err = await _graph(
-            graph_post(
-                user_id,
-                "/me/sendMail",
-                {
-                    "message": {
-                        "subject": subject,
-                        "body": {"contentType": "Text", "content": body},
-                        "toRecipients": [{"emailAddress": {"address": to}}],
-                    },
-                    "saveToSentItems": True,
-                },
-            )
+    async def send_email(to: str, subject: str, body: str) -> str:
+        """Request approval to send an email. This tool cannot send anything itself:
+        it creates a short-lived server-side request that only the user's confirmation
+        button can execute. Call it once with the final recipient, subject, and body."""
+        if not session_id:
+            return "Email approval is unavailable outside an authenticated chat session."
+        action = await pending_actions.create_action(
+            user_id,
+            session_id,
+            "send_email",
+            {"to": to, "subject": subject, "body": body},
         )
-        if err:
-            return err
-        return f"Email sent to {to}."
+        return (
+            f"Approval required (action {action['id']}). Nothing has been sent. "
+            "The user must review the email and press Confirm and send in the chat UI."
+        )
 
     @tool
     async def mark_email_read(email_id: str, is_read: bool = True) -> str:
@@ -145,25 +131,32 @@ def make_mail_tools(user_id: str) -> list:
         return f"Email {email_id} marked as {'read' if is_read else 'unread'}."
 
     @tool
-    async def delete_email(email_id: str, confirm: bool = False) -> str:
-        """Move an email to Deleted Items by id. Deleting is hard to reverse:
-        leave confirm=False first to preview what would happen, then call again
-        with confirm=True only after the user has explicitly agreed to it.
-        Note: permanent deletion is not available via this tool - only move to
-        Deleted Items. The user can permanently delete from the Deleted Items
-        folder themselves."""
-        if not confirm:
-            return (
-                f"Not deleted yet - preview only. Would move email {email_id} to "
-                "Deleted Items. Ask the user to confirm, then call delete_email "
-                "again with confirm=True."
-            )
-        _, err = await _graph(
-            graph_post(user_id, f"/me/messages/{quote(email_id)}/move", {"destinationId": "deleteditems"})
+    async def delete_email(email_id: str) -> str:
+        """Request approval to move an email to Deleted Items. This tool cannot
+        delete anything itself; only the user's confirmation button can execute
+        the short-lived server-side request."""
+        if not session_id:
+            return "Email approval is unavailable outside an authenticated chat session."
+        message, err = await _graph(
+            graph_get(user_id, f"/me/messages/{quote(email_id)}?$select=id,subject,from")
         )
         if err:
             return err
-        return f"Email {email_id} moved to Deleted Items."
+        sender = (message.get("from") or {}).get("emailAddress") or {}
+        action = await pending_actions.create_action(
+            user_id,
+            session_id,
+            "delete_email",
+            {
+                "email_id": email_id,
+                "subject": message.get("subject") or "(no subject)",
+                "sender": sender.get("address") or sender.get("name") or "",
+            },
+        )
+        return (
+            f"Approval required (action {action['id']}). Nothing has been deleted. "
+            "The user must review the message and press Confirm delete in the chat UI."
+        )
 
     return [list_inbox, search_emails, read_email, send_email, mark_email_read, delete_email]
 

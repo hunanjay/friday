@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 
 from app.agents import checkpointer  # noqa: E402  (needs load_dotenv() first)
 from app.api import agent, auth, calendar, github, github_auth, mail, memos  # noqa: E402  (needs load_dotenv() first)
-from app.db import chat_sessions  # noqa: E402  (needs load_dotenv() first)
+from app.db import chat_sessions, pending_actions  # noqa: E402  (needs load_dotenv() first)
 from app.db import memos as memos_db  # noqa: E402  (needs load_dotenv() first)
 from app.tools import github_client, graph_client, vector_store  # noqa: E402  (needs load_dotenv() first)
 
@@ -19,10 +19,12 @@ from app.tools import github_client, graph_client, vector_store  # noqa: E402  (
 async def lifespan(_app: FastAPI):
     await checkpointer.init_checkpointer()
     await chat_sessions.init_pool()
+    await pending_actions.init_pool()
     await memos_db.init_pool()
     await vector_store.init_collection()
     yield
     await memos_db.close_pool()
+    await pending_actions.close_pool()
     await chat_sessions.close_pool()
     await checkpointer.close_checkpointer()
     await graph_client.aclose_client()

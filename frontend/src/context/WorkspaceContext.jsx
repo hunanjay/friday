@@ -315,6 +315,11 @@ export function WorkspaceProvider({ children }) {
     setChatThreads(prev => prev.map(s => (s.id === sessionId ? { ...s, title } : s)));
   }, []);
 
+  const handleUpdateSessionPreview = useCallback((sessionId, preview) => {
+    if (!preview) return;
+    setChatThreads(prev => prev.map(s => (s.id === sessionId ? { ...s, preview } : s)));
+  }, []);
+
   const handleDeleteSession = useCallback(async (sessionId) => {
     await fetch(`${API_URL}/api/agent/sessions/${sessionId}`, {
       method: 'DELETE',
@@ -333,6 +338,18 @@ export function WorkspaceProvider({ children }) {
     setEmails(prev => {
       const existingIds = new Set(prev.map(e => e.id));
       return [...prev, ...inboxEmails.filter(e => !existingIds.has(e.id))];
+    });
+  }, []);
+
+  const handleSyncSentEmails = useCallback((sentEmails) => {
+    setEmails(prev => [...sentEmails, ...prev.filter(e => e.parentFolderId !== 'sent')]);
+  }, []);
+
+  // Appends a "load more" page without disturbing already-synced sent emails.
+  const handleAppendSentEmails = useCallback((sentEmails) => {
+    setEmails(prev => {
+      const existingIds = new Set(prev.map(e => e.id));
+      return [...prev, ...sentEmails.filter(e => !existingIds.has(e.id))];
     });
   }, []);
 
@@ -448,9 +465,12 @@ export function WorkspaceProvider({ children }) {
         adjustInboxUnread,
         handleSyncInboxEmails,
         handleAppendInboxEmails,
+        handleSyncSentEmails,
+        handleAppendSentEmails,
         handleSyncEvents,
         handleCreateSession,
         handleUpdateSessionTitle,
+        handleUpdateSessionPreview,
         handleDeleteSession,
         handleLogin,
         handleLogout,

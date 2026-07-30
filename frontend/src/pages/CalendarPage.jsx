@@ -2,8 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronLeft, ChevronRight, X, Trash } from '../components/common/Icons';
+import EmailContentRenderer from '../components/common/EmailContentRenderer';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+
+function hasVisibleEventBody(body) {
+  const content = body?.content || '';
+  if (!content.trim()) return false;
+  if ((body?.contentType || '').toLowerCase() !== 'html') return true;
+
+  const documentNode = new DOMParser().parseFromString(content, 'text/html');
+  const visibleText = (documentNode.body?.textContent || '').replace(/\u00a0/g, ' ').trim();
+  return Boolean(visibleText || documentNode.body?.querySelector('img, table, hr'));
+}
 
 export default function CalendarPage() {
   const {
@@ -434,12 +445,14 @@ export default function CalendarPage() {
                 <span className="meta-icon">📍</span>
                 <span>{selectedEvent.location?.displayName || 'Virtual Meeting'}</span>
               </div>
-              {selectedEvent.body?.content && (
-                <div className="details-desc">
-                  <h4>{i18n.language === 'zh' ? "议程" : "Agenda"}</h4>
-                  <p>{selectedEvent.body.content}</p>
-                </div>
-              )}
+              <div className="details-desc">
+                <h4>{t('calendar.agenda')}</h4>
+                {hasVisibleEventBody(selectedEvent.body) ? (
+                  <EmailContentRenderer body={selectedEvent.body} />
+                ) : (
+                  <p className="details-empty-desc">{t('calendar.noAgenda')}</p>
+                )}
+              </div>
             </div>
             <div className="modal-footer">
               <button 

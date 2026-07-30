@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/graph/mail", tags=["mail"])
 # separately via GET /{email_id} when the user opens a message.
 _LIST_SELECT = (
     "id,subject,bodyPreview,sender,toRecipients,"
-    "receivedDateTime,isRead,parentFolderId"
+    "receivedDateTime,isRead,parentFolderId,conversationId"
 )
 
 
@@ -42,6 +42,15 @@ async def inbox(top: int = 25, cursor: str | None = None, user_id: str = Depends
     return _paged(await graph_get(user_id, path))
 
 
+@router.get("/sent")
+async def sent(top: int = 25, cursor: str | None = None, user_id: str = Depends(get_user_id)):
+    path = cursor or (
+        f"/me/mailFolders/sentitems/messages"
+        f"?$top={min(top, 50)}&$orderby=receivedDateTime desc&$select={_LIST_SELECT}"
+    )
+    return _paged(await graph_get(user_id, path))
+
+
 @router.get("/search")
 async def search(
     query: str = "",
@@ -63,6 +72,29 @@ async def folder_counts(folder: str, user_id: str = Depends(get_user_id)):
     graph_folder = MAIL_FOLDERS.get(folder, "inbox")
     data = await graph_get(user_id, f"/me/mailFolders/{graph_folder}?$select=unreadItemCount,totalItemCount")
     return {"unread": data.get("unreadItemCount", 0), "total": data.get("totalItemCount", 0)}
+
+
+@router.get("/conversation/{conversation_id}")
+async def conversation_thread(conversation_id: str, user_id: str = Depends(get_user_id)):
+    """Returns all messages in a conversation thread, sorted oldest-first.
+    Graph's $filter on conversationId works across folders (inbox + sent),
+    so a full reply chain is returned in a single call.
+    NOTE: $orderby cannot be combined with $filter on /me/messages (Graph
+    returns InefficientFilter). We sort the result set in Python instead.
+    """
+    select = _LIST_SELECT + ",body"
+    path = (
+        f"/me/messages"
+        f"?$filter=conversationId eq '{quote(conversation_id)}'"
+        f"&$top=50"
+        f"&$select={select}"
+    )
+    data = await graph_get(user_id, path)
+    messages = data.get("value", [])
+    # Sort oldest-first so the frontend renders a chronological timeline.
+    messages.sort(key=lambda m: m.get("receivedDateTime", ""))
+    return {"value": messages}
+
 
 
 @router.get("/{email_id}")

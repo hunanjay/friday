@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>罗剑 - 个人简历</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans SC', system-ui, sans-serif;
+        }
+        
+        .hero-bg {
+            background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+        }
+        
+        .section-title {
+            position: relative;
+        }
+        
+        .section-title:after {
+            content: '';
+            position: absolute;
+            width: 60px;
+            height: 3px;
+            background: #3b82f6;
+            bottom: -8px;
+            left: 0;
+        }
+        
+        .timeline-item {
+            position: relative;
+        }
+        
+        .timeline-item:before {
+            content: '';
+            position: absolute;
+            left: 11px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #e5e7eb;
+        }
+        
+        .print-hidden {
+            display: block;
+        }
+        
+        @media print {
+            .print-hidden {
+                display: none !important;
+            }
+            body {
+                background: white;
+                color: black;
+            }
+        }
+        
+        .skill-tag {
+            padding: 0.25rem 0.75rem;
+            background-color: #eff6ff;
+            color: #1d4ed8;
+            font-size: 0.75rem;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <!-- 导航栏 -->
+    <nav class="bg-white shadow-sm sticky top-0 z-50 print:hidden">
+        <div class="max-w-5xl mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl">简</div>
+                <span class="font-semibold text-xl">个人简历</span>
+            </div>
+            <div class="flex gap-6 text-sm">
+                <a href="#about" class="hover:text-blue-600 transition-colors">关于我</a>
+                <a href="#experience" class="hover:text-blue-600 transition-colors">工作经历</a>
+                <a href="#projects" class="hover:text-blue-600 transition-colors">项目经验</a>
+                <a href="#skills" class="hover:text-blue-600 transition-colors">技能专长</a>
+                <a href="#education" class="hover:text-blue-600 transition-colors">教育背景</a>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="window.print()" 
+                        class="flex items-center gap-2 px-4 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                    <i class="fa-solid fa-print"></i>
+                    <span>打印/保存PDF</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 英雄区 -->
+    <header class="hero-bg text-white py-20">
+        <div class="max-w-5xl mx-auto px-6 flex flex-col md:flex-row gap-12 items-center">
+            <div class="flex-shrink-0">
+                <div class="w-48 h-48 bg-white rounded-3xl overflow-hidden border-4 border-white shadow-xl">
+                    <!-- 替换为你的照片 -->
+                    <img src="image-removebg-preview(1).png" 
+                         alt="罗剑" class="w-full h-full object-cover">
+                </div>
+            </div>
+            
+            <div class="flex-1 text-center md:text-left">
+                <h1 class="text-5xl font-bold mb-2 flex flex-col md:flex-row md:items-baseline gap-2">
+                    罗剑 
+                    <span class="text-2xl font-normal text-blue-200">LUOJIAN</span>
+                </h1>
+                <p class="text-2xl text-blue-100 mb-6">AI 应用开发</p>
+                
+                <div class="flex flex-wrap justify-center md:justify-start gap-x-8 gap-y-3 text-sm">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-envelope"></i>
+                        <a href="mailto:Loganjian@outlook.com" class="hover:underline">Loganjian@outlook.com</a>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-phone"></i>
+                        <span>+13341398479</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-location-dot"></i>
+                        <span>深圳 / 中国</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-github"></i>
+                        <a href="https://github.com/hunanjay" target="_blank" class="hover:underline">github.com/hunanjay</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-5xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-12">
+        
+        <!-- 左侧主要内容 -->
+        <div class="lg:col-span-8 space-y-16">
+            
+            <!-- 个人简介 -->
+            <section id="about">
+                <h2 class="section-title text-3xl font-semibold mb-8">关于我</h2>
+                <div class="prose prose-lg max-w-none">
+                    <p class="text-gray-600 leading-relaxed">
+                        热爱构建智能化、高效的 AI 应用系统。熟练掌握 Python、LangGraph、RAG 以及多智能体 (Multi-Agent) 开发技术栈。具备扎实的数据科学与大数据技术背景，能够独立承担从数据 ETL、后端 API 开发到 AI Agent 编排的全栈开发流程。
+                    </p>
+                    <p class="text-gray-600 leading-relaxed mt-4">
+                        注重代码质量与系统性能优化，熟悉 Docker 容器化与 CI/CD 流程。在团队协作中具备良好的沟通能力，致力于将前沿的 AI 技术转化为实际的生产力工具。
+                    </p>
+                </div>
+            </section>
+
+            <!-- 工作经历 -->
+            <section id="experience">
+                <h2 class="section-title text-3xl font-semibold mb-8">工作经历</h2>
+                <div class="space-y-10">
+                    
+                    <div class="timeline-item pl-8">
+                        <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
+                            <div>
+                                <h3 class="font-semibold text-xl">港大教育信息咨询（深圳）有限公司</h3>
+                                <p class="text-blue-600">AI 应用开发 (Python) · 2025.08 - 至今</p>
+                            </div>
+                            <div class="md:ml-auto text-sm text-gray-500">深圳</div>
+                        </div>
+                        <div class="mt-4 mb-2 font-medium text-gray-800">AIOS – 多智能体 AI 高校办公系统</div>
+                        <ul class="list-disc list-outside pl-5 space-y-2 text-gray-600">
+                            <li><strong class="text-gray-700">Email Agent:</strong> 基于 LangGraph 构建了邮件智能体，实现了邮件自动分类、智能回复及日历同步功能，服务于 500 多名用户。</li>
+                            <li><strong class="text-gray-700">信息 RAG 系统:</strong> 利用 RAG（检索增强生成）技术为高校官网打造了 AI 助手，整合校园数据提供自动化问答服务，提升了信息获取效率。</li>
+                            <li><strong class="text-gray-700">Moodle Agent:</strong> 基于 Web Services API 将 Moodle 核心功能移植至 AIOS，并结合 Moodle Agent 实现对课程、作业与讨论数据的智能访问，以供高效使用。</li>
+                            <li><strong class="text-gray-700">Microsoft Graph API:</strong> 深度集成 Microsoft Graph API，将 OneDrive、Outlook 邮件及日历整合进统一的办公空间。</li>
+                            <li><strong class="text-gray-700">系统部署与运维:</strong> 采用 FastAPI + Svelte 搭建前后端架构，并通过 Docker + CI/CD 完成容器化部署，提升系统可扩展性与迭代效率。</li>
+                            <li><strong class="text-gray-700">BBS Agent:</strong> 打造集 RAG 问答、简历智能匹配、多模态内容安全审核于一体的 BBS Agent，实现自动化社区治理与智能化就业辅助。</li>
+                        </ul>
+
+                        <div class="mt-6 mb-2 font-medium text-gray-800">Nexus - 科研项目管理 Agent 系统</div>
+                        <ul class="list-disc list-outside pl-5 space-y-2 text-gray-600">
+                            <li><strong class="text-gray-700">多模态成员画像构建:</strong> 集成 Graphify 引擎，自动扫描并解析团队历史代码、科研文档及组会音频（转录），构建动态更新的成员技能知识图谱，替代传统手动维护的 Wiki。</li>
+                            <li><strong class="text-gray-700">Agent 任务自动拆解:</strong> 研发基于 LLM 的任务理解模块，引入“科研工作流提示词模版”，将宏观的科研目标自动拆解为粒度合理、可执行的子任务。</li>
+                            <li><strong class="text-gray-700">知识与任务匹配引擎:</strong> 设计相似度匹配算法，将拆解后的任务节点与成员能力图谱进行向量比对，实现任务的自动寻优与精准分发。</li>
+                            <li><strong class="text-gray-700">开源生态深度集成:</strong> 对接开源项目管理工具 Plane 的 Webhook 与 API，实现 Agent 分析结果到 Issue 创建、负责人挂载、图谱上下文关联的全自动化流转。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 项目经验 -->
+            <section id="projects">
+                <h2 class="section-title text-3xl font-semibold mb-8">个人项目经验</h2>
+                <div class="grid md:grid-cols-1 gap-6">
+                    
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                        <h3 class="font-semibold text-lg mb-2">阿里云茶叶电商系统</h3>
+                        <p class="text-gray-500 text-sm mb-4">个人项目</p>
+                        <ul class="list-disc list-outside pl-5 space-y-2 text-gray-600 mb-4 text-sm">
+                            <li><strong class="text-gray-700">云基础设施搭建:</strong> 配置阿里云 ECS、VPC 和 SLB，为电商平台构建安全、稳定的网络环境。</li>
+                            <li><strong class="text-gray-700">K8s 与中间件运维:</strong> 管理阿里云 ACK（Kubernetes）集群；利用容器化编排技术部署并维护 Nacos、MySQL 和 Redis 等核心中间件。</li>
+                            <li><strong class="text-gray-700">微服务部署:</strong> 完成 Spring Cloud 后端与 Vue.js 前端的全量部署；配置 Nginx 实现反向代理与负载均衡。</li>
+                            <li><strong class="text-gray-700">CI/CD 与 Docker 交付:</strong> 管理 Docker 镜像的全生命周期，利用阿里云 ACR（容器镜像服务）实现镜像的安全存储、版本化管理与自动化部署。</li>
+                        </ul>
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            <span class="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">Kubernetes</span>
+                            <span class="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">Docker</span>
+                            <span class="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">CI/CD</span>
+                            <span class="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">Spring Cloud</span>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        </div>
+
+        <!-- 右侧侧边栏 -->
+        <div class="lg:col-span-4 space-y-12">
+            
+            <!-- 技能 -->
+            <section id="skills">
+                <h2 class="section-title text-2xl font-semibold mb-6">专业技能</h2>
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between text-sm mb-2">
+                            <span class="font-medium">AI 与架构开发</span>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="skill-tag">LangGraph</span>
+                            <span class="skill-tag">RAG</span>
+                            <span class="skill-tag">Multi-Agent</span>
+                            <span class="skill-tag">Prompt Engineering</span>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-sm mb-2">
+                            <span class="font-medium">开发与数据</span>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="skill-tag">Python</span>
+                            <span class="skill-tag">SQL</span>
+                            <span class="skill-tag">Linux</span>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-sm mb-2">
+                            <span class="font-medium">平台与工具</span>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="skill-tag">Docker</span>
+                            <span class="skill-tag">CI/CD</span>
+                            <span class="skill-tag">Microsoft Graph API</span>
+                            <span class="skill-tag">Git</span>
+                            <span class="skill-tag">Postman</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 教育背景 -->
+            <section id="education">
+                <h2 class="section-title text-2xl font-semibold mb-6">教育背景</h2>
+                <div class="bg-white p-6 rounded-2xl shadow-sm">
+                    <h3 class="font-semibold">江西科技师范大学</h3>
+                    <p class="text-blue-600 text-sm">数据科学与大数据技术 · 本科</p>
+                    <p class="text-gray-500 text-sm mt-1">2021 - 2025</p>
+                    <p class="text-sm mt-4 text-gray-600">语言: CET-4</p>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>

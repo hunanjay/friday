@@ -103,7 +103,7 @@ def _trim_history(state: dict) -> dict:
     return {"llm_input_messages": trimmed}
 
 
-def build_agent(user_id: str, name: str):
+def build_agent(user_id: str, name: str, session_id: str | None = None):
     """Builds one domain sub-agent standalone. Used both as a node inside
     build_supervisor()'s graph, and to route a "/agent_name ..." tagged chat
     message directly to it, bypassing the supervisor LLM's own routing
@@ -113,15 +113,19 @@ def build_agent(user_id: str, name: str):
     if name == "mail_agent":
         return create_react_agent(
             model,
-            tools=make_mail_tools(user_id),
+            tools=make_mail_tools(user_id, session_id),
             name="mail_agent",
             pre_model_hook=_trim_history,
             prompt=(
                 "You handle the user's email: listing, searching, and reading messages, "
                 "sending new ones, and marking read/unread or deleting existing ones. "
-                "send_email and delete_email default to a preview (confirm=False) instead "
-                "of acting - describe the action to the user and only call the tool again "
-                "with confirm=True once they've explicitly agreed to it in this conversation."
+                "send_email and delete_email never perform the action directly. They create "
+                "a server-side approval request shown in the chat UI. Call the relevant tool "
+                "once with final values whenever the user explicitly asks to send or delete. "
+                "Do not merely draft or ask whether they want to send when the user already "
+                "said send. After calling the tool, tell the user nothing happened yet and "
+                "ask them to use the confirmation card. Never claim you can approve an action "
+                "yourself."
             ),
         )
     if name == "calendar_agent":
@@ -173,13 +177,13 @@ def build_agent(user_id: str, name: str):
     raise ValueError(f"Unknown agent: {name}")
 
 
-def build_supervisor(user_id: str):
+def build_supervisor(user_id: str, session_id: str | None = None):
     """Builds a fresh supervisor graph per request, its tools closed over
     this user's id so each sub-agent only ever touches this user's mailbox
     and calendar."""
     model = _get_model()
     today = _today_str()
-    agents = [build_agent(user_id, name) for name in AGENT_NAMES]
+    agents = [build_agent(user_id, name, session_id) for name in AGENT_NAMES]
 
     # Custom handoff tools carrying task-specific descriptions (_ROUTING_HINTS)
     # instead of langgraph_supervisor's default "Ask agent 'X' for help" -
@@ -201,7 +205,9 @@ def build_supervisor(user_id: str):
             f"Today is {today}. You are a supervisor coordinating four agents:\n"
             f"{agent_lines}\n"
             "Route each user request to the right agent(s) and relay their results "
-            "back concisely."
+            "back concisely. For email requests that explicitly ask to send, the mail "
+            "agent must call send_email so a confirmation action is created; never report "
+            "that an email was sent unless the user has confirmed the action."
             # Note: explicit "/agent_name ..." tags are intercepted and routed
             # deterministically in code (api/agent.py) before this graph ever
             # runs, so the supervisor LLM never has to parse them itself.
@@ -233,4 +239,5 @@ def make_graph(config: dict | None = None):
     user_id via the API route. Pass one via the Studio "configurable" panel
     (key: user_id) to test against a real logged-in user's tokens."""
     user_id = (config or {}).get("configurable", {}).get("user_id", "studio-user")
-    return build_supervisor(user_id)
+    session_id = (config or {}).get("configurable", {}).get("thread_id")
+    return build_supervisor(user_id, session_id)

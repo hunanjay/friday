@@ -876,6 +876,148 @@
   margin-bottom: 1.25em;
 }
 
+/* Thread count badge on list row */
+.thread-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 0 6px;
+  height: 18px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--accent-light);
+  color: var(--accent-primary);
+  border-radius: 9px;
+  vertical-align: middle;
+}
+
+/* Thread subject count label */
+.thread-msg-count-label {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-left: 10px;
+  font-weight: 400;
+}
+
+/* Timeline container */
+.thread-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 16px;
+  padding-bottom: 40px;
+}
+
+/* Individual message entry – always fully visible, no collapse */
+.thread-msg-entry {
+  padding: 20px 0;
+}
+.thread-msg-latest .thread-msg-header {
+  /* Subtle highlight on the most recent message */
+  background: var(--accent-light);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+/* Per-message header row – clickable to expand/collapse */
+.thread-msg-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 8px;
+  padding: 6px 4px;
+  transition: background 0.12s ease;
+}
+.thread-msg-header:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.05));
+}
+/* Collapsed state: header is more compact */
+.thread-msg-collapsed .thread-msg-header {
+  margin-bottom: 0;
+  align-items: center;
+}
+.thread-expand-chevron {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.thread-msg-header-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.thread-msg-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+/* Body spacing */
+.thread-msg-body {
+  padding-left: 46px; /* aligns with text after the avatar */
+}
+
+/* Divider between messages */
+.thread-msg-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0 0;
+  opacity: 0.6;
+}
+
+/* Collapsed message: Outlook-style compact single-line row */
+.thread-msg-stub-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  min-width: 0;
+}
+.thread-msg-stub-row:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.05));
+}
+.stub-sender {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+.stub-preview {
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.stub-date {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+
+
+
+
 /* --------------------------------------------------------------------------
    4. CALENDAR TAB STYLES
    -------------------------------------------------------------------------- */
@@ -1456,6 +1598,245 @@
   margin: auto;
 }
 
+.approval-card {
+  align-self: flex-start;
+  width: min(560px, 86%);
+  margin-left: 44px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, var(--border-light));
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  animation: fadeIn 0.25s ease-out;
+}
+
+@media (max-width: 600px) {
+  .approval-card {
+    width: calc(100% - 44px);
+  }
+}
+
+.approval-result-text {
+  align-self: flex-start;
+  width: min(560px, 86%);
+  padding: 10px 14px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.approval-card-resolved {
+  border-color: color-mix(in srgb, var(--color-success, #2f9e44) 45%, var(--border-light));
+}
+
+.approval-resolved-status {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.approval-card-resolved .approval-card-icon {
+  color: var(--color-success, #2f9e44);
+  background: color-mix(in srgb, var(--color-success, #2f9e44) 14%, var(--bg-card));
+}
+
+.approval-card-resolved .approval-details > div {
+  display: block;
+  padding: 3px 0;
+}
+
+.approval-card-resolved .approval-details span,
+.approval-card-resolved .approval-details strong {
+  display: block;
+}
+
+.approval-card-resolved .approval-details strong {
+  margin-top: 3px;
+}
+
+.approval-card-resolved .approval-body p {
+  margin-top: 4px;
+}
+
+.approval-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.approval-card-header p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.approval-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.approval-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.approval-status-pending {
+  color: var(--accent-primary);
+  background: var(--accent-light);
+}
+
+.approval-status-sent {
+  color: var(--color-success, #2f9e44);
+  background: color-mix(in srgb, var(--color-success, #2f9e44) 14%, var(--bg-card));
+}
+
+.message-status {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.approval-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: var(--accent-primary);
+  background: var(--accent-light);
+}
+
+.approval-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-app);
+}
+
+.approval-details > div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.approval-details span {
+  color: var(--text-muted);
+}
+
+.approval-details strong,
+.approval-body p {
+  overflow-wrap: anywhere;
+}
+
+.approval-email-preview {
+  padding: 2px 2px 0;
+}
+
+.approval-email-recipient {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.approval-email-recipient span,
+.approval-email-body > span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.approval-email-recipient strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.approval-email-subject {
+  margin: 16px 0 12px;
+  color: var(--text-primary);
+  font-size: 1.02rem;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.approval-email-body {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.approval-email-body p {
+  margin: 7px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-body p {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.approval-error {
+  margin: 10px 0 0;
+  color: var(--color-urgent);
+  font-size: 0.8rem;
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.approval-cancel-btn,
+.approval-confirm-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.approval-cancel-btn {
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+}
+
+.approval-confirm-btn {
+  color: #fff;
+  background: var(--accent-primary);
+}
+
+.approval-cancel-btn:disabled,
+.approval-confirm-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 /* Typing bubble */
 .typing-bubble {
   display: flex;
@@ -1575,6 +1956,15 @@
   line-height: 1.4;
   height: auto;
   box-shadow: none !important;
+}
+
+.chat-send-hint {
+  display: block;
+  margin-top: 6px;
+  padding-right: 2px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.7rem;
 }
 
 .send-msg-btn {

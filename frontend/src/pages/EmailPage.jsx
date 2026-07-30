@@ -21,6 +21,7 @@ function normalizeMessage(msg, parentFolderId) {
     receivedDateTime: msg.receivedDateTime,
     isRead: msg.isRead,
     parentFolderId,
+    conversationId: msg.conversationId || null,
   };
 }
 
@@ -38,6 +39,8 @@ export default function EmailPage() {
     adjustInboxUnread,
     handleSyncInboxEmails,
     handleAppendInboxEmails,
+    handleSyncSentEmails,
+    handleAppendSentEmails,
     handleLogout,
     setIsSidebarCollapsed
   } = useWorkspace();
@@ -45,7 +48,7 @@ export default function EmailPage() {
   const { t, i18n } = useTranslation();
 
   const [activeFolder, setActiveFolder] = useState('inbox');
-  const [selectedEmailId, setSelectedEmailId] = useState(emails.length > 0 ? emails[0].id : null);
+
   const [searchQuery, setSearchQuery] = useState('');
 
   // Cursor pagination: each fetch (initial sync, search, or "load more")
@@ -54,11 +57,24 @@ export default function EmailPage() {
   const [inboxCursor, setInboxCursor] = useState(null);
   const [isLoadingMoreInbox, setIsLoadingMoreInbox] = useState(false);
 
+  const [sentCursor, setSentCursor] = useState(null);
+  const [isLoadingMoreSent, setIsLoadingMoreSent] = useState(false);
+  // Tracks whether we've already fetched sent in this session (lazy: only on first visit).
+  const [hasFetchedSent, setHasFetchedSent] = useState(false);
+  const [isSyncingSent, setIsSyncingSent] = useState(false);
+
   // Per-session body cache: maps email id -> Graph body object (content +
   // contentType). Not persisted - fetched on demand when an email is selected.
   // Keyed separately from `emails` so re-renders from inbox updates don't
   // evict already-loaded bodies.
   const [bodyCache, setBodyCache] = useState({});
+
+  // Thread detail state (must be declared before any useEffect that references them)
+  const [selectedConvKey, setSelectedConvKey] = useState(null);
+  const [threadMessages, setThreadMessages] = useState([]);
+  const [isLoadingThread, setIsLoadingThread] = useState(false);
+  // IDs of messages whose full body is expanded in the timeline view.
+  const [expandedMsgIds, setExpandedMsgIds] = useState(new Set());
 
   // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
   // value, so periodic Supabase token refreshes don't re-trigger a refetch.
@@ -100,6 +116,42 @@ export default function EmailPage() {
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsLoadingMoreInbox(false));
+  };
+
+  // Lazy sync: fetch sent emails the first time the user switches to the Sent folder.
+  useEffect(() => {
+    if (!authToken || activeFolder !== 'sent' || hasFetchedSent) return;
+    setIsSyncingSent(true);
+    fetch(`${API_URL}/api/graph/mail/sent`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => {
+        if (res.status === 401) { handleLogout(); return null; }
+        return res.json();
+      })
+      .then(data => {
+        if (!data) return;
+        handleSyncSentEmails((data.value || []).map(msg => normalizeMessage(msg, 'sent')));
+        setSentCursor(data.next_cursor || null);
+        setHasFetchedSent(true);
+      })
+      .catch(() => showToast(t('email.syncFailed')))
+      .finally(() => setIsSyncingSent(false));
+  }, [authToken, activeFolder, hasFetchedSent, handleSyncSentEmails, handleLogout, showToast, t]);
+
+  const handleLoadMoreSent = () => {
+    if (!sentCursor || isLoadingMoreSent) return;
+    setIsLoadingMoreSent(true);
+    fetch(`${API_URL}/api/graph/mail/sent?cursor=${encodeURIComponent(sentCursor)}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
+      .then(data => {
+        handleAppendSentEmails((data.value || []).map(msg => normalizeMessage(msg, 'sent')));
+        setSentCursor(data.next_cursor || null);
+      })
+      .catch(() => showToast(t('email.syncFailed')))
+      .finally(() => setIsLoadingMoreSent(false));
   };
 
   // Compose modal states
@@ -148,7 +200,7 @@ export default function EmailPage() {
   useEffect(() => {
     setAiDraft('');
     setAiInstruction('');
-  }, [selectedEmailId]);
+  }, [selectedConvKey]);
 
   // Filter emails by folder
   const folderEmails = emails.filter(email => {
@@ -157,6 +209,39 @@ export default function EmailPage() {
     if (activeFolder === 'trash') return email.parentFolderId === 'trash';
     return true;
   });
+
+  // Group folderEmails by conversationId (Gmail-style threading).
+  // Each thread row = the most recent message in that conversation.
+  // Threads without a conversationId are treated as standalone (id as key).
+  const threadedEmails = (() => {
+    const map = new Map(); // conversationId -> thread summary
+    for (const email of folderEmails) {
+      const key = email.conversationId || email.id;
+      if (!map.has(key)) {
+        map.set(key, {
+          ...email,            // latest message fields used for the row
+          _threadKey: key,
+          _count: 1,
+          _hasUnread: !email.isRead,
+        });
+      } else {
+        const existing = map.get(key);
+        const existingDate = new Date(existing.receivedDateTime);
+        const thisDate = new Date(email.receivedDateTime);
+        map.set(key, {
+          // Always surface the most recent message as the row summary
+          ...(thisDate > existingDate ? email : existing),
+          _threadKey: key,
+          _count: existing._count + 1,
+          _hasUnread: existing._hasUnread || !email.isRead,
+        });
+      }
+    }
+    // Sort threads by most-recent message descending
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
+    );
+  })();
 
   // Search hits the real backend (/api/graph/mail/search), debounced, scoped
   // to the active folder. Empty query falls back to the locally synced list.
@@ -222,16 +307,30 @@ export default function EmailPage() {
   };
 
   const isSearchMode = Boolean(searchQuery.trim());
-  const filteredEmails = isSearchMode ? searchResults : folderEmails;
-  // Non-search "load more" only fetches the inbox; Sent/Trash are local-only
-  // for now, so don't offer it there (it would pull inbox mail into the store).
+  // In search mode keep flat results; in folder mode use the threaded groups.
+  const filteredEmails = isSearchMode ? searchResults : threadedEmails;
   const canLoadMore = isSearchMode
     ? Boolean(searchCursor)
-    : activeFolder === 'inbox' && Boolean(inboxCursor);
-  const isLoadingMore = isSearchMode ? isLoadingMoreSearch : isLoadingMoreInbox;
-  const handleLoadMore = isSearchMode ? handleLoadMoreSearch : handleLoadMoreInbox;
+    : activeFolder === 'inbox'
+      ? Boolean(inboxCursor)
+      : activeFolder === 'sent'
+        ? Boolean(sentCursor)
+        : false;
+  const isLoadingMore = isSearchMode
+    ? isLoadingMoreSearch
+    : activeFolder === 'sent'
+      ? isLoadingMoreSent
+      : isLoadingMoreInbox;
+  const handleLoadMore = isSearchMode
+    ? handleLoadMoreSearch
+    : activeFolder === 'sent'
+      ? handleLoadMoreSent
+      : handleLoadMoreInbox;
 
-  const selectedEmail = [...emails, ...searchResults].find(e => e.id === selectedEmailId);
+  // The "active" email for Dora / reply: the latest message in the thread.
+  const selectedEmail = threadMessages.length > 0
+    ? threadMessages[threadMessages.length - 1]
+    : null;
 
   const handleComposeSubmit = async (e) => {
     e.preventDefault();
@@ -264,19 +363,9 @@ export default function EmailPage() {
         return;
       }
 
-      // Sent/Trash are local-only for now (see the sync effect above), so
-      // this optimistic entry is what makes the Sent tab show it at all.
-      handleAddEmail({
-        id: 'email_' + Date.now(),
-        subject: composeSubject,
-        bodyPreview: composeBody.substring(0, 120) + (composeBody.length > 120 ? '...' : ''),
-        body: { content: composeBody, contentType: 'text' },
-        sender: { emailAddress: { name: 'You', address: user?.email || 'me@workspace.com' } },
-        toRecipients: [{ emailAddress: { name: composeTo.split('@')[0], address: composeTo } }],
-        receivedDateTime: new Date().toISOString(),
-        isRead: true,
-        parentFolderId: 'sent',
-      });
+      // Refresh the sent list so the real Graph message (with its true ID)
+      // appears immediately, rather than an optimistic local stub.
+      setHasFetchedSent(false);
       setIsComposing(false);
       setReplyToEmailId(null);
       setComposeTo('');
@@ -290,18 +379,21 @@ export default function EmailPage() {
     }
   };
 
+
   const handleDelete = (id) => {
-    const target = filteredEmails.find(e => e.id === id);
+    // Find the message in the open thread (most precise) or fall back to store
+    const target = threadMessages.find(e => e.id === id)
+      || emails.find(e => e.id === id);
     if (target && !target.isRead && target.parentFolderId === 'inbox') adjustInboxUnread(-1);
     handleDeleteEmail(id);
     showToast(t('email.movedToTrash'));
-    const index = filteredEmails.findIndex(e => e.id === id);
-    if (index !== -1 && filteredEmails.length > 1) {
-      const nextSelect = filteredEmails[index === 0 ? 1 : index - 1];
-      setSelectedEmailId(nextSelect.id);
-    } else {
-      setSelectedEmailId(null);
-    }
+
+    // Remove from the currently displayed thread; if thread becomes empty, deselect.
+    setThreadMessages(prev => {
+      const next = prev.filter(e => e.id !== id);
+      if (next.length === 0) setSelectedConvKey(null);
+      return next;
+    });
 
     fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -309,32 +401,87 @@ export default function EmailPage() {
     }).catch(() => {});
   };
 
-  const handleSelectEmail = (email) => {
-    setSelectedEmailId(email.id);
-    setIsSidebarCollapsed(true); // frees width for the Dora panel; reader still readable at 260px narrower
-    if (!email.isRead) {
-      handleMarkEmailRead(email.id, true);
-      if (email.parentFolderId === 'inbox') adjustInboxUnread(-1);
-      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(email.id)}/read`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ is_read: true }),
-      }).catch(() => {});
-    }
-    // Fetch full body on demand if not already cached.
-    if (!bodyCache[email.id]) {
-      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(email.id)}`, {
+
+
+  const handleSelectEmail = (threadRow) => {
+    const convKey = threadRow._threadKey;
+    if (convKey === selectedConvKey) return; // already selected
+    setSelectedConvKey(convKey);
+    setThreadMessages([]);
+    setExpandedMsgIds(new Set());
+    setIsSidebarCollapsed(true);
+
+    // If this thread row has a real conversationId, fetch the full thread from
+    // Graph (all folders, chronological). Otherwise fall back to a single-
+    // message view using the row's own id.
+    const convId = threadRow.conversationId;
+    if (convId) {
+      setIsLoadingThread(true);
+      fetch(`${API_URL}/api/graph/mail/conversation/${encodeURIComponent(convId)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then(res => (res.ok ? res.json() : { value: [] }))
+        .then(data => {
+          const msgs = data.value || [];
+          setThreadMessages(msgs);
+          // Default: expand all unread messages; if all read, expand only the latest.
+          const unreadIds = msgs.filter(m => !m.isRead).map(m => m.id);
+          const toExpand = unreadIds.length > 0
+            ? new Set(unreadIds)
+            : msgs.length > 0 ? new Set([msgs[msgs.length - 1].id]) : new Set();
+          setExpandedMsgIds(toExpand);
+          // Mark unread inbox messages in this thread as read
+          msgs.forEach(msg => {
+            if (!msg.isRead && msg.parentFolderId === 'inbox') {
+              handleMarkEmailRead(msg.id, true);
+              adjustInboxUnread(-1);
+              fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(msg.id)}/read`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                body: JSON.stringify({ is_read: true }),
+              }).catch(() => {});
+            }
+          });
+        })
+        .catch(() => {})
+        .finally(() => setIsLoadingThread(false));
+    } else {
+      // Single-message thread (no conversationId): reuse single-email fetch
+      setIsLoadingThread(true);
+      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(threadRow.id)}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       })
         .then(res => (res.ok ? res.json() : null))
         .then(data => {
-          if (data?.body) {
-            setBodyCache(prev => ({ ...prev, [email.id]: data.body }));
+          if (data) {
+            setThreadMessages([data]);
+            setExpandedMsgIds(new Set([data.id]));
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => setIsLoadingThread(false));
+
+      if (!threadRow.isRead && threadRow.parentFolderId === 'inbox') {
+        handleMarkEmailRead(threadRow.id, true);
+        adjustInboxUnread(-1);
+        fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(threadRow.id)}/read`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ is_read: true }),
+        }).catch(() => {});
+      }
     }
   };
+
+  const toggleMsgExpand = (msgId) => {
+    setExpandedMsgIds(prev => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+  };
+
 
   // Dora reply generator: sends the selected email's id + the user's intent to
   // the backend, which fetches & sanitizes the original mail and asks the LLM
@@ -428,7 +575,7 @@ export default function EmailPage() {
         </div>
 
         <div className="email-list">
-          {isSearching ? (
+          {isSearching || isSyncingSent ? (
             <div className="email-empty-state">
               <p>{t('common.search')}...</p>
             </div>
@@ -438,23 +585,30 @@ export default function EmailPage() {
               <p>{t('email.emptyState')}</p>
             </div>
           ) : (
-            filteredEmails.map(email => {
-              const isUnread = !email.isRead;
-              const senderName = email.sender?.emailAddress?.name || 'Unknown';
-              const emailTime = formatEmailListDate(email.receivedDateTime);
+            filteredEmails.map(threadRow => {
+              const isUnread = threadRow._hasUnread ?? !threadRow.isRead;
+              const senderName = threadRow.sender?.emailAddress?.name || 'Unknown';
+              const emailTime = formatEmailListDate(threadRow.receivedDateTime);
+              const isSelected = threadRow._threadKey === selectedConvKey;
+              const count = threadRow._count || 1;
 
               return (
                 <div
-                  key={email.id}
-                  className={`email-list-item ${selectedEmailId === email.id ? 'selected' : ''} ${isUnread ? 'unread' : ''}`}
-                  onClick={() => handleSelectEmail(email)}
+                  key={threadRow._threadKey || threadRow.id}
+                  className={`email-list-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''}`}
+                  onClick={() => handleSelectEmail(threadRow)}
                 >
                   <div className="email-item-header">
                     <span className="email-item-sender">{senderName}</span>
                     <span className="email-item-date">{emailTime}</span>
                   </div>
-                  <div className="email-item-subject">{email.subject}</div>
-                  <div className="email-item-snippet">{email.bodyPreview}</div>
+                  <div className="email-item-subject">
+                    {threadRow.subject}
+                    {count > 1 && (
+                      <span className="thread-count-badge">{count}</span>
+                    )}
+                  </div>
+                  <div className="email-item-snippet">{threadRow.bodyPreview}</div>
                   {isUnread && <span className="unread-dot"></span>}
                 </div>
               );
@@ -471,31 +625,41 @@ export default function EmailPage() {
 
       {/* Email Reader */}
       <div className="email-reader-panel">
-        {selectedEmail ? (
+        {isLoadingThread ? (
+          <div className="reader-empty-state">
+            <div className="spinner" style={{ width: 32, height: 32 }} />
+            <p style={{ marginTop: 12, opacity: 0.6 }}>{i18n.language === 'zh' ? '加载对话中…' : 'Loading thread…'}</p>
+          </div>
+        ) : selectedConvKey && threadMessages.length > 0 ? (
           <div className="email-reader-split-layout">
             <div className="email-detail-column">
+              {/* Fixed top action bar – always visible regardless of scroll */}
               <div className="email-detail-header">
                 <div className="sender-avatar-large">
-                  {(selectedEmail.sender?.emailAddress?.name?.[0] || 'U').toUpperCase()}
+                  {(selectedEmail?.sender?.emailAddress?.name?.[0] || 'U').toUpperCase()}
                 </div>
                 <div className="email-detail-meta">
-                  <div className="sender-name-row">
-                    <span className="sender-name">{selectedEmail.sender?.emailAddress?.name || 'Unknown'}</span>
-                    <span className="sender-email">&lt;{selectedEmail.sender?.emailAddress?.address || 'unknown@domain.com'}&gt;</span>
+                  <div className="email-detail-subject" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 2 }}>
+                    {threadMessages[0]?.subject}
                   </div>
-                  <div className="recipient-row">
-                    {t('email.to')}: {selectedEmail.toRecipients?.[0]?.emailAddress?.name || selectedEmail.toRecipients?.[0]?.emailAddress?.address || 'me'}
-                  </div>
+                  {threadMessages.length > 1 && (
+                    <span className="thread-msg-count-label" style={{ marginLeft: 0 }}>
+                      {i18n.language === 'zh' ? `${threadMessages.length} 封邮件` : `${threadMessages.length} messages`}
+                    </span>
+                  )}
                 </div>
                 <div className="email-detail-actions">
-                  <button className={`action-icon-btn dora-toggle-btn ${isDoraActive ? 'active' : ''}`} onClick={() => setIsDoraActive(!isDoraActive)}>
+                  <button
+                    className={`action-icon-btn dora-toggle-btn ${isDoraActive ? 'active' : ''}`}
+                    onClick={() => setIsDoraActive(!isDoraActive)}
+                  >
                     <Sparkles size={16} />
                     <span>{t('email.doraTitle')}</span>
                   </button>
-                  {selectedEmail.parentFolderId !== 'trash' && (
-                    <button 
-                      className="action-icon-btn delete-btn" 
-                      onClick={() => handleDelete(selectedEmail.id)} 
+                  {selectedEmail?.parentFolderId !== 'trash' && (
+                    <button
+                      className="action-icon-btn delete-btn"
+                      onClick={() => handleDelete(selectedEmail.id)}
                       title={t('common.delete')}
                     >
                       <Trash size={16} />
@@ -504,17 +668,66 @@ export default function EmailPage() {
                 </div>
               </div>
 
-              <div className="email-detail-subject-container">
-                <h2 className="email-detail-subject">{selectedEmail.subject}</h2>
-                <span className="email-detail-date">
-                  {formatEmailDateFull(selectedEmail.receivedDateTime)} at {formatEmailTime(selectedEmail.receivedDateTime)}
-                </span>
+              {/* Timeline */}
+              <div className="thread-timeline">
+                {threadMessages.map((msg, idx) => {
+                  const isLatest = idx === threadMessages.length - 1;
+                  const isExpanded = expandedMsgIds.has(msg.id);
+                  const senderName = msg.sender?.emailAddress?.name || 'Unknown';
+                  const senderAddr = msg.sender?.emailAddress?.address || '';
+                  return (
+                    <div key={msg.id} className={`thread-msg-entry ${isExpanded ? 'thread-msg-expanded' : 'thread-msg-collapsed'}`}>
+                      {isExpanded ? (
+                        <>
+                          <div className="thread-msg-header" onClick={() => toggleMsgExpand(msg.id)} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && toggleMsgExpand(msg.id)}>
+                            <div className="sender-avatar-large" style={{ width: 34, height: 34, fontSize: 13, flexShrink: 0 }}>
+                              {senderName[0]?.toUpperCase() || 'U'}
+                            </div>
+                            <div className="thread-msg-header-meta">
+                              <div className="sender-name-row">
+                                <span className="sender-name">{senderName}</span>
+                                <span className="sender-email">&lt;{senderAddr}&gt;</span>
+                              </div>
+                              <div className="recipient-row">
+                                {t('email.to')}: {msg.toRecipients?.[0]?.emailAddress?.name || msg.toRecipients?.[0]?.emailAddress?.address || 'me'}
+                              </div>
+                            </div>
+                            <div className="thread-msg-header-right">
+                              <span className="email-detail-date">{formatEmailDateFull(msg.receivedDateTime)} {formatEmailTime(msg.receivedDateTime)}</span>
+                              <span className="thread-expand-chevron">▲</span>
+                            </div>
+                          </div>
+                          <div className="email-detail-body thread-msg-body">
+                            <EmailContentRenderer body={msg.body || null} />
+                          </div>
+                        </>
+                      ) : (
+                        /* Collapsed: compact single-line row like Outlook */
+                        <div
+                          className="thread-msg-stub-row"
+                          onClick={() => toggleMsgExpand(msg.id)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => e.key === 'Enter' && toggleMsgExpand(msg.id)}
+                        >
+                          <div className="sender-avatar-large" style={{ width: 28, height: 28, fontSize: 11, flexShrink: 0 }}>
+                            {senderName[0]?.toUpperCase() || 'U'}
+                          </div>
+                          <span className="stub-sender">{senderName}</span>
+                          <span className="stub-preview">{msg.bodyPreview}</span>
+                          <span className="stub-date">{formatEmailTime(msg.receivedDateTime)}</span>
+                        </div>
+                      )}
+                      {!isLatest && <div className="thread-msg-divider" />}
+                    </div>
+
+                  );
+                })}
               </div>
 
-              <div className="email-detail-body">
-                <EmailContentRenderer body={bodyCache[selectedEmailId]} />
-              </div>
             </div>
+
+
 
             {/* Dora-styled AI Assistant Panel */}
             {isDoraActive && (

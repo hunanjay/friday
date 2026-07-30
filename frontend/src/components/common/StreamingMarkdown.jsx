@@ -78,7 +78,7 @@ function textToBlocks(text) {
     }
 
     // Check for numbered list items
-    const numListMatch = line.match(/^(\s*)(\d+\.\s+)(.*)$/);
+    const numListMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/);
     if (numListMatch) {
       if (currentBlock && currentBlock.type !== 'num-list') {
         currentBlock.completed = true;
@@ -93,7 +93,13 @@ function textToBlocks(text) {
           completed: false
         };
       }
-      currentBlock.items.push(numListMatch[3]);
+      // Preserve the number authored by the model. Blank lines or indented
+      // detail paragraphs may split one Markdown list into multiple <ol>
+      // blocks; without an explicit value every new block starts at 1.
+      currentBlock.items.push({
+        number: Number(numListMatch[2]),
+        text: numListMatch[3]
+      });
       continue;
     }
 
@@ -329,9 +335,9 @@ export default function StreamingMarkdown({ content, isBotTyping }) {
           renderedJsx = (
             <ol key={idx} className="markdown-ol">
               {block.items.map((item, i) => (
-                <li key={i} className="markdown-li">
+                <li key={i} value={item.number} className="markdown-li">
                   {parseInlineWithBuffer(
-                    item,
+                    item.text,
                     isLastBlockAndStreaming && i === block.items.length - 1
                   )}
                 </li>

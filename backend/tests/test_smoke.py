@@ -12,6 +12,8 @@ import os
 import sys
 import time
 import re
+import ast
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -172,6 +174,113 @@ stale = "stale-nonce"
 _pending_test[stale] = ("user-stale", _time.monotonic() - 1)
 _issue_nonce_test("user-trigger-prune")
 check("stale entry pruned on next issue", stale not in _pending_test)
+
+
+# ---------------------------------------------------------------------------
+# 4. Hard approval boundary for model-triggered email actions
+# ---------------------------------------------------------------------------
+
+section("4. hard email approval boundary")
+
+backend_dir = Path(__file__).resolve().parents[1]
+tools_source = (backend_dir / "app/agents/tools.py").read_text()
+tools_tree = ast.parse(tools_source)
+
+
+def _function(name: str) -> ast.AsyncFunctionDef | None:
+    return next(
+        (node for node in ast.walk(tools_tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == name),
+        None,
+    )
+
+
+def _called_attributes(node: ast.AST) -> set[str]:
+    return {
+        call.func.attr
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+    }
+
+
+def _called_names(node: ast.AST) -> set[str]:
+    return {
+        call.func.id
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+    }
+
+
+for tool_name in ("send_email", "delete_email"):
+    tool_fn = _function(tool_name)
+    check(f"{tool_name} tool exists", tool_fn is not None)
+    if tool_fn:
+        arg_names = {arg.arg for arg in tool_fn.args.args}
+        calls = _called_names(tool_fn) | _called_attributes(tool_fn)
+        check(f"{tool_name} has no model-controlled confirm argument", "confirm" not in arg_names)
+        check(f"{tool_name} creates a pending action", "create_action" in calls)
+        check(f"{tool_name} cannot execute a Graph mutation", not ({"graph_post", "graph_patch", "graph_delete"} & calls))
+
+agent_source = (backend_dir / "app/api/agent.py").read_text()
+check("authenticated confirmation endpoint claims action before execution",
+      "await pending_actions.claim_action" in agent_source)
+check("confirmation endpoint is the Graph mutation boundary",
+      '@router.post("/actions/{action_id}/confirm")' in agent_source and "await graph_post" in agent_source)
+
+pending_source = (backend_dir / "app/db/pending_actions.py").read_text()
+check("action claim is atomic and pending-only",
+      "set status = 'executing'" in pending_source and "status = 'pending' and expires_at > now()" in pending_source)
+
+
+# ---------------------------------------------------------------------------
+# 5. Internal supervisor handoff messages stay out of chat history
+# ---------------------------------------------------------------------------
+
+section("5. chat message visibility")
+
+from app.agents.message_visibility import visible_message_parts  # noqa: E402
+
+handoff_message = {
+    "role": "assistant",
+    "content": "Transferring back to supervisor",
+    "tool_calls": [{"name": "transfer_back_to_supervisor", "args": {}}],
+}
+check("handoff AI message with text is hidden", visible_message_parts(handoff_message) is None)
+
+normal_ai_message = {
+    "role": "assistant",
+    "content": "Here are your recent emails.",
+    "tool_calls": [],
+    "id": "answer-1",
+}
+check(
+    "normal AI answer remains visible",
+    visible_message_parts(normal_ai_message) == ("ai", "Here are your recent emails.", "answer-1"),
+)
+
+normal_user_message = {"role": "user", "content": "Show my inbox", "id": "user-1"}
+check(
+    "normal user message remains visible",
+    visible_message_parts(normal_user_message) == ("human", "Show my inbox", "user-1"),
+)
+
+tool_result = {"role": "tool", "content": "Successfully transferred back to supervisor"}
+check("tool result remains hidden", visible_message_parts(tool_result) is None)
+
+
+# ---------------------------------------------------------------------------
+# 6. Chat session previews
+# ---------------------------------------------------------------------------
+
+section("6. chat session previews")
+
+from app.agents.message_visibility import normalize_preview  # noqa: E402
+
+check(
+    "preview collapses multiline Markdown into one line",
+    normalize_preview("First line\n\n  second line  ") == "First line second line",
+)
+check("preview handles empty content", normalize_preview("") == "")
+check("preview length is bounded", len(normalize_preview("x" * 500)) == 180)
 
 
 # ---------------------------------------------------------------------------

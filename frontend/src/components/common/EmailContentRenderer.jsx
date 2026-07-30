@@ -10,7 +10,7 @@ export default function EmailContentRenderer({ body }) {
   const [iframeHeight, setIframeHeight] = useState('200px');
 
   const content = body?.content || '';
-  const contentType = body?.contentType || 'text';
+  const contentType = (body?.contentType || 'text').toLowerCase();
 
   // Email HTML links rarely set target="_blank", so clicking them would
   // navigate the iframe itself instead of opening a new tab. A <base> tag
