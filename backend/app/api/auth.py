@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
-from app.db.supabase_client import get_user_id
-from app.db.token_store import set_ms_token
-from app.tools.graph_client import graph_get, refresh_ms_token
+from app.core.security import get_user_id
+from app.infrastructure.db.repositories.token_store import set_ms_token
+from app.tools.graph_client import cache_ms_token, graph_get, refresh_ms_token
 
 router = APIRouter(prefix="/api/graph", tags=["auth"])
 
@@ -16,6 +16,7 @@ async def store_graph_token(body: dict, user_id: str = Depends(get_user_id)):
     await run_in_threadpool(
         set_ms_token, user_id, ms_token, body.get("refresh_token"), body.get("expires_in")
     )
+    cache_ms_token(user_id, ms_token)
     return {"status": "ok"}
 
 

@@ -1,8 +1,6 @@
+import os
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
-
-import os
-
 
 _pool: AsyncConnectionPool | None = None
 
@@ -59,7 +57,6 @@ def _row_to_dict(row) -> dict:
 
 
 def public_action(action: dict) -> dict:
-    """Return only fields the authenticated confirmation UI needs."""
     return {
         "id": action["id"],
         "session_id": action["session_id"],
@@ -75,7 +72,6 @@ def public_action(action: dict) -> dict:
 
 
 async def create_action(user_id: str, session_id: str, action_type: str, payload: dict) -> dict:
-    """Create a pending approval request, deduplicating identical live requests."""
     async with _pool.connection() as conn:
         cur = await conn.execute(
             f"select {_COLUMNS} from pending_agent_actions "
@@ -97,7 +93,6 @@ async def create_action(user_id: str, session_id: str, action_type: str, payload
 
 
 async def set_action_anchor(user_id: str, action_id: str, anchor_message_id: str) -> None:
-    """Persist the visible assistant message that owns an approval card."""
     async with _pool.connection() as conn:
         await conn.execute(
             "update pending_agent_actions set anchor_message_id = %s "
@@ -123,7 +118,6 @@ async def list_pending_actions(user_id: str, session_id: str) -> list[dict]:
 
 
 async def list_session_actions(user_id: str, session_id: str) -> list[dict]:
-    """Return live and completed actions for rebuilding the chat approval cards."""
     async with _pool.connection() as conn:
         await conn.execute(
             "update pending_agent_actions set status = 'expired' "
@@ -155,7 +149,6 @@ async def get_action(user_id: str, action_id: str) -> dict | None:
 
 
 async def claim_action(user_id: str, action_id: str) -> dict | None:
-    """Atomically reserve an action so concurrent confirmations execute it once."""
     async with _pool.connection() as conn:
         cur = await conn.execute(
             "update pending_agent_actions set status = 'executing' "

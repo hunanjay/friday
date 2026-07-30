@@ -5,8 +5,8 @@ from urllib.parse import quote
 from fastapi import HTTPException
 from langchain_core.tools import tool
 
-from app.db import memos as memos_db
-from app.db import pending_actions
+from app.infrastructure.db.repositories import memos as memos_db
+from app.infrastructure.db.repositories import pending_actions
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
 from app.tools.graph_client import graph_delete, graph_get, graph_get_paginated, graph_patch, graph_post

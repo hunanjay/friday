@@ -1,5 +1,4 @@
 import os
-
 from psycopg_pool import AsyncConnectionPool
 
 _pool: AsyncConnectionPool | None = None

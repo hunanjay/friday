@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone
-
-from app.db.supabase_client import supabase_admin
+from app.core.security import supabase_admin
 
 
 def set_ms_token(user_id: str, token: str, refresh_token: str | None = None, expires_in: int | None = None) -> None:
@@ -23,10 +22,6 @@ def get_ms_token(user_id: str) -> str | None:
 
 
 def set_github_token(user_id: str, token: str) -> None:
-    """A plain .upsert({"token": ...}) would null out `repos` on reconnect -
-    PostgREST's upsert replaces the whole row using only the payload's
-    columns, it doesn't merge. Update first (preserves `repos` on an
-    existing row); only insert if there wasn't one yet."""
     updated = supabase_admin.table("github_tokens").update({"token": token}).eq("user_id", user_id).execute()
     if not updated.data:
         supabase_admin.table("github_tokens").insert({"user_id": user_id, "token": token}).execute()
@@ -38,9 +33,6 @@ def get_github_token(user_id: str) -> str | None:
 
 
 def set_github_repos(user_id: str, repos: list[str]) -> None:
-    """Only ever called for an already-connected user (repo picker is only
-    shown once connected), so a github_tokens row already exists to update -
-    a real UPDATE (not upsert) so it touches only this column."""
     supabase_admin.table("github_tokens").update({"repos": repos}).eq("user_id", user_id).execute()
 
 

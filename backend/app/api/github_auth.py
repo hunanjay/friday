@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.db.supabase_client import get_user_id, resolve_user_id
-from app.db.token_store import delete_github_token, set_github_token
+from app.core.security import get_user_id, resolve_user_id
+from app.infrastructure.db.repositories.token_store import delete_github_token, set_github_token
 from app.tools.github_client import github_get
 
 router = APIRouter(prefix="/api/github", tags=["auth"])

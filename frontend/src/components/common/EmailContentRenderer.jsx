@@ -1,4 +1,70 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+
+const INJECTED_STYLE_ATTRIBUTE = 'data-email-content-renderer-style';
+const MAX_IFRAME_WIDTH = 2400;
+
+const withDefaultLinkTarget = (html) => {
+  const baseTag = '<base target="_blank" rel="noopener noreferrer">';
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (match) => `${match}${baseTag}`);
+  }
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${baseTag}</head>`);
+  }
+  return `${baseTag}${html}`;
+};
+
+const getInjectStyle = (isDark) => `
+  html, body {
+    width: 100% !important;
+    min-width: 100% !important;
+    margin: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    box-sizing: border-box !important;
+  }
+  body {
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: ${isDark ? '#EBE8E2' : '#191919'};
+    background-color: transparent;
+    padding: 8px 0;
+    word-break: break-word;
+  }
+  a {
+    color: ${isDark ? '#E27E5B' : '#CC5A37'};
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+    transition: border-color 0.15s ease;
+  }
+  a:hover {
+    border-bottom-style: solid;
+  }
+  p {
+    margin-top: 0;
+    margin-bottom: 12px;
+  }
+  ul, ol {
+    margin-top: 0;
+    margin-bottom: 16px;
+    padding-left: 20px;
+  }
+  li {
+    margin-bottom: 6px;
+  }
+  blockquote {
+    margin: 12px 0;
+    padding-left: 12px;
+    border-left: 3px solid ${isDark ? '#3E3E3A' : '#D0C9BE'};
+    color: ${isDark ? '#AAA49C' : '#605B56'};
+  }
+  img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+  }
+`;
 
 /**
  * Component to securely and beautifully render email content.
@@ -7,27 +73,103 @@ import React, { useEffect, useRef, useState } from 'react';
  */
 export default function EmailContentRenderer({ body }) {
   const iframeRef = useRef(null);
+  const injectedStyleRef = useRef(null);
+  const resizeFrameRef = useRef(null);
+  const resourceCleanupRef = useRef(null);
   const [iframeHeight, setIframeHeight] = useState('200px');
+  const [iframeWidth, setIframeWidth] = useState('100%');
 
   const content = body?.content || '';
   const contentType = (body?.contentType || 'text').toLowerCase();
+  const iframeSrcDoc = useMemo(() => withDefaultLinkTarget(content), [content]);
 
-  // Email HTML links rarely set target="_blank", so clicking them would
-  // navigate the iframe itself instead of opening a new tab. A <base> tag
-  // makes untargeted links open in a new tab by default (allow-popups
-  // permits it) without needing to touch every <a> in untrusted markup.
-  const withDefaultLinkTarget = (html) => {
-    const baseTag = '<base target="_blank" rel="noopener noreferrer">';
-    if (/<head[^>]*>/i.test(html)) {
-      return html.replace(/<head[^>]*>/i, (match) => `${match}${baseTag}`);
+  const applyInjectedStyle = useCallback((doc, isDark) => {
+    let styleElement = injectedStyleRef.current;
+    if (!styleElement || styleElement.ownerDocument !== doc || !styleElement.isConnected) {
+      styleElement = doc.createElement('style');
+      styleElement.setAttribute(INJECTED_STYLE_ATTRIBUTE, '');
+      (doc.head || doc.documentElement).appendChild(styleElement);
+      injectedStyleRef.current = styleElement;
     }
-    if (/<html[^>]*>/i.test(html)) {
-      return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${baseTag}</head>`);
-    }
-    return `${baseTag}${html}`;
-  };
+    styleElement.textContent = getInjectStyle(isDark);
+  }, []);
 
-  // Listen to theme mutations to update iframe style dynamically (Hook placed at top level)
+  const updateDimensions = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !iframe.contentWindow) return;
+    try {
+      const doc = iframe.contentWindow.document;
+      if (!doc || !doc.documentElement || !doc.body) return;
+
+      const containerW = iframe.parentElement ? iframe.parentElement.clientWidth : 0;
+      if (containerW <= 0) return;
+
+      // Always measure overflow from the container width. Measuring from an
+      // already-expanded iframe makes percentage-based email layouts grow on
+      // every pass (for example, width: 100% plus padding).
+      iframe.style.width = `${containerW}px`;
+      const contentWidth = Math.max(doc.documentElement.scrollWidth || 0, doc.body.scrollWidth || 0);
+      const maxWidth = Math.max(containerW, MAX_IFRAME_WIDTH);
+      const measuredWidth = Math.min(Math.max(contentWidth, containerW), maxWidth);
+      const nextWidth = measuredWidth > containerW ? `${Math.ceil(measuredWidth)}px` : '100%';
+      iframe.style.width = nextWidth;
+      setIframeWidth(currentWidth => currentWidth === nextWidth ? currentWidth : nextWidth);
+
+      // Collapse the viewport before reading scrollHeight so the current
+      // iframe height is not mistaken for content height and repeatedly added
+      // back through the parent ResizeObserver.
+      iframe.style.height = '0px';
+      const contentHeight = Math.max(
+        doc.documentElement.scrollHeight || 0,
+        doc.body.scrollHeight || 0,
+        doc.documentElement.offsetHeight || 0,
+        doc.body.offsetHeight || 0
+      );
+      const nextHeight = `${Math.max(1, Math.ceil(contentHeight))}px`;
+      iframe.style.height = nextHeight;
+      setIframeHeight(currentHeight => currentHeight === nextHeight ? currentHeight : nextHeight);
+    } catch {
+      // Ignore cross-origin issues
+    }
+  }, []);
+
+  // Coalesce image loads, theme changes, and container resizes into one
+  // measurement per animation frame instead of forcing layout repeatedly.
+  const scheduleDimensionUpdate = useCallback(() => {
+    if (resizeFrameRef.current !== null) return;
+    resizeFrameRef.current = window.requestAnimationFrame(() => {
+      resizeFrameRef.current = null;
+      updateDimensions();
+    });
+  }, [updateDimensions]);
+
+  const observeIframeContent = useCallback((doc) => {
+    if (resourceCleanupRef.current) {
+      resourceCleanupRef.current();
+    }
+
+    const handleResourceLoad = (event) => {
+      if (event.target instanceof doc.defaultView.HTMLImageElement) {
+        scheduleDimensionUpdate();
+      }
+    };
+    doc.addEventListener('load', handleResourceLoad, true);
+
+    resourceCleanupRef.current = () => {
+      doc.removeEventListener('load', handleResourceLoad, true);
+      resourceCleanupRef.current = null;
+    };
+
+    if (doc.fonts?.ready) {
+      doc.fonts.ready.then(() => {
+        if (iframeRef.current?.contentWindow?.document === doc) {
+          scheduleDimensionUpdate();
+        }
+      });
+    }
+  }, [scheduleDimensionUpdate]);
+
+  // Listen to theme mutations to update iframe style dynamically
   useEffect(() => {
     if (contentType !== 'html') return;
 
@@ -36,56 +178,8 @@ export default function EmailContentRenderer({ body }) {
       if (iframe && iframe.contentWindow) {
         try {
           const isDark = document.documentElement.classList.contains('dark');
-          const styleElement = iframe.contentWindow.document.querySelector('style');
-          if (styleElement) {
-            styleElement.textContent = `
-              html, body {
-                overflow: hidden !important;
-              }
-              body {
-                font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                font-size: 0.95rem;
-                line-height: 1.6;
-                color: ${isDark ? '#EBE8E2' : '#191919'};
-                background-color: transparent;
-                margin: 0;
-                padding: 8px 0;
-                word-break: break-word;
-              }
-              a {
-                color: ${isDark ? '#E27E5B' : '#CC5A37'};
-                text-decoration: none;
-                border-bottom: 1px dotted currentColor;
-                transition: border-color 0.15s ease;
-              }
-              a:hover {
-                border-bottom-style: solid;
-              }
-              p {
-                margin-top: 0;
-                margin-bottom: 12px;
-              }
-              ul, ol {
-                margin-top: 0;
-                margin-bottom: 16px;
-                padding-left: 20px;
-              }
-              li {
-                margin-bottom: 6px;
-              }
-              blockquote {
-                margin: 12px 0;
-                padding-left: 12px;
-                border-left: 3px solid ${isDark ? '#3E3E3A' : '#D0C9BE'};
-                color: ${isDark ? '#AAA49C' : '#605B56'};
-              }
-              img {
-                max-width: 100%;
-                height: auto;
-                border-radius: 6px;
-              }
-            `;
-          }
+          applyInjectedStyle(iframe.contentWindow.document, isDark);
+          scheduleDimensionUpdate();
         } catch {
           // Ignore style manipulation errors
         }
@@ -94,7 +188,44 @@ export default function EmailContentRenderer({ body }) {
 
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
-  }, [contentType]);
+  }, [contentType, applyInjectedStyle, scheduleDimensionUpdate]);
+
+  // Recalculate dimensions on window/container resize
+  useEffect(() => {
+    if (contentType !== 'html') return;
+    const iframe = iframeRef.current;
+    if (!iframe || !iframe.parentElement) return;
+
+    let resizeObserver;
+    try {
+      let previousWidth = iframe.parentElement.clientWidth;
+      resizeObserver = new ResizeObserver((entries) => {
+        const nextWidth = entries[0]?.contentRect.width;
+        if (nextWidth !== previousWidth) {
+          previousWidth = nextWidth;
+          scheduleDimensionUpdate();
+        }
+      });
+      resizeObserver.observe(iframe.parentElement);
+    } catch {
+      // Fallback
+    }
+
+    window.addEventListener('resize', scheduleDimensionUpdate);
+    return () => {
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', scheduleDimensionUpdate);
+    };
+  }, [contentType, scheduleDimensionUpdate]);
+
+  useEffect(() => () => {
+    if (resizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(resizeFrameRef.current);
+    }
+    if (resourceCleanupRef.current) {
+      resourceCleanupRef.current();
+    }
+  }, []);
 
   if (!body) return null;
 
@@ -104,61 +235,11 @@ export default function EmailContentRenderer({ body }) {
       const iframe = iframeRef.current;
       if (iframe && iframe.contentWindow) {
         try {
-          // Adjust height based on content
-          const height = iframe.contentWindow.document.documentElement.scrollHeight;
-          setIframeHeight(`${height + 30}px`);
-
-          // Inject styling to match current theme
-          const styleElement = iframe.contentWindow.document.createElement('style');
+          const doc = iframe.contentWindow.document;
           const isDark = document.documentElement.classList.contains('dark');
-          styleElement.textContent = `
-            html, body {
-              overflow: hidden !important;
-            }
-            body {
-              font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              font-size: 0.95rem;
-              line-height: 1.6;
-              color: ${isDark ? '#EBE8E2' : '#191919'};
-              background-color: transparent;
-              margin: 0;
-              padding: 8px 0;
-              word-break: break-word;
-            }
-            a {
-              color: ${isDark ? '#E27E5B' : '#CC5A37'};
-              text-decoration: none;
-              border-bottom: 1px dotted currentColor;
-              transition: border-color 0.15s ease;
-            }
-            a:hover {
-              border-bottom-style: solid;
-            }
-            p {
-              margin-top: 0;
-              margin-bottom: 12px;
-            }
-            ul, ol {
-              margin-top: 0;
-              margin-bottom: 16px;
-              padding-left: 20px;
-            }
-            li {
-              margin-bottom: 6px;
-            }
-            blockquote {
-              margin: 12px 0;
-              padding-left: 12px;
-              border-left: 3px solid ${isDark ? '#3E3E3A' : '#D0C9BE'};
-              color: ${isDark ? '#AAA49C' : '#605B56'};
-            }
-            img {
-              max-width: 100%;
-              height: auto;
-              border-radius: 6px;
-            }
-          `;
-          iframe.contentWindow.document.head.appendChild(styleElement);
+          applyInjectedStyle(doc, isDark);
+          observeIframeContent(doc);
+          scheduleDimensionUpdate();
         } catch {
           // Ignore
         }
@@ -166,13 +247,19 @@ export default function EmailContentRenderer({ body }) {
     };
 
     return (
-      <div className="email-html-renderer">
+      <div className="email-html-renderer" style={{ width: '100%', overflowX: 'auto', minWidth: 0 }}>
         <iframe
           ref={iframeRef}
-          srcDoc={withDefaultLinkTarget(content)}
+          srcDoc={iframeSrcDoc}
           title="Email HTML Content"
           sandbox="allow-popups allow-same-origin"
-          style={{ width: '100%', height: iframeHeight, border: 'none', overflow: 'hidden' }}
+          style={{
+            width: iframeWidth,
+            minWidth: '100%',
+            height: iframeHeight,
+            border: 'none',
+            display: 'block'
+          }}
           onLoad={handleIframeLoad}
         />
       </div>

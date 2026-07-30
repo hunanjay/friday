@@ -869,7 +869,7 @@
   font-size: 1.05rem;
   color: var(--text-primary);
   line-height: 1.6;
-  white-space: pre-line;
+  overflow-x: auto;
 }
 
 .email-detail-body p {
@@ -966,6 +966,8 @@
 /* Body spacing */
 .thread-msg-body {
   padding-left: 46px; /* aligns with text after the avatar */
+  overflow-x: auto;
+  min-width: 0;
 }
 
 /* Divider between messages */
@@ -2867,8 +2869,10 @@
 .email-detail-column {
   flex-grow: 1;
   overflow-y: auto;
+  overflow-x: auto;
   padding: 40px;
   box-sizing: border-box;
+  min-width: 0;
 }
 
 .dora-toggle-btn.active {

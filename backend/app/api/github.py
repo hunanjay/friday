@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from langchain_openai import ChatOpenAI
 from starlette.concurrency import run_in_threadpool
 
-from app.db.supabase_client import get_user_id
-from app.db.token_store import get_github_repos, set_github_repos
+from app.core.security import get_user_id
+from app.infrastructure.db.repositories.token_store import get_github_repos, set_github_repos
 from app.tools.github_client import format_commits, github_get, list_commits
 
 router = APIRouter(prefix="/api/github", tags=["github"])

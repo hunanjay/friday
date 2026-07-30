@@ -226,7 +226,7 @@ check("authenticated confirmation endpoint claims action before execution",
 check("confirmation endpoint is the Graph mutation boundary",
       '@router.post("/actions/{action_id}/confirm")' in agent_source and "await graph_post" in agent_source)
 
-pending_source = (backend_dir / "app/db/pending_actions.py").read_text()
+pending_source = (backend_dir / "app/infrastructure/db/repositories/pending_actions.py").read_text()
 check("action claim is atomic and pending-only",
       "set status = 'executing'" in pending_source and "status = 'pending' and expires_at > now()" in pending_source)
 

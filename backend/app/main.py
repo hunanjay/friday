@@ -8,38 +8,55 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
-from app.agents import checkpointer  # noqa: E402  (needs load_dotenv() first)
-from app.api import agent, auth, calendar, github, github_auth, mail, memos  # noqa: E402  (needs load_dotenv() first)
-from app.db import chat_sessions, pending_actions  # noqa: E402  (needs load_dotenv() first)
-from app.db import memos as memos_db  # noqa: E402  (needs load_dotenv() first)
-from app.tools import github_client, graph_client, vector_store  # noqa: E402  (needs load_dotenv() first)
+from app.core.config import settings
+from app.infrastructure.db import pool as db_pool
+from app.infrastructure.vector import qdrant as vector_store
+from app.infrastructure.graph import client as graph_client
+from app.infrastructure.github import client as github_client
+from app.agents import checkpointer
+from app.infrastructure.db.repositories import chat_sessions, pending_actions
+from app.infrastructure.db.repositories import memos as memos_db
+
+from app.api import agent, auth, calendar, github, github_auth, mail, memos
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Initialize infrastructure & connections
+    await db_pool.init_db_pool()
     await checkpointer.init_checkpointer()
     await chat_sessions.init_pool()
     await pending_actions.init_pool()
     await memos_db.init_pool()
     await vector_store.init_collection()
+
     yield
+
+    # Teardown infrastructure & connections
     await memos_db.close_pool()
     await pending_actions.close_pool()
     await chat_sessions.close_pool()
     await checkpointer.close_checkpointer()
+    await db_pool.close_db_pool()
     await graph_client.aclose_client()
     await github_client.aclose_client()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="Friday Assistant Backend",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3005"],
+    allow_origins=[settings.FRONTEND_URL, "http://localhost:3005"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Register Routers
 app.include_router(auth.router)
 app.include_router(mail.router)
 app.include_router(calendar.router)
@@ -51,4 +68,4 @@ app.include_router(github.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "environment": settings.ENV}

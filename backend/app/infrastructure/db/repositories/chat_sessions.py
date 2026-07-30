@@ -1,7 +1,5 @@
 import os
-
 from psycopg_pool import AsyncConnectionPool
-
 from app.agents.message_visibility import normalize_preview
 
 _pool: AsyncConnectionPool | None = None
@@ -72,7 +70,6 @@ async def create_session(user_id: str, title: str = "New chat") -> dict:
     }
 
 
-
 async def get_session(user_id: str, session_id: str) -> dict | None:
     async with _pool.connection() as conn:
         cur = await conn.execute(
@@ -122,8 +119,6 @@ async def update_session_preview(
 
 
 async def delete_session(user_id: str, session_id: str) -> bool:
-    """Deletes the session row plus its LangGraph checkpoint history. Returns
-    False if the session doesn't exist or belongs to another user."""
     async with _pool.connection() as conn:
         cur = await conn.execute(
             "delete from chat_sessions where id = %s and user_id = %s returning id",

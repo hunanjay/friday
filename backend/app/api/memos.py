@@ -2,8 +2,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.db import memos as memos_db
-from app.db.supabase_client import get_user_id
+from app.core.security import get_user_id
+from app.infrastructure.db.repositories import memos as memos_db
 from app.tools import vector_store
 
 logger = logging.getLogger(__name__)

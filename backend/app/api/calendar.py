@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
-from app.db.supabase_client import get_user_id
+from app.core.security import get_user_id
 from app.tools.graph_client import graph_get
 
 router = APIRouter(prefix="/api/graph/calendar", tags=["calendar"])

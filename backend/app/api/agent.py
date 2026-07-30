@@ -11,8 +11,8 @@ from app.agents.draft import draft_reply
 from app.agents.checkpointer import get_checkpointer
 from app.agents.message_visibility import visible_message_parts
 from app.agents.supervisor import AGENT_NAMES, build_agent, build_supervisor, generate_session_title
-from app.db import chat_sessions, pending_actions
-from app.db.supabase_client import get_user_id
+from app.core.security import get_user_id
+from app.infrastructure.db.repositories import chat_sessions, pending_actions
 from app.tools.graph_client import graph_post
 
 logger = logging.getLogger(__name__)
