@@ -406,6 +406,39 @@ export default function EmailPage() {
   const handleSelectEmail = (threadRow) => {
     const convKey = threadRow._threadKey;
     if (convKey === selectedConvKey) return; // already selected
+
+    // Mark locally-known unread inbox messages as soon as their thread is
+    // opened. Graph's conversation response returns parentFolderId as an
+    // opaque folder GUID, so waiting for that response and comparing it with
+    // the string "inbox" prevents the read API from ever being called.
+    const unreadInboxIds = emails
+      .filter(email => (
+        !email.isRead
+        && email.parentFolderId === 'inbox'
+        && (email.conversationId || email.id) === convKey
+      ))
+      .map(email => email.id);
+
+    // Search results may not be present in the locally-synced email page.
+    if (
+      unreadInboxIds.length === 0
+      && !threadRow.isRead
+      && threadRow.parentFolderId === 'inbox'
+    ) {
+      unreadInboxIds.push(threadRow.id);
+    }
+
+    const readIds = new Set(unreadInboxIds);
+    unreadInboxIds.forEach(id => {
+      handleMarkEmailRead(id, true);
+      adjustInboxUnread(-1);
+      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(id)}/read`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ is_read: true }),
+      }).catch(() => {});
+    });
+
     setSelectedConvKey(convKey);
     setThreadMessages([]);
     setExpandedMsgIds(new Set());
@@ -423,25 +456,13 @@ export default function EmailPage() {
         .then(res => (res.ok ? res.json() : { value: [] }))
         .then(data => {
           const msgs = data.value || [];
-          setThreadMessages(msgs);
+          setThreadMessages(msgs.map(msg => readIds.has(msg.id) ? { ...msg, isRead: true } : msg));
           // Default: expand all unread messages; if all read, expand only the latest.
           const unreadIds = msgs.filter(m => !m.isRead).map(m => m.id);
           const toExpand = unreadIds.length > 0
             ? new Set(unreadIds)
             : msgs.length > 0 ? new Set([msgs[msgs.length - 1].id]) : new Set();
           setExpandedMsgIds(toExpand);
-          // Mark unread inbox messages in this thread as read
-          msgs.forEach(msg => {
-            if (!msg.isRead && msg.parentFolderId === 'inbox') {
-              handleMarkEmailRead(msg.id, true);
-              adjustInboxUnread(-1);
-              fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(msg.id)}/read`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-                body: JSON.stringify({ is_read: true }),
-              }).catch(() => {});
-            }
-          });
         })
         .catch(() => {})
         .finally(() => setIsLoadingThread(false));
@@ -454,22 +475,13 @@ export default function EmailPage() {
         .then(res => (res.ok ? res.json() : null))
         .then(data => {
           if (data) {
-            setThreadMessages([data]);
+            setThreadMessages([{ ...data, isRead: readIds.has(data.id) ? true : data.isRead }]);
             setExpandedMsgIds(new Set([data.id]));
           }
         })
         .catch(() => {})
         .finally(() => setIsLoadingThread(false));
 
-      if (!threadRow.isRead && threadRow.parentFolderId === 'inbox') {
-        handleMarkEmailRead(threadRow.id, true);
-        adjustInboxUnread(-1);
-        fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(threadRow.id)}/read`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify({ is_read: true }),
-        }).catch(() => {});
-      }
     }
   };
 
