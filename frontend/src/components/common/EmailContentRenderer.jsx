@@ -2,6 +2,77 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 
 const INJECTED_STYLE_ATTRIBUTE = 'data-email-content-renderer-style';
 const MAX_IFRAME_WIDTH = 2400;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const INLINE_IMAGE_CACHE_MAX_ENTRIES = 40;
+const INLINE_IMAGE_CACHE_MAX_BYTES = 20 * 1024 * 1024;
+const inlineImageCache = new Map();
+const inlineImageRequests = new Map();
+let inlineImageCacheBytes = 0;
+
+const normalizeContentId = (value) => String(value || '')
+  .trim()
+  .replace(/^cid:/i, '')
+  .replace(/^<|>$/g, '')
+  .toLowerCase();
+
+const sanitizeEmailHtml = (html) => html
+  .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
+  .replace(/<script\b[^>]*\/\s*>/gi, '')
+  .replace(/\son\w+\s*=\s*(['"])[\s\S]*?\1/gi, '')
+  .replace(/\s(?:href|src)\s*=\s*(['"])\s*javascript:[\s\S]*?\1/gi, '');
+
+const sanitizeIframeDocument = (doc) => {
+  doc.querySelectorAll('script, noscript, object, embed').forEach(node => node.remove());
+  doc.querySelectorAll('*').forEach(node => {
+    [...node.attributes].forEach(attribute => {
+      if (/^on/i.test(attribute.name)) node.removeAttribute(attribute.name);
+    });
+  });
+  doc.querySelectorAll('[href], [src]').forEach(node => {
+    ['href', 'src'].forEach(attributeName => {
+      const value = node.getAttribute(attributeName);
+      if (value && /^(?:javascript|data):/i.test(value.trim())) {
+        node.removeAttribute(attributeName);
+      }
+    });
+  });
+};
+
+const loadInlineImage = (messageId, attachmentId, authToken) => {
+  const key = `${messageId}:${attachmentId}`;
+  if (inlineImageCache.has(key)) return Promise.resolve(inlineImageCache.get(key));
+  const existingRequest = inlineImageRequests.get(key);
+  if (existingRequest) return existingRequest;
+
+  const request = fetch(
+    `${API_URL}/api/graph/mail/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/download`,
+    { headers: { Authorization: `Bearer ${authToken}` } }
+  )
+    .then(response => {
+      if (!response.ok) throw new Error(`Failed to load inline image (${response.status})`);
+      return response.blob();
+    })
+    .then(blob => {
+      if (blob.size <= INLINE_IMAGE_CACHE_MAX_BYTES) {
+        while (
+          inlineImageCache.size >= INLINE_IMAGE_CACHE_MAX_ENTRIES
+          || inlineImageCacheBytes + blob.size > INLINE_IMAGE_CACHE_MAX_BYTES
+        ) {
+          const oldestKey = inlineImageCache.keys().next().value;
+          if (oldestKey === undefined) break;
+          inlineImageCacheBytes -= inlineImageCache.get(oldestKey).size;
+          inlineImageCache.delete(oldestKey);
+        }
+        inlineImageCache.set(key, blob);
+        inlineImageCacheBytes += blob.size;
+      }
+      return blob;
+    })
+    .finally(() => inlineImageRequests.delete(key));
+
+  inlineImageRequests.set(key, request);
+  return request;
+};
 
 const withDefaultLinkTarget = (html) => {
   const baseTag = '<base target="_blank" rel="noopener noreferrer">';
@@ -71,17 +142,98 @@ const getInjectStyle = (isDark) => `
  * Supports both HTML and Plain Text bodies.
  * Uses sandboxed iframe for HTML to isolate style scope and enforce security.
  */
-export default function EmailContentRenderer({ body }) {
+export default function EmailContentRenderer({ body, messageId, authToken, inlineAttachments = [] }) {
   const iframeRef = useRef(null);
   const injectedStyleRef = useRef(null);
   const resizeFrameRef = useRef(null);
   const resourceCleanupRef = useRef(null);
+  const inlineObjectUrlsRef = useRef([]);
   const [iframeHeight, setIframeHeight] = useState('200px');
   const [iframeWidth, setIframeWidth] = useState('100%');
+  const [resolvedContent, setResolvedContent] = useState('');
+  const [inlineImagesLoading, setInlineImagesLoading] = useState(false);
 
   const content = body?.content || '';
   const contentType = (body?.contentType || 'text').toLowerCase();
-  const iframeSrcDoc = useMemo(() => withDefaultLinkTarget(content), [content]);
+  const iframeSrcDoc = useMemo(
+    () => withDefaultLinkTarget(sanitizeEmailHtml(resolvedContent)),
+    [resolvedContent]
+  );
+
+  // Outlook embeds inline images as cid: references. Resolve only the CIDs
+  // actually used by this body, then replace them with local blob URLs so the
+  // sandboxed iframe can display them without exposing the bearer token.
+  useEffect(() => {
+    let cancelled = false;
+    const releaseCurrentUrls = () => {
+      inlineObjectUrlsRef.current.forEach(url => window.URL.revokeObjectURL(url));
+      inlineObjectUrlsRef.current = [];
+    };
+
+    if (contentType !== 'html' || !messageId || !authToken) {
+      releaseCurrentUrls();
+      setInlineImagesLoading(false);
+      setResolvedContent(content);
+      return () => { cancelled = true; };
+    }
+
+    const attachmentByContentId = new Map(
+      (inlineAttachments || [])
+        .filter(attachment => attachment.isInline && attachment.contentId)
+        .map(attachment => [normalizeContentId(attachment.contentId), attachment])
+    );
+    const referencedIds = new Set();
+    const cidPattern = /cid:([^"'\s>]+)/gi;
+    let match;
+    while ((match = cidPattern.exec(content)) !== null) {
+      const normalizedId = normalizeContentId(match[1]);
+      if (attachmentByContentId.has(normalizedId)) referencedIds.add(normalizedId);
+    }
+
+    if (referencedIds.size === 0) {
+      releaseCurrentUrls();
+      setInlineImagesLoading(false);
+      setResolvedContent(content);
+      return () => { cancelled = true; };
+    }
+
+    const missingIds = [...referencedIds].filter(contentId => {
+      const attachment = attachmentByContentId.get(contentId);
+      return !inlineImageCache.has(`${messageId}:${attachment.id}`);
+    });
+    setInlineImagesLoading(missingIds.length > 0);
+    const fetchedUrls = [];
+    Promise.all([...referencedIds].map(async contentId => {
+      const attachment = attachmentByContentId.get(contentId);
+      const blob = await loadInlineImage(messageId, attachment.id, authToken);
+      const url = window.URL.createObjectURL(blob);
+      fetchedUrls.push(url);
+      return [contentId, url];
+    }))
+      .then(replacements => {
+        if (cancelled) {
+          fetchedUrls.forEach(url => window.URL.revokeObjectURL(url));
+          return;
+        }
+        const replacementMap = new Map(replacements);
+        const resolved = content.replace(cidPattern, (original, rawId) => (
+          replacementMap.get(normalizeContentId(rawId)) || original
+        ));
+        releaseCurrentUrls();
+        inlineObjectUrlsRef.current = fetchedUrls;
+        setInlineImagesLoading(false);
+        setResolvedContent(resolved);
+      })
+      .catch(() => {
+        fetchedUrls.forEach(url => window.URL.revokeObjectURL(url));
+        if (!cancelled) {
+          setInlineImagesLoading(false);
+          setResolvedContent(content);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [content, contentType, messageId, authToken, inlineAttachments]);
 
   const applyInjectedStyle = useCallback((doc, isDark) => {
     let styleElement = injectedStyleRef.current;
@@ -225,17 +377,38 @@ export default function EmailContentRenderer({ body }) {
     if (resourceCleanupRef.current) {
       resourceCleanupRef.current();
     }
+    inlineObjectUrlsRef.current.forEach(url => window.URL.revokeObjectURL(url));
+    inlineObjectUrlsRef.current = [];
   }, []);
 
   if (!body) return null;
 
   // HTML content rendering using a sandboxed iframe
   if (contentType === 'html') {
+    if (inlineImagesLoading) {
+      return (
+        <div
+          className="email-content-skeleton"
+          role="status"
+          aria-label="Loading email content"
+          style={{ padding: '8px 0' }}
+        >
+          <div className="skeleton-box" style={{ width: '42%', height: '16px', marginBottom: '14px', borderRadius: '4px' }} />
+          <div className="skeleton-box" style={{ width: '100%', height: '14px', marginBottom: '9px', borderRadius: '4px' }} />
+          <div className="skeleton-box" style={{ width: '92%', height: '14px', marginBottom: '9px', borderRadius: '4px' }} />
+          <div className="skeleton-box" style={{ width: '76%', height: '120px', margin: '18px 0', borderRadius: '8px' }} />
+          <div className="skeleton-box" style={{ width: '88%', height: '14px', marginBottom: '9px', borderRadius: '4px' }} />
+          <div className="skeleton-box" style={{ width: '64%', height: '14px', borderRadius: '4px' }} />
+        </div>
+      );
+    }
+
     const handleIframeLoad = () => {
       const iframe = iframeRef.current;
       if (iframe && iframe.contentWindow) {
         try {
           const doc = iframe.contentWindow.document;
+          sanitizeIframeDocument(doc);
           const isDark = document.documentElement.classList.contains('dark');
           applyInjectedStyle(doc, isDark);
           observeIframeContent(doc);

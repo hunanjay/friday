@@ -1,10 +1,14 @@
+import logging
 import os
 import time
+from dataclasses import dataclass
 import httpx
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from app.infrastructure.db.repositories.token_store import get_ms_token, get_ms_token_row, set_ms_token
+
+logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -13,6 +17,13 @@ _client: httpx.AsyncClient | None = None
 _MS_TOKEN_CACHE_TTL_SECONDS = 300
 _MS_TOKEN_CACHE_MAX_ENTRIES = 1024
 _ms_token_cache: dict[str, tuple[float, str]] = {}
+
+
+@dataclass(frozen=True)
+class GraphBinaryResponse:
+    content: bytes
+    content_type: str
+    content_disposition: str | None
 
 
 def cache_ms_token(user_id: str, token: str) -> None:
@@ -47,7 +58,10 @@ def invalidate_ms_token(user_id: str, expected_token: str | None = None) -> None
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient()
+        # Graph supports HTTP/2. Keeping one shared client avoids a fresh TLS
+        # connection for each attachment request and allows multiplexing when
+        # the UI loads metadata and content concurrently.
+        _client = httpx.AsyncClient(http2=True)
     return _client
 
 
@@ -89,38 +103,99 @@ async def refresh_ms_token(user_id: str) -> str | None:
 
 
 async def _graph_request(
-    user_id: str, method: str, path: str, json: dict | None = None, extra_headers: dict | None = None
-) -> dict | None:
+    user_id: str,
+    method: str,
+    path: str,
+    json: dict | None = None,
+    extra_headers: dict | None = None,
+    return_binary: bool = False,
+) -> dict | GraphBinaryResponse | None:
+    request_started = time.perf_counter()
+    token_started = time.perf_counter()
     ms_token = _get_cached_ms_token(user_id)
+    token_source = "memory_cache"
     if not ms_token:
+        token_source = "supabase"
         ms_token = await run_in_threadpool(get_ms_token, user_id)
         if ms_token:
             cache_ms_token(user_id, ms_token)
+    token_duration_ms = (time.perf_counter() - token_started) * 1000
     if not ms_token:
         raise HTTPException(status_code=404, detail="No Microsoft account linked")
 
     url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
 
-    async def _call(token: str) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {token}", **(extra_headers or {})}
-        return await _get_client().request(method, url, headers=headers, json=json)
+    upstream_duration_ms = 0.0
+    attempts = 0
 
-    resp = await _call(ms_token)
+    async def _call(token: str) -> httpx.Response:
+        nonlocal upstream_duration_ms, attempts
+        headers = {"Authorization": f"Bearer {token}", **(extra_headers or {})}
+        attempts += 1
+        upstream_started = time.perf_counter()
+        try:
+            return await _get_client().request(method, url, headers=headers, json=json)
+        finally:
+            upstream_duration_ms += (time.perf_counter() - upstream_started) * 1000
+
+    safe_path = url.split("?", 1)[0].removeprefix(GRAPH_BASE)
+    try:
+        resp = await _call(ms_token)
+    except Exception:
+        logger.exception(
+            "graph.http method=%s path=%s status=network_error token_source=%s "
+            "token_ms=%.1f upstream_ms=%.1f total_ms=%.1f attempts=%d",
+            method,
+            safe_path,
+            token_source,
+            token_duration_ms,
+            upstream_duration_ms,
+            (time.perf_counter() - request_started) * 1000,
+            attempts,
+        )
+        raise
     if resp.status_code == 401:
         invalidate_ms_token(user_id, ms_token)
+        refresh_started = time.perf_counter()
         refreshed = await refresh_ms_token(user_id)
+        token_duration_ms += (time.perf_counter() - refresh_started) * 1000
+        token_source = "refresh"
         if not refreshed:
             raise HTTPException(status_code=401, detail="Microsoft token expired, please sign in again")
         resp = await _call(refreshed)
         if resp.status_code == 401:
             raise HTTPException(status_code=401, detail="Microsoft token expired, please sign in again")
+
+    logger.info(
+        "graph.http method=%s path=%s status=%d token_source=%s token_ms=%.1f "
+        "upstream_ms=%.1f total_ms=%.1f attempts=%d response_bytes=%d",
+        method,
+        safe_path,
+        resp.status_code,
+        token_source,
+        token_duration_ms,
+        upstream_duration_ms,
+        (time.perf_counter() - request_started) * 1000,
+        attempts,
+        len(resp.content),
+    )
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=f"Graph API error: {resp.text}")
+    if return_binary:
+        return GraphBinaryResponse(
+            content=resp.content,
+            content_type=resp.headers.get("content-type", "application/octet-stream"),
+            content_disposition=resp.headers.get("content-disposition"),
+        )
     return resp.json() if resp.content else None
 
 
 async def graph_get(user_id: str, path: str, extra_headers: dict | None = None) -> dict:
     return await _graph_request(user_id, "GET", path, extra_headers=extra_headers)
+
+
+async def graph_get_binary(user_id: str, path: str) -> GraphBinaryResponse:
+    return await _graph_request(user_id, "GET", path, return_binary=True)
 
 
 async def graph_get_paginated(user_id: str, path: str, max_count: int) -> dict:

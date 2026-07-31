@@ -70,6 +70,14 @@ export const Paperclip = ({ size = 20, className = "" }) => (
   </svg>
 );
 
+export const Download = ({ size = 20, className = "" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" x2="12" y1="15" y2="3" />
+  </svg>
+);
+
 export const Plus = ({ size = 20, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <path d="M5 12h14" />
@@ -194,5 +202,14 @@ export const Globe = ({ size = 20, className = "" }) => (
     <circle cx="12" cy="12" r="10" />
     <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
     <path d="M2 12h20" />
+  </svg>
+);
+
+export const MicrosoftIcon = ({ size = 20, className = "" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 23 23" className={className}>
+    <path fill="#f35325" d="M1 1h10v10H1z"/>
+    <path fill="#81bc06" d="M12 1h10v10H12z"/>
+    <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+    <path fill="#ffba08" d="M12 12h10v10H12z"/>
   </svg>
 );

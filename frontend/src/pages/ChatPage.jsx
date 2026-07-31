@@ -4,6 +4,7 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { useTranslation } from 'react-i18next';
 import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
+import ApprovalCard from '../components/common/ApprovalCard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
@@ -380,33 +381,13 @@ export default function ChatPage() {
   };
 
   const renderApprovalAction = (action) => {
-    if (action.resolved) {
-      return (
-        <div key={action.id} className="approval-card approval-card-resolved" role="status">
-          <div className="approval-resolved-status"><span className="approval-status approval-status-sent">{t('chat.approvalStatusSent')}</span></div>
-          {action.action_type === 'send_email' ? (
-            <div className="approval-email-preview">
-              <div className="approval-email-recipient"><span>{t('email.to')}</span><strong>{action.payload.to}</strong></div>
-              <h4 className="approval-email-subject">{action.payload.subject}</h4>
-              <div className="approval-email-body"><span>{t('email.body')}</span><p>{action.payload.body}</p></div>
-            </div>
-          ) : (
-            <div className="approval-details"><div><span>{t('email.subject')}</span><strong>{action.payload.subject}</strong></div>{action.payload.sender && <div><span>{t('chat.sender')}</span><strong>{action.payload.sender}</strong></div>}</div>
-          )}
-        </div>
-      );
-    }
     return (
-      <div key={action.id} className="approval-card" role="group" aria-label={t('chat.approvalRequired')}>
-        <div className="approval-card-header"><span className="approval-card-icon">{action.action_type === 'send_email' ? <Mail size={18} /> : <Trash size={18} />}</span><div><div className="approval-title-row"><strong>{action.action_type === 'send_email' ? t('chat.reviewEmail') : t('chat.reviewDelete')}</strong><span className="approval-status approval-status-pending">{t('chat.approvalStatusPending')}</span></div><p>{t('chat.approvalRequired')}</p></div></div>
-        {action.action_type === 'send_email' ? (
-          <div className="approval-email-preview"><div className="approval-email-recipient"><span>{t('email.to')}</span><strong>{action.payload.to}</strong></div><h4 className="approval-email-subject">{action.payload.subject}</h4><div className="approval-email-body"><span>{t('email.body')}</span><p>{action.payload.body}</p></div></div>
-        ) : (
-          <div className="approval-details"><div><span>{t('email.subject')}</span><strong>{action.payload.subject}</strong></div>{action.payload.sender && <div><span>{t('chat.sender')}</span><strong>{action.payload.sender}</strong></div>}</div>
-        )}
-        {action.error && <p className="approval-error" role="alert">{action.error}</p>}
-        <div className="approval-actions"><button type="button" className="approval-cancel-btn" disabled={action.busy} onClick={() => handleActionDecision(action, 'cancel')}>{t('common.cancel')}</button><button type="button" className="approval-confirm-btn" disabled={action.busy} onClick={() => handleActionDecision(action, 'confirm')}>{action.busy ? t('chat.approvalWorking') : action.action_type === 'send_email' ? t('chat.confirmSend') : t('chat.confirmDelete')}</button></div>
-      </div>
+      <ApprovalCard
+        key={action.id}
+        action={action}
+        onCancel={() => handleActionDecision(action, 'cancel')}
+        onConfirm={() => handleActionDecision(action, 'confirm')}
+      />
     );
   };
 

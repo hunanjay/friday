@@ -10,16 +10,24 @@ from app.tools.html_sanitizer import sanitize_html_to_text
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = """Please write a polite, concise, and professional reply email according to the language/style of the invitation email"""
+_SYSTEM_PROMPT = """Please write a polite, concise, and professional reply email according to the language and tone of the incoming email.
+
+CRITICAL FORMATTING INSTRUCTIONS:
+- You MUST format the email using proper line breaks and empty lines between sections.
+- Greeting line MUST be on its own line, followed by a blank line (e.g. "Dear [Name],\n\n" or "你好，\n\n").
+- Separate each body paragraph with a blank line (\n\n).
+- Closing phrase MUST be on its own line (e.g. "Best regards," or "祝好！\n").
+- Do NOT output everything on a single line!
+"""
 
 
 class _ReplyDraft(BaseModel):
     body: str = Field(
         description=(
-            "The full reply email content: greeting line, body paragraphs, and "
-            "a short closing phrase at the end (e.g. 'Best regards,'). Do NOT "
-            "include a subject line, a signature/name after the closing "
-            "phrase, or any commentary about the reply itself."
+            "The full reply email content formatted with line breaks and empty lines between sections: "
+            "greeting line, body paragraphs separated by blank lines, and a short closing phrase "
+            "on a new line (e.g. 'Best regards,' or '祝好！'). Do NOT put everything on a single line. "
+            "Do NOT include a subject line or commentary."
         )
     )
 

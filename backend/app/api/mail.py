@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File
 
 from app.core.security import get_user_id
 from app.services.mail_service import MailService
@@ -64,16 +64,58 @@ async def delete(email_id: str, permanent: bool = False, user_id: str = Depends(
 
 
 @router.post("/send")
-async def send(body: dict, user_id: str = Depends(get_user_id)):
-    to = body.get("to")
-    subject = body.get("subject")
-    content = body.get("body")
-    if not to or not subject or not content:
-        raise HTTPException(status_code=400, detail="to, subject and body are required")
-    return await MailService.send_message(user_id=user_id, to=to, subject=subject, content=content)
+async def send(
+    to: str = Form(...),
+    subject: str = Form(...),
+    body: str = Form(...),
+    attachments: list[UploadFile] = File(default=[]),
+    user_id: str = Depends(get_user_id)
+):
+    att_list = []
+    for f in attachments:
+        if f.filename:
+            content = await f.read()
+            att_list.append({
+                "name": f.filename,
+                "contentType": f.content_type,
+                "content": content
+            })
+    return await MailService.send_message(user_id=user_id, to=to, subject=subject, content=body, attachments=att_list)
 
 
 @router.post("/{email_id}/reply")
-async def reply(email_id: str, body: dict, user_id: str = Depends(get_user_id)):
-    comment = body.get("body") or ""
-    return await MailService.reply_message(user_id=user_id, email_id=email_id, content=comment)
+async def reply(
+    email_id: str,
+    body: str = Form(""),
+    attachments: list[UploadFile] = File(default=[]),
+    user_id: str = Depends(get_user_id)
+):
+    att_list = []
+    for f in attachments:
+        if f.filename:
+            content = await f.read()
+            att_list.append({
+                "name": f.filename,
+                "contentType": f.content_type,
+                "content": content
+            })
+    return await MailService.reply_message(user_id=user_id, email_id=email_id, content=body, attachments=att_list)
+
+
+@router.get("/{email_id}/attachments")
+async def list_attachments(email_id: str, user_id: str = Depends(get_user_id)):
+    return await MailService.list_attachments(user_id=user_id, email_id=email_id)
+
+
+@router.get("/{email_id}/attachments/{attachment_id}/download")
+async def download_attachment(email_id: str, attachment_id: str, user_id: str = Depends(get_user_id)):
+    from fastapi.responses import Response
+    att = await MailService.download_attachment(user_id=user_id, email_id=email_id, attachment_id=attachment_id)
+    headers = {}
+    if att["content_disposition"]:
+        headers["Content-Disposition"] = att["content_disposition"]
+    return Response(
+        content=att["content"],
+        media_type=att["content_type"],
+        headers=headers,
+    )

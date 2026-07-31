@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Trash, Search, Plus, X, Sparkles } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
+import EmailAttachments from '../components/common/EmailAttachments';
+import ApprovalCard from '../components/common/ApprovalCard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const THREAD_PREFETCH_DELAY_MS = 300;
+const THREAD_CACHE_MAX_ENTRIES = 10;
 
 // Shared shape for both the inbox sync and search responses, since both are
 // arrays of raw Graph message objects.
@@ -22,6 +26,7 @@ function normalizeMessage(msg, parentFolderId) {
     isRead: msg.isRead,
     parentFolderId,
     conversationId: msg.conversationId || null,
+    hasAttachments: Boolean(msg.hasAttachments),
   };
 }
 
@@ -73,8 +78,17 @@ export default function EmailPage() {
   const [selectedConvKey, setSelectedConvKey] = useState(null);
   const [threadMessages, setThreadMessages] = useState([]);
   const [isLoadingThread, setIsLoadingThread] = useState(false);
+  const threadCacheRef = useRef(new Map());
+  const threadRequestsRef = useRef(new Map());
+  const threadPrefetchTimersRef = useRef(new Map());
+  const threadSelectionSequenceRef = useRef(0);
   // IDs of messages whose full body is expanded in the timeline view.
   const [expandedMsgIds, setExpandedMsgIds] = useState(new Set());
+
+  useEffect(() => () => {
+    threadPrefetchTimersRef.current.forEach(timer => window.clearTimeout(timer));
+    threadPrefetchTimersRef.current.clear();
+  }, []);
 
   // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
   // value, so periodic Supabase token refreshes don't re-trigger a refetch.
@@ -159,6 +173,7 @@ export default function EmailPage() {
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [composeAttachments, setComposeAttachments] = useState([]);
   const [isSending, setIsSending] = useState(false);
   // Set by handleUseDraftAsReply - when present, submit hits Graph's
   // {id}/reply endpoint (keeps threading) instead of a fresh /send.
@@ -332,6 +347,21 @@ export default function EmailPage() {
     ? threadMessages[threadMessages.length - 1]
     : null;
 
+  const handleAttachmentChange = (e) => {
+    const files = Array.from(e.target.files);
+    const totalSize = files.reduce((acc, file) => acc + file.size, 0);
+    if (totalSize > 3 * 1024 * 1024) {
+      alert(i18n.language === 'zh' ? '目前基础附件总大小限制为 3MB' : 'Standard attachments total size limited to 3MB');
+      return;
+    }
+
+    setComposeAttachments(prev => [...prev, ...files]);
+  };
+
+  const removeAttachment = (index) => {
+    setComposeAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleComposeSubmit = async (e) => {
     e.preventDefault();
     if (!composeTo || !composeSubject || !composeBody) {
@@ -342,16 +372,24 @@ export default function EmailPage() {
     const isZh = i18n.language === 'zh';
     setIsSending(true);
     try {
+      const formData = new FormData();
+      formData.append('to', composeTo);
+      formData.append('subject', composeSubject);
+      formData.append('body', composeBody);
+      composeAttachments.forEach(file => {
+        formData.append('attachments', file);
+      });
+
       const res = replyToEmailId
         ? await fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(replyToEmailId)}/reply`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-            body: JSON.stringify({ body: composeBody }),
+            headers: { Authorization: `Bearer ${authToken}` },
+            body: formData,
           })
         : await fetch(`${API_URL}/api/graph/mail/send`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-            body: JSON.stringify({ to: composeTo, subject: composeSubject, body: composeBody }),
+            headers: { Authorization: `Bearer ${authToken}` },
+            body: formData,
           });
 
       if (res.status === 401) {
@@ -371,6 +409,7 @@ export default function EmailPage() {
       setComposeTo('');
       setComposeSubject('');
       setComposeBody('');
+      setComposeAttachments([]);
       showToast(t('email.sentSuccess'));
     } catch {
       showToast(isZh ? '无法连接到邮件服务，请稍后再试。' : "Couldn't reach the mail service, please try again later.");
@@ -401,11 +440,95 @@ export default function EmailPage() {
     }).catch(() => {});
   };
 
+  const getThreadResource = (threadRow) => {
+    if (threadRow.conversationId) {
+      return {
+        key: `conversation:${threadRow.conversationId}`,
+        url: `${API_URL}/api/graph/mail/conversation/${encodeURIComponent(threadRow.conversationId)}`,
+        isConversation: true,
+      };
+    }
+    return {
+      key: `message:${threadRow.id}`,
+      url: `${API_URL}/api/graph/mail/${encodeURIComponent(threadRow.id)}`,
+      isConversation: false,
+    };
+  };
+
+  const loadThread = (threadRow) => {
+    const resource = getThreadResource(threadRow);
+    if (threadCacheRef.current.has(resource.key)) {
+      return Promise.resolve(threadCacheRef.current.get(resource.key));
+    }
+
+    const existingRequest = threadRequestsRef.current.get(resource.key);
+    if (existingRequest) return existingRequest;
+
+    const request = fetch(resource.url, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(async res => {
+        if (!res.ok) throw new Error(`Failed to load email thread (${res.status})`);
+        const data = await res.json();
+        return resource.isConversation ? (data.value || []) : [data];
+      })
+      .then(messages => {
+        threadRequestsRef.current.delete(resource.key);
+        if (threadCacheRef.current.size >= THREAD_CACHE_MAX_ENTRIES) {
+          const oldestKey = threadCacheRef.current.keys().next().value;
+          threadCacheRef.current.delete(oldestKey);
+        }
+        threadCacheRef.current.set(resource.key, messages);
+        return messages;
+      })
+      .catch(error => {
+        threadRequestsRef.current.delete(resource.key);
+        throw error;
+      });
+
+    threadRequestsRef.current.set(resource.key, request);
+    return request;
+  };
+
+  const prefetchThread = (threadRow) => {
+    const { key } = getThreadResource(threadRow);
+    const convKey = threadRow._threadKey || threadRow.conversationId || threadRow.id;
+    if (
+      convKey === selectedConvKey
+      || threadCacheRef.current.has(key)
+      || threadRequestsRef.current.has(key)
+      || threadPrefetchTimersRef.current.has(key)
+    ) return;
+
+    // Debounce across the whole list: moving to another row cancels any
+    // pending hover prefetch that has not started yet.
+    threadPrefetchTimersRef.current.forEach((timer, pendingKey) => {
+      if (pendingKey !== key) window.clearTimeout(timer);
+    });
+    threadPrefetchTimersRef.current.clear();
+
+    const timer = window.setTimeout(() => {
+      threadPrefetchTimersRef.current.delete(key);
+      loadThread(threadRow).catch(() => {});
+    }, THREAD_PREFETCH_DELAY_MS);
+    threadPrefetchTimersRef.current.set(key, timer);
+  };
+
+  const cancelScheduledThreadPrefetch = (threadRow) => {
+    const { key } = getThreadResource(threadRow);
+    const timer = threadPrefetchTimersRef.current.get(key);
+    if (timer === undefined) return;
+    window.clearTimeout(timer);
+    threadPrefetchTimersRef.current.delete(key);
+  };
+
 
 
   const handleSelectEmail = (threadRow) => {
-    const convKey = threadRow._threadKey;
+    const convKey = threadRow._threadKey || threadRow.conversationId || threadRow.id;
     if (convKey === selectedConvKey) return; // already selected
+    const selectionSequence = ++threadSelectionSequenceRef.current;
+    cancelScheduledThreadPrefetch(threadRow);
 
     // Mark locally-known unread inbox messages as soon as their thread is
     // opened. Graph's conversation response returns parentFolderId as an
@@ -444,45 +567,43 @@ export default function EmailPage() {
     setExpandedMsgIds(new Set());
     setIsSidebarCollapsed(true);
 
-    // If this thread row has a real conversationId, fetch the full thread from
-    // Graph (all folders, chronological). Otherwise fall back to a single-
-    // message view using the row's own id.
-    const convId = threadRow.conversationId;
-    if (convId) {
-      setIsLoadingThread(true);
-      fetch(`${API_URL}/api/graph/mail/conversation/${encodeURIComponent(convId)}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      })
-        .then(res => (res.ok ? res.json() : { value: [] }))
-        .then(data => {
-          const msgs = data.value || [];
-          setThreadMessages(msgs.map(msg => readIds.has(msg.id) ? { ...msg, isRead: true } : msg));
-          // Default: expand all unread messages; if all read, expand only the latest.
-          const unreadIds = msgs.filter(m => !m.isRead).map(m => m.id);
-          const toExpand = unreadIds.length > 0
-            ? new Set(unreadIds)
-            : msgs.length > 0 ? new Set([msgs[msgs.length - 1].id]) : new Set();
-          setExpandedMsgIds(toExpand);
-        })
-        .catch(() => {})
-        .finally(() => setIsLoadingThread(false));
-    } else {
-      // Single-message thread (no conversationId): reuse single-email fetch
-      setIsLoadingThread(true);
-      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(threadRow.id)}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      })
-        .then(res => (res.ok ? res.json() : null))
-        .then(data => {
-          if (data) {
-            setThreadMessages([{ ...data, isRead: readIds.has(data.id) ? true : data.isRead }]);
-            setExpandedMsgIds(new Set([data.id]));
-          }
-        })
-        .catch(() => {})
-        .finally(() => setIsLoadingThread(false));
+    const { key: threadResourceKey } = getThreadResource(threadRow);
+    const cachedMessages = threadCacheRef.current.get(threadResourceKey);
+    const localReadState = new Map(emails.map(email => [email.id, email.isRead]));
+    const applyThread = (msgs) => {
+      if (selectionSequence !== threadSelectionSequenceRef.current) return;
+      const unreadBeforeOpen = msgs
+        .filter(msg => localReadState.has(msg.id) ? !localReadState.get(msg.id) : !msg.isRead)
+        .map(msg => msg.id);
+      const displayedMessages = msgs.map(msg => ({
+        ...msg,
+        isRead: readIds.has(msg.id)
+          ? true
+          : (localReadState.has(msg.id) ? localReadState.get(msg.id) : msg.isRead),
+      }));
+      setThreadMessages(displayedMessages);
+      setExpandedMsgIds(
+        unreadBeforeOpen.length > 0
+          ? new Set(unreadBeforeOpen)
+          : msgs.length > 0 ? new Set([msgs[msgs.length - 1].id]) : new Set()
+      );
+    };
 
+    if (cachedMessages) {
+      applyThread(cachedMessages);
+      setIsLoadingThread(false);
+      return;
     }
+
+    setIsLoadingThread(true);
+    loadThread(threadRow)
+      .then(applyThread)
+      .catch(() => {})
+      .finally(() => {
+        if (selectionSequence === threadSelectionSequenceRef.current) {
+          setIsLoadingThread(false);
+        }
+      });
   };
 
   const toggleMsgExpand = (msgId) => {
@@ -547,7 +668,7 @@ export default function EmailPage() {
         </button>
 
         <nav className="email-folders">
-          <button 
+          <button
             className={`folder-item ${activeFolder === 'inbox' ? 'active' : ''}`}
             onClick={() => { setActiveFolder('inbox'); }}
           >
@@ -557,14 +678,14 @@ export default function EmailPage() {
               {(inboxUnread ?? emails.filter(e => e.parentFolderId === 'inbox' && !e.isRead).length) || ''}
             </span>
           </button>
-          <button 
+          <button
             className={`folder-item ${activeFolder === 'sent' ? 'active' : ''}`}
             onClick={() => { setActiveFolder('sent'); }}
           >
             <Send size={16} />
             <span className="folder-name">{t('email.sent')}</span>
           </button>
-          <button 
+          <button
             className={`folder-item ${activeFolder === 'trash' ? 'active' : ''}`}
             onClick={() => { setActiveFolder('trash'); }}
           >
@@ -601,17 +722,35 @@ export default function EmailPage() {
               const isUnread = threadRow._hasUnread ?? !threadRow.isRead;
               const senderName = threadRow.sender?.emailAddress?.name || 'Unknown';
               const emailTime = formatEmailListDate(threadRow.receivedDateTime);
-              const isSelected = threadRow._threadKey === selectedConvKey;
+              const threadKey = threadRow._threadKey || threadRow.conversationId || threadRow.id;
+              const isSelected = threadKey === selectedConvKey;
               const count = threadRow._count || 1;
 
               return (
                 <div
                   key={threadRow._threadKey || threadRow.id}
                   className={`email-list-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''}`}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleSelectEmail(threadRow)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleSelectEmail(threadRow);
+                    }
+                  }}
+                  onMouseEnter={() => prefetchThread(threadRow)}
+                  onMouseLeave={() => cancelScheduledThreadPrefetch(threadRow)}
+                  onFocus={() => prefetchThread(threadRow)}
+                  onBlur={() => cancelScheduledThreadPrefetch(threadRow)}
                 >
                   <div className="email-item-header">
-                    <span className="email-item-sender">{senderName}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <div className="email-item-avatar">
+                        {(senderName?.[0] || 'U').toUpperCase()}
+                      </div>
+                      <span className="email-item-sender">{senderName}</span>
+                    </div>
                     <span className="email-item-date">{emailTime}</span>
                   </div>
                   <div className="email-item-subject">
@@ -636,11 +775,54 @@ export default function EmailPage() {
       </div>
 
       {/* Email Reader */}
-      <div className="email-reader-panel">
+      <div className="email-reader-panel" style={{ position: 'relative' }}>
         {isLoadingThread ? (
-          <div className="reader-empty-state">
-            <div className="spinner" style={{ width: 32, height: 32 }} />
-            <p style={{ marginTop: 12, opacity: 0.6 }}>{i18n.language === 'zh' ? '加载对话中…' : 'Loading thread…'}</p>
+          <div
+            className="email-reader-split-layout"
+            aria-busy="true"
+            aria-label="Loading email details"
+            style={{ position: 'absolute', inset: 0, zIndex: 2, backgroundColor: 'var(--bg-card)' }}
+          >
+            <div className="email-detail-column" style={{ padding: '32px 40px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', paddingBottom: '24px', borderBottom: '1px solid var(--border-light)' }}>
+                <div className="skeleton-box" style={{ width: '48px', height: '48px', borderRadius: '50%', flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div className="skeleton-box" style={{ width: '55%', height: '22px', marginBottom: '10px', borderRadius: '4px' }} />
+                  <div className="skeleton-box" style={{ width: '28%', height: '13px', borderRadius: '4px' }} />
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className="skeleton-box" style={{ width: '82px', height: '32px', borderRadius: '6px' }} />
+                  <div className="skeleton-box" style={{ width: '32px', height: '32px', borderRadius: '6px' }} />
+                </div>
+              </div>
+
+              <div style={{ padding: '28px 0 8px' }}>
+                <div className="skeleton-box" style={{ width: '38%', height: '16px', marginBottom: '18px', borderRadius: '4px' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div className="skeleton-box" style={{ width: '100%', height: '14px', borderRadius: '4px' }} />
+                  <div className="skeleton-box" style={{ width: '96%', height: '14px', borderRadius: '4px' }} />
+                  <div className="skeleton-box" style={{ width: '88%', height: '14px', borderRadius: '4px' }} />
+                  <div className="skeleton-box" style={{ width: '72%', height: '14px', borderRadius: '4px' }} />
+                  <div className="skeleton-box" style={{ width: '82%', height: '150px', margin: '10px 0', borderRadius: '8px' }} />
+                  <div className="skeleton-box" style={{ width: '94%', height: '14px', borderRadius: '4px' }} />
+                  <div className="skeleton-box" style={{ width: '62%', height: '14px', borderRadius: '4px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '22px' }}>
+                <div className="skeleton-box" style={{ width: '180px', height: '52px', borderRadius: '8px' }} />
+                <div className="skeleton-box" style={{ width: '140px', height: '52px', borderRadius: '8px' }} />
+              </div>
+            </div>
+            {isDoraActive && (
+              <div className="dora-ai-sidebar-panel" style={{ padding: '24px' }}>
+                <div className="skeleton-box" style={{ width: '45%', height: '20px', marginBottom: '28px', borderRadius: '4px' }} />
+                <div className="skeleton-box" style={{ width: '150px', height: '150px', margin: '0 auto 24px', borderRadius: '50%' }} />
+                <div className="skeleton-box" style={{ width: '100%', height: '64px', marginBottom: '28px', borderRadius: '8px' }} />
+                <div className="skeleton-box" style={{ width: '30%', height: '14px', marginBottom: '10px', borderRadius: '4px' }} />
+                <div className="skeleton-box" style={{ width: '100%', height: '92px', borderRadius: '8px' }} />
+              </div>
+            )}
           </div>
         ) : selectedConvKey && threadMessages.length > 0 ? (
           <div className="email-reader-split-layout">
@@ -710,8 +892,21 @@ export default function EmailPage() {
                             </div>
                           </div>
                           <div className="email-detail-body thread-msg-body">
-                            <EmailContentRenderer body={msg.body || null} />
+                            <EmailContentRenderer
+                              body={msg.body || null}
+                              messageId={msg.id}
+                              authToken={authToken}
+                              inlineAttachments={msg.attachments || []}
+                            />
                           </div>
+                          {msg.hasAttachments && (
+                            <EmailAttachments
+                              messageId={msg.id}
+                              hasAttachments={msg.hasAttachments}
+                              authToken={authToken}
+                              initialAttachments={msg.attachments}
+                            />
+                          )}
                         </>
                       ) : (
                         /* Collapsed: compact single-line row like Outlook */
@@ -756,9 +951,9 @@ export default function EmailPage() {
 
                 <div className="dora-avatar-section">
                   <div className="dora-image-wrapper">
-                    <img 
-                      src="/dora_assistant_avatar.png" 
-                      alt="Dora AI virtual mascot" 
+                    <img
+                      src="/dora_assistant_avatar.png"
+                      alt="Dora AI virtual mascot"
                       className="dora-3d-avatar"
                     />
                     <div className="dora-pulse-glow"></div>
@@ -798,22 +993,20 @@ export default function EmailPage() {
                   )}
 
                   {aiDraft && !isDrafting && (
-                    <div className="dora-draft-result-card">
-                      <div className="dora-result-header">
-                        <h6>{t('email.doraReplyTab')}</h6>
-                        <button
-                          className="use-draft-btn"
-                          onClick={handleUseDraftAsReply}
-                        >
-                          {t('email.doraCopyDraft')}
-                        </button>
-                      </div>
-                      <div className="dora-result-body">
-                        {aiDraft.split('\n').map((line, i) => (
-                          <p key={i}>{line || '\u00a0'}</p>
-                        ))}
-                      </div>
-                    </div>
+                    <ApprovalCard
+                      action={{
+                        action_type: 'send_email',
+                        payload: {
+                          to: selectedEmail?.sender?.emailAddress?.address || selectedEmail?.sender?.emailAddress?.name,
+                          subject: selectedEmail?.subject ? `Re: ${selectedEmail.subject}` : '',
+                          body: aiDraft,
+                        },
+                      }}
+                      title={t('email.doraReplyTab')}
+                      statusLabel={t('email.doraDrafted')}
+                      confirmText={t('email.doraCopyDraft')}
+                      onConfirm={handleUseDraftAsReply}
+                    />
                   )}
                 </div>
               </div>
@@ -870,7 +1063,19 @@ export default function EmailPage() {
                   required
                 />
               </div>
-              <div className="compose-footer">
+              <div className="compose-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="compose-attachments-list" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
+                  <label className="attachment-upload-btn" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '6px 12px', backgroundColor: 'var(--bg-secondary)', borderRadius: '4px', fontSize: '0.85rem', border: '1px solid var(--border-light)' }}>
+                    <Plus size={14} style={{ marginRight: '4px' }}/> {i18n.language === 'zh' ? '添加附件' : 'Add'}
+                    <input type="file" multiple style={{ display: 'none' }} onChange={handleAttachmentChange} />
+                  </label>
+                  {composeAttachments.map((att, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', backgroundColor: 'var(--bg-hover)', borderRadius: '4px', fontSize: '0.8rem', border: '1px solid var(--border-light)' }}>
+                      <span style={{ maxWidth: '100px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={att.name}>{att.name}</span>
+                      <X size={12} style={{ cursor: 'pointer', color: 'var(--text-tertiary)' }} onClick={() => removeAttachment(idx)} />
+                    </div>
+                  ))}
+                </div>
                 <button type="submit" className="send-btn" disabled={isSending}>
                   <Send size={16} />
                   <span>{isSending ? `${t('email.send')}...` : t('email.send')}</span>

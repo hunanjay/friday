@@ -172,13 +172,14 @@ async def confirm_action(action_id: UUID, user_id: str = Depends(get_user_id)):
     payload = action["payload"]
     try:
         if action["action_type"] == "send_email":
+            html_body = payload["body"].replace("\r\n", "\n").replace("\n", "<br>")
             await graph_post(
                 user_id,
                 "/me/sendMail",
                 {
                     "message": {
                         "subject": payload["subject"],
-                        "body": {"contentType": "Text", "content": payload["body"]},
+                        "body": {"contentType": "HTML", "content": html_body},
                         "toRecipients": [{"emailAddress": {"address": payload["to"]}}],
                     },
                     "saveToSentItems": True,
