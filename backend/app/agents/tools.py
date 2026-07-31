@@ -62,6 +62,18 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         return "\n".join(_format_email_row(m) for m in messages)
 
     @tool
+    async def search_contacts(query: str = "") -> str:
+        """Search the user's Outlook contacts by name, email, or company."""
+        from app.services.contact_service import ContactService
+        contacts = await ContactService.get_contacts(user_id=user_id, query=query, top=20)
+        if not contacts:
+            return "No contacts matched that search."
+        lines = []
+        for c in contacts:
+            lines.append(f"- {c['name']} <{c['email']}> | Company: {c['company']} | Job Title: {c['jobTitle']} | Phone: {c['phone']}")
+        return "\n".join(lines)
+
+    @tool
     async def search_emails(
         query: str = "",
         folder: str = "inbox",

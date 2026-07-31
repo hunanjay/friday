@@ -66,8 +66,8 @@ AGENT_NAMES = ("mail_agent", "calendar_agent", "memos_agent", "github_agent")
 # api/agent.py comment on the "/agent_name" tag bypass).
 _ROUTING_HINTS = {
     "mail_agent": (
-        "Route here for anything about the user's email/inbox: listing, searching, or "
-        "reading messages, sending new ones, marking read/unread, or deleting existing ones."
+        "Route here for anything about the user's email/inbox or contacts: listing, searching, or "
+        "reading messages, searching/looking up contacts, sending new emails, marking read/unread, or deleting existing ones."
     ),
     "calendar_agent": (
         "Route here for anything about scheduling: listing, creating, or deleting "

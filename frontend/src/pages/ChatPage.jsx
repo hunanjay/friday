@@ -32,6 +32,8 @@ export default function ChatPage() {
   const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const activeAgentItemRef = useRef(null);
+  const activeContactItemRef = useRef(null);
 
   // Per-thread message list, populated from the LangGraph checkpoint on
   // thread switch. New messages from the streaming response are appended here.
@@ -39,6 +41,10 @@ export default function ChatPage() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [pendingActions, setPendingActions] = useState([]);
   const activeThread = chatThreads.find(s => s.id === activeThreadId) || null;
+
+  const [contactList, setContactList] = useState([]);
+  const [contactMenuIndex, setContactMenuIndex] = useState(0);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
 
   // Slash-command agent picker: only while the whole box is still "/query"
   // (no space typed yet) — mirrors the Slack/Notion "/" mention pattern.
@@ -57,12 +63,53 @@ export default function ChatPage() {
     : [];
   const showAgentMenu = filteredAgents.length > 0;
 
+  // Contact mention picker: triggers when user types `@` or `@query` at the end of input
+  const mentionMatch = inputText.match(/@([^\s@]*)$/);
+  const showContactMenu = Boolean(mentionMatch) && !showAgentMenu && (isLoadingContacts || contactList.length > 0);
+
   useEffect(() => {
-    setAgentMenuIndex(0);
-  }, [inputText]);
+    if (!mentionMatch || showAgentMenu) {
+      setContactList([]);
+      return;
+    }
+    const q = mentionMatch[1];
+    setIsLoadingContacts(true);
+    const timer = setTimeout(() => {
+      fetch(`${API_URL}/api/graph/contacts?query=${encodeURIComponent(q)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data) => {
+          setContactList(Array.isArray(data) ? data : []);
+          setContactMenuIndex(0);
+        })
+        .catch(() => setContactList([]))
+        .finally(() => setIsLoadingContacts(false));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [mentionMatch ? mentionMatch[1] : null, showAgentMenu, authToken]);
+
+  useEffect(() => {
+    if (showAgentMenu && activeAgentItemRef.current) {
+      activeAgentItemRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [agentMenuIndex, showAgentMenu]);
+
+  useEffect(() => {
+    if (showContactMenu && activeContactItemRef.current) {
+      activeContactItemRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [contactMenuIndex, showContactMenu]);
 
   const selectAgent = (agent) => {
     setInputText(`/${agent.id} `);
+    inputRef.current?.focus();
+  };
+
+  const selectContact = (contact) => {
+    const text = contact.email ? `@${contact.name} <${contact.email}> ` : `@${contact.name} `;
+    setInputText((prev) => prev.replace(/@([^\s@]*)$/, text));
+    setContactList([]);
     inputRef.current?.focus();
   };
 
@@ -351,6 +398,29 @@ export default function ChatPage() {
   };
 
   const handleKeyDown = (e) => {
+    if (showContactMenu && contactList.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setContactMenuIndex((i) => (i + 1) % contactList.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setContactMenuIndex((i) => (i - 1 + contactList.length) % contactList.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectContact(contactList[contactMenuIndex] || contactList[0]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setContactList([]);
+        return;
+      }
+    }
+
     if (showAgentMenu) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -511,6 +581,7 @@ export default function ChatPage() {
                   {filteredAgents.map((agent, idx) => (
                     <div
                       key={agent.id}
+                      ref={idx === agentMenuIndex ? activeAgentItemRef : null}
                       className={`agent-slash-menu-item ${idx === agentMenuIndex ? 'active' : ''}`}
                       onMouseDown={(e) => { e.preventDefault(); selectAgent(agent); }}
                       onMouseEnter={() => setAgentMenuIndex(idx)}
@@ -522,6 +593,35 @@ export default function ChatPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {showContactMenu && (
+                <div className="agent-slash-menu contact-mention-menu">
+                  <span className="agent-slash-menu-hint">{t('chat.mentionContactHint')}</span>
+                  {isLoadingContacts ? (
+                    <div style={{ padding: '10px 12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      {i18n.language === 'zh' ? '正在查找联系人...' : 'Searching contacts...'}
+                    </div>
+                  ) : (
+                    contactList.map((contact, idx) => (
+                      <div
+                        key={contact.id || idx}
+                        ref={idx === contactMenuIndex ? activeContactItemRef : null}
+                        className={`agent-slash-menu-item ${idx === contactMenuIndex ? 'active' : ''}`}
+                        onMouseDown={(e) => { e.preventDefault(); selectContact(contact); }}
+                        onMouseEnter={() => setContactMenuIndex(idx)}
+                      >
+                        <div className="contact-item-avatar">
+                          {(contact.name?.[0] || 'C').toUpperCase()}
+                        </div>
+                        <div className="agent-slash-menu-item-text">
+                          <span className="agent-slash-menu-item-label">{contact.name}</span>
+                          <span className="agent-slash-menu-item-desc">{contact.email || contact.phone || contact.company || ''}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
               <div className="chat-input-wrapper">

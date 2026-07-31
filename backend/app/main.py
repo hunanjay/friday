@@ -17,7 +17,7 @@ from app.agents import checkpointer
 from app.infrastructure.db.repositories import chat_sessions, pending_actions
 from app.infrastructure.db.repositories import memos as memos_db
 
-from app.api import agent, auth, calendar, github, github_auth, mail, memos
+from app.api import agent, auth, calendar, contact, github, github_auth, mail, memos
 
 
 @asynccontextmanager
@@ -60,6 +60,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(mail.router)
 app.include_router(calendar.router)
+app.include_router(contact.router)
 app.include_router(agent.router)
 app.include_router(memos.router)
 app.include_router(github_auth.router)

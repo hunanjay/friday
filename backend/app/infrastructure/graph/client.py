@@ -89,7 +89,7 @@ async def refresh_ms_token(user_id: str) -> str | None:
             "client_secret": client_secret,
             "grant_type": "refresh_token",
             "refresh_token": row["refresh_token"],
-            "scope": "openid email profile offline_access Mail.ReadWrite Mail.Send Calendars.ReadWrite",
+            "scope": "openid email profile offline_access Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite",
         },
     )
     if resp.status_code >= 400:
