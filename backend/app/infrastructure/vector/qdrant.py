@@ -24,6 +24,7 @@ def _get_client() -> AsyncQdrantClient | None:
         _client = AsyncQdrantClient(
             url=url,
             api_key=os.environ.get("QDRANT_API_KEY") or None,
+            timeout=30.0,
         )
     return _client
 
@@ -35,6 +36,8 @@ def _get_dense() -> OpenAIEmbeddings:
             model="text-embedding-3-large",
             dimensions=_DENSE_SIZE,
             base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            request_timeout=60.0,
+            max_retries=3,
         )
     return _dense_embedder
 
@@ -46,8 +49,16 @@ def _get_sparse() -> SparseTextEmbedding:
     return _sparse_embedder
 
 
-def _memo_text(title: str, content: str) -> str:
-    return f"{title}\n\n{content}"
+def _memo_text(title: str, content: str, attachments: list | None = None) -> str:
+    text_parts = [title, content]
+    if attachments and isinstance(attachments, list):
+        for att in attachments:
+            if isinstance(att, dict):
+                att_name = att.get("name") or "attachment"
+                extracted = att.get("extracted_text") or ""
+                if extracted:
+                    text_parts.append(f"[Attachment: {att_name}]\n{extracted}")
+    return "\n\n".join(part for part in text_parts if part)
 
 
 def _sparse_vector(text: str) -> models.SparseVector:
@@ -76,11 +87,13 @@ async def init_collection():
         logger.warning("Qdrant init failed - vector search unavailable", exc_info=True)
 
 
-async def upsert_memo(user_id: str, memo_id: str, title: str, content: str, category: str) -> None:
+async def upsert_memo(
+    user_id: str, memo_id: str, title: str, content: str, category: str, attachments: list | None = None
+) -> None:
     client = _get_client()
     if client is None:
         raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
-    text = _memo_text(title, content)
+    text = _memo_text(title, content, attachments)
     dense_vec = await _get_dense().aembed_query(text)
     await client.upsert(
         collection_name=COLLECTION,
@@ -88,7 +101,14 @@ async def upsert_memo(user_id: str, memo_id: str, title: str, content: str, cate
             models.PointStruct(
                 id=memo_id,
                 vector={"dense": dense_vec, "bm25": _sparse_vector(text)},
-                payload={"user_id": user_id, "title": title, "content": content, "category": category},
+                payload={
+                    "user_id": user_id,
+                    "title": title,
+                    "content": content,
+                    "category": category,
+                    "has_attachments": bool(attachments),
+                    "attachments": attachments or [],
+                },
             )
         ],
     )
@@ -104,25 +124,46 @@ async def delete_memo(memo_id: str) -> None:
 async def search_memos(user_id: str, query: str, limit: int = 5) -> list[dict]:
     client = _get_client()
     if client is None:
-        raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
-    dense_vec = await _get_dense().aembed_query(query)
-    user_filter = models.Filter(must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))])
-    result = await client.query_points(
-        collection_name=COLLECTION,
-        prefetch=[
-            models.Prefetch(query=dense_vec, using="dense", limit=20, filter=user_filter),
-            models.Prefetch(query=_sparse_vector(query), using="bm25", limit=20, filter=user_filter),
-        ],
-        query=models.FusionQuery(fusion=models.Fusion.RRF),
-        limit=limit,
-    )
-    return [
-        {
-            "id": str(p.id),
-            "title": p.payload.get("title"),
-            "content": p.payload.get("content"),
-            "category": p.payload.get("category"),
-            "score": p.score,
-        }
-        for p in result.points
-    ]
+        return []
+
+    try:
+        dense_vec = await _get_dense().aembed_query(query)
+        user_filter = models.Filter(must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))])
+
+        points = []
+        # 1. Try Hybrid Fusion Query (RRF)
+        try:
+            result = await client.query_points(
+                collection_name=COLLECTION,
+                prefetch=[
+                    models.Prefetch(query=dense_vec, using="dense", limit=20, filter=user_filter),
+                    models.Prefetch(query=_sparse_vector(query), using="bm25", limit=20, filter=user_filter),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                limit=limit,
+            )
+            points = result.points
+        except Exception as err:
+            logger.warning("Qdrant RRF query_points failed, falling back to dense search: %s", err)
+            # 2. Fallback to standard dense search
+            points = await client.search(
+                collection_name=COLLECTION,
+                query_vector=("dense", dense_vec),
+                query_filter=user_filter,
+                limit=limit,
+            )
+
+        return [
+            {
+                "id": str(p.id),
+                "title": p.payload.get("title") if hasattr(p, "payload") and p.payload else "",
+                "content": p.payload.get("content") if hasattr(p, "payload") and p.payload else "",
+                "category": p.payload.get("category") if hasattr(p, "payload") and p.payload else "",
+                "attachments": p.payload.get("attachments") if hasattr(p, "payload") and p.payload else [],
+                "score": getattr(p, "score", 0.0),
+            }
+            for p in points
+        ]
+    except Exception as exc:
+        logger.warning("Qdrant search_memos failed completely: %s", exc)
+        return []

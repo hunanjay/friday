@@ -12,6 +12,7 @@
     "calendar": "Calendar",
     "chat": "Chat",
     "memos": "Memos",
+    "contacts": "Contacts",
     "unreadBadge": "{{count}} unread",
     "noActiveChat": "No Active Chat",
     "selectChat": "Select a discussion thread from the sidebar to start chatting."

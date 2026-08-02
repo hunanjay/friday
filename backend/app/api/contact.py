@@ -15,6 +15,14 @@ class CreateContactRequest(BaseModel):
     job_title: str | None = None
 
 
+class UpdateContactRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    company: str | None = None
+    job_title: str | None = None
+
+
 @router.get("")
 async def list_contacts(
     query: str | None = Query(default=None),
@@ -33,6 +41,23 @@ async def create_contact(
         raise HTTPException(status_code=400, detail="Name is required")
     return await ContactService.create_contact(
         user_id=user_id,
+        name=payload.name,
+        email=payload.email,
+        phone=payload.phone,
+        company=payload.company,
+        job_title=payload.job_title,
+    )
+
+
+@router.patch("/{contact_id}")
+async def update_contact(
+    contact_id: str,
+    payload: UpdateContactRequest,
+    user_id: str = Depends(get_user_id),
+):
+    return await ContactService.update_contact(
+        user_id=user_id,
+        contact_id=contact_id,
         name=payload.name,
         email=payload.email,
         phone=payload.phone,

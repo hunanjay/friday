@@ -170,7 +170,15 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
             "The user must review the message and press Confirm delete in the chat UI."
         )
 
-    return [list_inbox, search_emails, read_email, send_email, mark_email_read, delete_email]
+    return [
+        list_inbox,
+        search_contacts,
+        search_emails,
+        read_email,
+        send_email,
+        mark_email_read,
+        delete_email,
+    ]
 
 
 # Maps IANA timezone names to Microsoft Graph's Windows tz IDs.
@@ -266,7 +274,21 @@ def make_calendar_tools(user_id: str) -> list:
 
 
 def _format_memo_row(m: dict) -> str:
-    return f"- id={m['id']} category={m['category']} title={m['title']!r}: {m['content'][:200]!r}"
+    row = f"- id={m['id']} category={m['category']} title={m['title']!r}: {m.get('content', '')[:200]!r}"
+    atts = m.get("attachments") or []
+    if atts:
+        att_parts = []
+        for a in atts:
+            if isinstance(a, dict):
+                name = a.get("name") or "attachment"
+                ext_text = a.get("extracted_text") or ""
+                if ext_text:
+                    att_parts.append(f"{name}: {ext_text[:300]}")
+                else:
+                    att_parts.append(name)
+        if att_parts:
+            row += f" [Attachments: {'; '.join(att_parts)}]"
+    return row
 
 
 def _make_create_memo_tool(user_id: str):
@@ -281,6 +303,69 @@ def _make_create_memo_tool(user_id: str):
         return f"Memo saved: id={memo['id']} title={title!r}"
 
     return create_memo
+
+
+import re as _re
+
+# Pronouns and question words that typically signal an ambiguous/follow-up query
+_AMBIGUOUS_PATTERNS = _re.compile(
+    r"(它|他|她|这个|那个|这些|那些|其中|上面|前面|刚才|是什么|有哪些|怎么|如何|什么时候|为什么|how|what|which|it |they |this |that )",
+    _re.IGNORECASE,
+)
+
+
+def _needs_rewrite(query: str) -> bool:
+    """Fast heuristic: return True only when the query is likely ambiguous or
+    too short to stand alone as a retrieval query."""
+    q = query.strip()
+    # Very short queries almost always lack context
+    if len(q) <= 6:
+        return True
+    # Contains ambiguous pronouns or question words without specifics
+    if _AMBIGUOUS_PATTERNS.search(q):
+        return True
+    return False
+
+
+async def _rewrite_search_query(user_query: str) -> str:
+    """Explicitly rewrite short or ambiguous user queries into standalone,
+    semantically rich queries to boost vector RAG recall.
+
+    Fast-path: clear queries (e.g. 'ACP考试大纲 技能要求') skip the LLM entirely.
+    Slow-path: ambiguous queries (e.g. '技能要求是什么？') get an LLM rewrite.
+    """
+    if not user_query:
+        return user_query
+
+    # ⚡ Fast-path: query is already specific enough — skip LLM call entirely
+    if not _needs_rewrite(user_query):
+        logging.debug("Query rewrite skipped (fast-path): %r", user_query)
+        return user_query
+
+    # 🐢 Slow-path: invoke LLM to produce a standalone contextual search query
+    try:
+        from app.agents.supervisor import _get_model
+        llm = _get_model()
+        resp = await llm.ainvoke([
+            {
+                "role": "system",
+                "content": (
+                    "You are a search query rewriting specialist for RAG vector retrieval. "
+                    "The user's query is short, ambiguous, or uses pronouns like 'it/they/this'. "
+                    "Rewrite it into a clear, standalone, semantically rich search query "
+                    "that contains all the key topics and entities needed for retrieval. "
+                    "Do NOT answer the question. Reply with ONLY the rewritten query in the same language."
+                ),
+            },
+            {"role": "user", "content": user_query},
+        ])
+        rewritten = resp.content.strip().strip('"')
+        if rewritten:
+            logging.info("RAG Query Rewrite (slow-path): %r -> %r", user_query, rewritten)
+            return rewritten
+    except Exception as e:
+        logging.warning("Query rewriting failed, using original query: %s", e)
+    return user_query
 
 
 def make_memos_tools(user_id: str) -> list:
@@ -299,10 +384,39 @@ def make_memos_tools(user_id: str) -> list:
         """Hybrid (semantic + keyword) search over the user's memos/notes. Use
         this before answering anything that might be covered by something the
         user previously jotted down."""
-        results = await vector_store.search_memos(user_id, query, limit)
-        if not results:
+        # 1. Explicit Query Rewriting for RAG Recall
+        target_query = await _rewrite_search_query(query)
+
+        # 2. Perform Qdrant Vector Search
+        try:
+            results = await vector_store.search_memos(user_id, target_query, limit)
+            if results:
+                return "\n".join(_format_memo_row(r) for r in results)
+        except Exception:
+            logging.exception("search_memos failed on Qdrant, falling back to Postgres DB")
+
+        # 3. Fallback to Postgres DB keyword search if Qdrant is offline/timing out or returned empty
+        try:
+            memos = await memos_db.list_memos(user_id)
+            q_terms = [t.strip().lower() for t in target_query.split() if t.strip()]
+            matched = []
+            for m in memos:
+                t_lower = m["title"].lower()
+                c_lower = m["content"].lower()
+                att_texts = " ".join(
+                    a.get("extracted_text", "").lower()
+                    for a in (m.get("attachments") or [])
+                    if isinstance(a, dict)
+                )
+                full_text = f"{t_lower} {c_lower} {att_texts}"
+                if any(term in full_text for term in q_terms):
+                    matched.append(m)
+            if not matched:
+                return f"No memos matched query {query!r}."
+            return "\n".join(_format_memo_row(r) for r in matched[:limit])
+        except Exception:
+            logging.exception("Postgres DB fallback failed in search_memos")
             return "No memos matched that search."
-        return "\n".join(_format_memo_row(r) for r in results)
 
     return [list_memos, _make_create_memo_tool(user_id), search_memos]
 

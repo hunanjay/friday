@@ -1683,35 +1683,33 @@
 
 /* Individual message entry – always fully visible, no collapse */
 .thread-msg-entry {
-  padding: 20px 0;
+  padding: 10px 0;
 }
 .thread-msg-latest .thread-msg-header {
   /* Subtle highlight on the most recent message */
   background: var(--accent-light);
   border-radius: 10px;
   padding: 10px 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 /* Per-message header row – clickable to expand/collapse */
 .thread-msg-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   cursor: pointer;
   user-select: none;
   border-radius: 8px;
-  padding: 6px 4px;
+  padding: 6px 6px;
   transition: background 0.12s ease;
 }
 .thread-msg-header:hover {
   background: var(--bg-hover, rgba(255,255,255,0.05));
 }
-/* Collapsed state: header is more compact */
 .thread-msg-collapsed .thread-msg-header {
   margin-bottom: 0;
-  align-items: center;
 }
 .thread-expand-chevron {
   font-size: 0.65rem;
@@ -1765,7 +1763,7 @@
   background: var(--bg-hover, rgba(255,255,255,0.05));
 }
 .stub-sender {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -4742,4 +4740,1103 @@
   font-size: 0.8rem;
   font-weight: 600;
   flex-shrink: 0;
+}
+
+/* Truncation & Flex Fixes for Email Detail Top Header */
+.email-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.email-detail-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.email-detail-subject {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.email-detail-subject-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.email-detail-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Floating Email List Item Delete Button */
+.delete-email-item-btn {
+  display: none;
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: -8px 0 10px var(--bg-card);
+  transition: all var(--transition-fast);
+}
+
+.email-list-item:hover .delete-email-item-btn {
+  display: flex;
+}
+
+.delete-email-item-btn:hover {
+  color: var(--color-urgent, #d33);
+  background: var(--bg-hover);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+/* Double Check Confirmation Popover on Email Item */
+.email-delete-confirm-popover {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 20;
+  box-shadow: var(--shadow-md);
+  animation: fadeIn 0.15s ease-out;
+}
+
+.email-delete-confirm-popover span {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.confirm-delete-yes-btn {
+  background: var(--color-urgent, #d33);
+  color: #ffffff;
+  border: none;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.confirm-delete-yes-btn:hover {
+  opacity: 0.9;
+}
+
+.confirm-delete-no-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.confirm-delete-no-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* Full Multi-Line Subject Title & Fixed Actions Layout */
+.email-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 24px;
+}
+
+.email-detail-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.email-detail-subject-full {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  margin: 0;
+}
+
+.email-detail-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+/* Contacts Page Layout */
+.contacts-page-container {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: var(--bg-app);
+}
+
+.contacts-list-panel {
+  width: 380px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-card);
+}
+
+.contacts-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 14px;
+}
+
+.contacts-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contacts-title-group h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.contacts-count-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--accent-light);
+  color: var(--accent-primary);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.add-contact-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--accent-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.add-contact-btn:hover {
+  opacity: 0.9;
+}
+
+.contacts-search-box {
+  position: relative;
+  margin: 0 16px 12px;
+}
+
+.contacts-search-box .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.contacts-search-box input {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.contacts-scroll-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.contact-card-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  position: relative;
+  border: 1px solid transparent;
+  transition: background-color var(--transition-fast);
+}
+
+.contact-card-item:hover {
+  background-color: var(--bg-app);
+}
+
+.contact-card-item.selected {
+  background-color: var(--accent-light);
+  border-color: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.2);
+}
+
+.contact-card-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-light) 0%, var(--border-medium) 100%);
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.contact-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contact-card-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-card-email {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-card-company {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-card-actions {
+  display: none;
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.contact-card-item:hover .contact-card-actions {
+  display: flex;
+}
+
+.contact-action-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.contact-action-icon-btn:hover {
+  color: var(--color-urgent, #d33);
+  background: var(--bg-hover);
+}
+
+.contact-delete-confirm-popover {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 20;
+  box-shadow: var(--shadow-md);
+}
+
+.contact-delete-confirm-popover span {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* Contact Detail View */
+.contacts-detail-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px;
+  display: flex;
+  justify-content: center;
+}
+
+.contact-detail-card {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.contact-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.contact-detail-avatar-large {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--accent-light);
+  color: var(--accent-primary);
+  font-size: 1.6rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.contact-detail-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.contact-detail-meta h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--text-primary);
+}
+
+.contact-detail-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.contact-info-section h4,
+.contact-knowledge-section h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 16px;
+  color: var(--text-primary);
+}
+
+.contact-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.contact-info-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+}
+
+.contact-info-item .info-icon {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.contact-info-item .info-label {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.contact-info-item .info-value {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.knowledge-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.knowledge-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--accent-light);
+  color: var(--accent-primary);
+  padding: 3px 8px;
+  border-radius: 10px;
+}
+
+.knowledge-card-box {
+  background: var(--bg-card);
+  border: 1px dashed var(--border-medium);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.knowledge-placeholder {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.contacts-empty-state,
+.contacts-empty-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+/* Modal Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.create-contact-modal {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  width: min(500px, 90%);
+  padding: 24px;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.modal-header h4 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.close-modal-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.close-modal-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.form-group label {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.form-group input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.form-group input:focus {
+  border-color: var(--accent-primary);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.modal-cancel-btn {
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.modal-submit-btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-primary);
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.modal-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Edit Mode in Contact Detail View */
+.contact-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.contact-edit-header-title h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--text-primary);
+}
+
+.contact-info-item.edit-mode {
+  align-items: flex-start;
+  padding: 12px 16px;
+}
+
+.edit-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  width: 100%;
+}
+
+.edit-input-group input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.edit-input-group input:focus {
+  border-color: var(--accent-primary);
+}
+
+.edit-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.contact-detail-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-icon-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.action-icon-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-medium);
+}
+
+.action-icon-btn.active {
+  background: var(--accent-primary);
+  color: #ffffff;
+  border-color: var(--accent-primary);
+}
+
+.action-icon-btn.active:hover {
+  opacity: 0.9;
+}
+
+/* Seamless Direct Inline Editable Contact Fields */
+.contact-name-inline-input {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  width: 100%;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.contact-name-inline-input:hover,
+.contact-name-inline-input:focus {
+  background: var(--bg-card);
+  border-color: var(--border-medium);
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.section-title-row h4 {
+  margin: 0;
+}
+
+.inline-edit-hint {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.contact-info-item.inline-editable {
+  padding: 12px 16px;
+  transition: all var(--transition-fast);
+}
+
+.contact-info-item.inline-editable:hover {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.inline-field-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.inline-field-input {
+  width: 100%;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin-left: -4px;
+  outline: none;
+  box-sizing: border-box;
+  transition: all var(--transition-fast);
+}
+
+.inline-field-input:hover,
+.inline-field-input:focus {
+  background: var(--bg-app);
+  border-color: var(--border-medium);
+}
+
+/* Save Status Badge */
+.save-status-badge {
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 12px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.save-status-badge.saving {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.save-status-badge.saved {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+}
+
+/* Memos Attachment Upload & Card Badge Styles */
+.memo-card-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  margin-bottom: 4px;
+}
+
+.memo-attachment-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  max-width: 180px;
+  transition: all var(--transition-fast);
+}
+
+.memo-attachment-tag:hover {
+  background: var(--bg-hover);
+  color: var(--accent-primary);
+  border-color: var(--border-medium);
+}
+
+.attachment-filename {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memo-attachment-upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--bg-app);
+  border: 1px dashed var(--border-medium);
+  margin-bottom: 14px;
+}
+
+.attachment-upload-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attachment-section-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.upload-btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.upload-btn-label:hover {
+  background: var(--accent-light);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.uploading-spinner-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--accent-primary);
+  padding: 4px 0;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.attachments-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attachment-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-medium);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+
+.attachment-pill .pill-name {
+  color: var(--text-primary);
+  text-decoration: none;
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-pill .pill-name:hover {
+  color: var(--accent-primary);
+}
+
+.remove-pill-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.remove-pill-btn:hover {
+  color: var(--color-urgent, #d33);
+  background: var(--bg-hover);
+}
+
+/* Enhanced Memos Drag-and-Drop Dropzone & Lightbox UI */
+.memo-attachment-dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--bg-app);
+  border: 2px dashed var(--border-medium);
+  transition: all var(--transition-fast);
+  margin-bottom: 14px;
+}
+
+.memo-attachment-dropzone.is-dragging {
+  background: var(--accent-light);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+}
+
+.dropzone-content-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dropzone-icon {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.dropzone-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dropzone-primary-text {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dropzone-sub-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.pill-size {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* Lightbox Image Preview Modal */
+.memo-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease-out;
+  padding: 20px;
+}
+
+.memo-lightbox-content {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  max-width: 800px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.lightbox-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lightbox-image-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #000;
+  max-height: 450px;
+  overflow: hidden;
+}
+
+.lightbox-image-wrapper img {
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.lightbox-extracted-box {
+  padding: 16px 20px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border-light);
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.lightbox-extracted-box h5 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.lightbox-extracted-box pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  line-height: 1.5;
 }

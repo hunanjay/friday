@@ -29,6 +29,9 @@ export default function ChatPage() {
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  // State updates are asynchronous; this ref closes the small window where a
+  // double click can invoke handleSend twice before the button re-renders.
+  const isSendingRef = useRef(false);
   const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -248,7 +251,8 @@ export default function ChatPage() {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!inputText.trim() || !activeThreadId) return;
+    if (!inputText.trim() || !activeThreadId || isSendingRef.current) return;
+    isSendingRef.current = true;
 
     const sessionId = activeThreadId;
     const sentText = inputText;
@@ -393,6 +397,7 @@ export default function ChatPage() {
         : "Couldn't reach the assistant service, please try again later.";
       setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: errMsg } : m));
     } finally {
+      isSendingRef.current = false;
       setIsTyping(false);
     }
   };
@@ -639,7 +644,7 @@ export default function ChatPage() {
                 <button
                   type="submit"
                   className="send-msg-btn"
-                  disabled={!inputText.trim()}
+                  disabled={isTyping || !inputText.trim()}
                   title={t('chat.sendMessage')}
                   aria-label={t('chat.sendMessage')}
                 >

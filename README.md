@@ -84,8 +84,8 @@ graph TD
 
 ### 1. Multi-Agent Supervisor & Deterministic Routing Pipeline
 - **Orchestration**: Implements `langgraph-supervisor` to coordinate four isolated domain-specific sub-agents (`mail_agent`, `calendar_agent`, `memos_agent`, `github_agent`).
-- **Context Management**: Conversation turns are persisted in PostgreSQL via `langgraph-checkpoint-postgres`. Token overhead is constrained using automatic message trimming (`trim_messages`), capping context at 20k tokens per model invocation.
-- **Slash-Command Direct Bypass**: Incoming user queries prefixed with `/agent_name` bypass supervisor LLM intent classification to achieve 0ms routing latency while preserving shared state checkpoints.
+- **Routing Policy**: A single explicit policy applies slash-command routing first, deterministic email-send routing second, then falls back to the supervisor. This keeps the public entry paths consistent while preserving shared state checkpoints.
+- **Context Management**: Conversation turns are persisted in PostgreSQL via `langgraph-checkpoint-postgres`. The supervisor receives a 20k-token trimmed history; each domain agent receives a 10k-token scoped task brief, its current tool-call chain, and only relevant same-domain prior turns.
 
 ### 2. Zero-Trust Human-in-the-Loop (HITL) Action Gate
 To prevent autonomous model hallucinations from mutating enterprise data:

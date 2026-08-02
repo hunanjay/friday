@@ -8,7 +8,10 @@ from langgraph.prebuilt import create_react_agent
 from langgraph_supervisor import create_handoff_tool, create_supervisor
 
 from app.agents.checkpointer import get_checkpointer
+from app.agents.context import make_agent_context_hook
+from app.agents.routing import AGENT_NAMES
 from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
+from app.core.config import settings
 
 class _ProxyCompatChatOpenAI(ChatOpenAI):
     # ponytail: langgraph-supervisor tags handoff-back messages with a `name`
@@ -33,9 +36,11 @@ def _get_model() -> ChatOpenAI:
     global _model
     if _model is None:
         _model = _ProxyCompatChatOpenAI(
-            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            model=settings.OPENAI_MODEL,
             temperature=0,
-            base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            base_url=settings.OPENAI_BASE_URL or None,
+            timeout=60.0,
+            max_retries=3,
         )
     return _model
 
@@ -55,8 +60,6 @@ def _today_str() -> str:
         tz = zoneinfo.ZoneInfo("Asia/Shanghai")
     return datetime.now(tz).strftime(f"%Y-%m-%d (%A), {tz_name} time")
 
-
-AGENT_NAMES = ("mail_agent", "calendar_agent", "memos_agent", "github_agent")
 
 # What each sub-agent actually handles, in terms specific enough for the
 # supervisor LLM to route on. This is the handoff tool's `description` (see
@@ -115,7 +118,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             model,
             tools=make_mail_tools(user_id, session_id),
             name="mail_agent",
-            pre_model_hook=_trim_history,
+            pre_model_hook=make_agent_context_hook(name),
             prompt=(
                 "You handle the user's email: listing, searching, and reading messages, "
                 "sending new ones, and marking read/unread or deleting existing ones. "
@@ -133,7 +136,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             model,
             tools=make_calendar_tools(user_id),
             name="calendar_agent",
-            pre_model_hook=_trim_history,
+            pre_model_hook=make_agent_context_hook(name),
             prompt=(
                 f"Today is {today}. You handle the user's calendar: listing, creating, and "
                 "deleting events, and accepting/declining event invitations. Resolve relative "
@@ -145,7 +148,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             model,
             tools=make_memos_tools(user_id),
             name="memos_agent",
-            pre_model_hook=_trim_history,
+            pre_model_hook=make_agent_context_hook(name),
             prompt=(
                 "You manage the user's memos. Tools: list_memos (browse all), "
                 "search_memos(query) (answer a question from memos), create_memo(title, "
@@ -161,7 +164,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             model,
             tools=make_github_tools(user_id),
             name="github_agent",
-            pre_model_hook=_trim_history,
+            pre_model_hook=make_agent_context_hook(name),
             prompt=(
                 f"Today is {today}. You generate the user's daily work report (日报) from "
                 "GitHub commit activity on their project repo. On every turn, call "

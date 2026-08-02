@@ -12,6 +12,7 @@
     "calendar": "日历",
     "chat": "聊天",
     "memos": "便签",
+    "contacts": "联系人",
     "unreadBadge": "{{count}} 封未读",
     "noActiveChat": "无活动聊天",
     "selectChat": "从侧边栏选择一个讨论线程以开始聊天。"

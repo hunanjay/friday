@@ -178,6 +178,7 @@ export default function EmailPage() {
   // Set by handleUseDraftAsReply - when present, submit hits Graph's
   // {id}/reply endpoint (keeps threading) instead of a fresh /send.
   const [replyToEmailId, setReplyToEmailId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   // Dora AI Assistant states
   const [isDoraActive, setIsDoraActive] = useState(true);
@@ -761,6 +762,47 @@ export default function EmailPage() {
                   </div>
                   <div className="email-item-snippet">{threadRow.bodyPreview}</div>
                   {isUnread && <span className="unread-dot"></span>}
+
+                  {threadRow.parentFolderId !== 'trash' && confirmDeleteId !== threadRow.id && (
+                    <button
+                      type="button"
+                      className="delete-email-item-btn"
+                      title={t('common.delete')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDeleteId(threadRow.id);
+                      }}
+                    >
+                      <Trash size={14} />
+                    </button>
+                  )}
+
+                  {confirmDeleteId === threadRow.id && (
+                    <div className="email-delete-confirm-popover" onClick={(e) => e.stopPropagation()}>
+                      <span>{i18n.language === 'zh' ? '移至废纸篓？' : 'Delete?'}</span>
+                      <button
+                        type="button"
+                        className="confirm-delete-yes-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmDeleteId(null);
+                          handleDelete(threadRow.id);
+                        }}
+                      >
+                        {i18n.language === 'zh' ? '确定' : 'Yes'}
+                      </button>
+                      <button
+                        type="button"
+                        className="confirm-delete-no-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmDeleteId(null);
+                        }}
+                      >
+                        {t('common.cancel')}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -829,18 +871,15 @@ export default function EmailPage() {
             <div className="email-detail-column">
               {/* Fixed top action bar – always visible regardless of scroll */}
               <div className="email-detail-header">
-                <div className="sender-avatar-large">
-                  {(selectedEmail?.sender?.emailAddress?.name?.[0] || 'U').toUpperCase()}
-                </div>
                 <div className="email-detail-meta">
-                  <div className="email-detail-subject" style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 2 }}>
+                  <h2 className="email-detail-subject-full" title={threadMessages[0]?.subject}>
                     {threadMessages[0]?.subject}
-                  </div>
-                  {threadMessages.length > 1 && (
-                    <span className="thread-msg-count-label" style={{ marginLeft: 0 }}>
-                      {i18n.language === 'zh' ? `${threadMessages.length} 封邮件` : `${threadMessages.length} messages`}
-                    </span>
-                  )}
+                    {threadMessages.length > 1 && (
+                      <span className="thread-msg-count-label">
+                        {i18n.language === 'zh' ? `${threadMessages.length} 封邮件` : `${threadMessages.length} messages`}
+                      </span>
+                    )}
+                  </h2>
                 </div>
                 <div className="email-detail-actions">
                   <button
@@ -850,15 +889,6 @@ export default function EmailPage() {
                     <Sparkles size={16} />
                     <span>{t('email.doraTitle')}</span>
                   </button>
-                  {selectedEmail?.parentFolderId !== 'trash' && (
-                    <button
-                      className="action-icon-btn delete-btn"
-                      onClick={() => handleDelete(selectedEmail.id)}
-                      title={t('common.delete')}
-                    >
-                      <Trash size={16} />
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -871,26 +901,38 @@ export default function EmailPage() {
                   const senderAddr = msg.sender?.emailAddress?.address || '';
                   return (
                     <div key={msg.id} className={`thread-msg-entry ${isExpanded ? 'thread-msg-expanded' : 'thread-msg-collapsed'}`}>
-                      {isExpanded ? (
-                        <>
-                          <div className="thread-msg-header" onClick={() => toggleMsgExpand(msg.id)} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && toggleMsgExpand(msg.id)}>
-                            <div className="sender-avatar-large" style={{ width: 34, height: 34, fontSize: 13, flexShrink: 0 }}>
-                              {senderName[0]?.toUpperCase() || 'U'}
-                            </div>
-                            <div className="thread-msg-header-meta">
-                              <div className="sender-name-row">
-                                <span className="sender-name">{senderName}</span>
-                                <span className="sender-email">&lt;{senderAddr}&gt;</span>
-                              </div>
-                              <div className="recipient-row">
-                                {t('email.to')}: {msg.toRecipients?.[0]?.emailAddress?.name || msg.toRecipients?.[0]?.emailAddress?.address || 'me'}
-                              </div>
-                            </div>
-                            <div className="thread-msg-header-right">
-                              <span className="email-detail-date">{formatEmailDateFull(msg.receivedDateTime)} {formatEmailTime(msg.receivedDateTime)}</span>
-                              <span className="thread-expand-chevron">▲</span>
-                            </div>
+                      <div
+                        className="thread-msg-header"
+                        onClick={() => toggleMsgExpand(msg.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={e => e.key === 'Enter' && toggleMsgExpand(msg.id)}
+                      >
+                        <div className="sender-avatar-large" style={{ width: 34, height: 34, fontSize: 13, flexShrink: 0 }}>
+                          {senderName[0]?.toUpperCase() || 'U'}
+                        </div>
+                        <div className="thread-msg-header-meta">
+                          <div className="sender-name-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <span className="sender-name">{senderName}</span>
+                            {isExpanded ? (
+                              <span className="sender-email">&lt;{senderAddr}&gt;</span>
+                            ) : (
+                              <span className="stub-preview">{msg.bodyPreview}</span>
+                            )}
                           </div>
+                        </div>
+                        <div className="thread-msg-header-right">
+                          <span className="email-detail-date">
+                            {isExpanded
+                              ? `${formatEmailDateFull(msg.receivedDateTime)} ${formatEmailTime(msg.receivedDateTime)}`
+                              : formatEmailTime(msg.receivedDateTime)}
+                          </span>
+                          <span className="thread-expand-chevron">{isExpanded ? '▲' : '▼'}</span>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <>
                           <div className="email-detail-body thread-msg-body">
                             <EmailContentRenderer
                               body={msg.body || null}
@@ -908,22 +950,6 @@ export default function EmailPage() {
                             />
                           )}
                         </>
-                      ) : (
-                        /* Collapsed: compact single-line row like Outlook */
-                        <div
-                          className="thread-msg-stub-row"
-                          onClick={() => toggleMsgExpand(msg.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={e => e.key === 'Enter' && toggleMsgExpand(msg.id)}
-                        >
-                          <div className="sender-avatar-large" style={{ width: 28, height: 28, fontSize: 11, flexShrink: 0 }}>
-                            {senderName[0]?.toUpperCase() || 'U'}
-                          </div>
-                          <span className="stub-sender">{senderName}</span>
-                          <span className="stub-preview">{msg.bodyPreview}</span>
-                          <span className="stub-date">{formatEmailTime(msg.receivedDateTime)}</span>
-                        </div>
                       )}
                       {!isLatest && <div className="thread-msg-divider" />}
                     </div>

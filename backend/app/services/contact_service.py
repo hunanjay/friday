@@ -101,3 +101,48 @@ class ContactService:
         client = get_graph_sdk_client(user_id)
         await client.me.contacts.by_contact_id(contact_id).delete()
         return {"status": "ok", "id": contact_id}
+
+    @classmethod
+    async def update_contact(
+        cls,
+        user_id: str,
+        contact_id: str,
+        name: str | None = None,
+        email: str | None = None,
+        phone: str | None = None,
+        company: str | None = None,
+        job_title: str | None = None,
+    ) -> dict:
+        """Update an existing contact using MS Graph SDK."""
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
+        from msgraph.generated.models.contact import Contact
+        from msgraph.generated.models.email_address import EmailAddress
+
+        client = get_graph_sdk_client(user_id)
+
+        update_kwargs = {}
+        if name is not None:
+            name_parts = name.strip().split(maxsplit=1)
+            update_kwargs["display_name"] = name
+            update_kwargs["given_name"] = name_parts[0] if name_parts else name
+            update_kwargs["surname"] = name_parts[1] if len(name_parts) > 1 else ""
+        if email is not None:
+            update_kwargs["email_addresses"] = [EmailAddress(address=email, name=name or "")] if email else []
+        if phone is not None:
+            update_kwargs["mobile_phone"] = phone
+        if company is not None:
+            update_kwargs["company_name"] = company
+        if job_title is not None:
+            update_kwargs["job_title"] = job_title
+
+        contact_model = Contact(**update_kwargs)
+        updated = await client.me.contacts.by_contact_id(contact_id).patch(contact_model)
+
+        return {
+            "id": contact_id,
+            "name": getattr(updated, "display_name", None) or name or "",
+            "email": email or "",
+            "jobTitle": getattr(updated, "job_title", None) or job_title or "",
+            "company": getattr(updated, "company_name", None) or company or "",
+            "phone": getattr(updated, "mobile_phone", None) or phone or "",
+        }

@@ -18,7 +18,7 @@ class Settings(BaseModel):
     # LLM / OpenAI
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "gpt-4o")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     DRAFT_MODEL: str = os.getenv("DRAFT_MODEL", "gpt-4o-mini")
 
     # Qdrant Vector Store

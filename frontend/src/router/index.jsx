@@ -6,6 +6,7 @@ import EmailPage from '../pages/EmailPage';
 import CalendarPage from '../pages/CalendarPage';
 import ChatPage from '../pages/ChatPage';
 import MemosPage from '../pages/MemosPage';
+import ContactsPage from '../pages/ContactsPage';
 import SettingsPage from '../pages/SettingsPage';
 
 export const router = createBrowserRouter([
@@ -36,6 +37,10 @@ export const router = createBrowserRouter([
       {
         path: 'memos',
         element: <MemosPage />
+      },
+      {
+        path: 'contacts',
+        element: <ContactsPage />
       },
       {
         path: 'settings',

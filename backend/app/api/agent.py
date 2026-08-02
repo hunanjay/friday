@@ -10,7 +10,9 @@ import json
 from app.agents.draft import draft_reply
 from app.agents.checkpointer import get_checkpointer
 from app.agents.message_visibility import visible_message_parts
-from app.agents.supervisor import AGENT_NAMES, build_agent, build_supervisor, generate_session_title
+from app.agents.routing import EMAIL_ADDRESS_RE, decide_route, is_email_send_request
+from app.agents.supervisor import build_agent, build_supervisor, generate_session_title
+from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
 from app.infrastructure.db.repositories import chat_sessions, pending_actions
 from app.tools.graph_client import graph_post
@@ -23,25 +25,6 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 # both locale files) - only auto-title over these, never a name the user
 # (or a prior auto-title) already gave the session.
 _DEFAULT_TITLES = {"New chat", "新对话"}
-
-# Matches an explicit "/agent_name rest of message" prefix, e.g. from the
-# chat page's slash-command agent picker (ChatPage.jsx's selectAgent).
-_TAG_RE = re.compile(r"^/(\w+)\s+(.*)", re.DOTALL)
-_EMAIL_ADDRESS_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
-_EMAIL_SEND_RE = re.compile(
-    r"(?:发送|发一封|发封|发一条|再发|寄一封|send\s+(?:an?\s+)?(?:email|mail)|email\s+to)",
-    re.IGNORECASE,
-)
-
-
-def _is_email_send_request(message: str) -> bool:
-    """Recognize explicit send requests that must bypass LLM routing.
-
-    The mail agent still drafts the subject/body, but routing to that agent is
-    deterministic so its send_email tool creates the confirmation action.
-    """
-    return bool(_EMAIL_ADDRESS_RE.search(message) and _EMAIL_SEND_RE.search(message))
-
 
 @router.post("/draft-reply")
 async def draft(body: dict, user_id: str = Depends(get_user_id)):
@@ -233,17 +216,13 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    tag_match = _TAG_RE.match(message.strip())
-    routed_agent = tag_match.group(1) if tag_match and tag_match.group(1) in AGENT_NAMES else None
-    routed_message = tag_match.group(2).strip() if routed_agent else message
-    if not routed_agent and _is_email_send_request(routed_message):
-        routed_agent = "mail_agent"
-    await chat_sessions.update_session_preview(user_id, session_id, routed_message)
-
-    async def event_generator():
+    route = decide_route(message)
+    routed_agent = route.agent_name
+    routed_message = route.message
+    async def locked_event_generator():
         config = {"configurable": {"thread_id": session_id}}
         assistant_chunks: list[str] = []
-        requires_email_approval = routed_agent == "mail_agent" and _is_email_send_request(routed_message)
+        requires_email_approval = routed_agent == "mail_agent" and is_email_send_request(routed_message)
         existing_action_ids: set[str] = set()
         if requires_email_approval:
             try:
@@ -292,7 +271,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                             None,
                         )
                         if not created_action:
-                            recipient_match = _EMAIL_ADDRESS_RE.search(routed_message)
+                            recipient_match = EMAIL_ADDRESS_RE.search(routed_message)
                             recipient = recipient_match.group(0).lower() if recipient_match else ""
                             created_action = next(
                                 (
@@ -363,7 +342,13 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                             yield f"data: {json.dumps({'chunk': chunk_content})}\n\n"
         except Exception as e:
             logger.exception("agent chat stream failed")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            err_type = str(type(e).__name__)
+            err_msg = str(e)
+            if "Timeout" in err_type or "timeout" in err_msg.lower():
+                user_err = "网络连接超时，请点击发送或稍后再试。"
+            else:
+                user_err = err_msg
+            yield f"data: {json.dumps({'error': user_err})}\n\n"
 
         if assistant_chunks:
             try:
@@ -390,5 +375,14 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 logger.exception("session title generation failed")
 
         yield "data: [DONE]\n\n"
+
+    async def event_generator():
+        # Hold the lock for the complete graph run and checkpoint update.  The
+        # response remains streaming; a concurrent request for this session
+        # simply waits until the previous turn reaches its terminal event.
+        async with session_turn_lock(session_id):
+            await chat_sessions.update_session_preview(user_id, session_id, routed_message)
+            async for event in locked_event_generator():
+                yield event
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

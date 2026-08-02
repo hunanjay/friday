@@ -25,17 +25,14 @@ async def lifespan(_app: FastAPI):
     # Initialize infrastructure & connections
     await db_pool.init_db_pool()
     await checkpointer.init_checkpointer()
-    await chat_sessions.init_pool()
-    await pending_actions.init_pool()
-    await memos_db.init_pool()
+    await chat_sessions.init_schema()
+    await pending_actions.init_schema()
+    await memos_db.init_schema()
     await vector_store.init_collection()
 
     yield
 
     # Teardown infrastructure & connections
-    await memos_db.close_pool()
-    await pending_actions.close_pool()
-    await chat_sessions.close_pool()
     await checkpointer.close_checkpointer()
     await db_pool.close_db_pool()
     await graph_client.aclose_client()
@@ -65,6 +62,13 @@ app.include_router(agent.router)
 app.include_router(memos.router)
 app.include_router(github_auth.router)
 app.include_router(github.router)
+
+from fastapi.staticfiles import StaticFiles
+import os
+
+uploads_dir = os.path.join(os.getcwd(), "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 
 @app.get("/health")

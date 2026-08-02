@@ -1,10 +1,9 @@
-import os
-
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_openai import ChatOpenAI
 from starlette.concurrency import run_in_threadpool
 
 from app.core.security import get_user_id
+from app.core.config import settings
 from app.infrastructure.db.repositories.token_store import get_github_repos, set_github_repos
 from app.tools.github_client import format_commits, github_get, list_commits
 
@@ -61,9 +60,9 @@ def _get_summary_model() -> ChatOpenAI:
     global _summary_model
     if _summary_model is None:
         _summary_model = ChatOpenAI(
-            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            model=settings.OPENAI_MODEL,
             temperature=0,
-            base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            base_url=settings.OPENAI_BASE_URL or None,
         )
     return _summary_model
 

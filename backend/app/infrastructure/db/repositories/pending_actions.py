@@ -1,8 +1,5 @@
-import os
 from psycopg.types.json import Jsonb
-from psycopg_pool import AsyncConnectionPool
-
-_pool: AsyncConnectionPool | None = None
+from app.infrastructure.db.pool import get_pool
 
 _SCHEMA = """
 create table if not exists pending_agent_actions (
@@ -27,17 +24,16 @@ create index if not exists pending_agent_actions_lookup_idx
 _COLUMNS = "id, user_id, session_id, action_type, payload, status, error, created_at, expires_at, completed_at, anchor_message_id"
 
 
-async def init_pool() -> None:
-    global _pool
-    _pool = AsyncConnectionPool(os.environ["CHECKPOINT_DB_URL"], open=False)
-    await _pool.open()
-    async with _pool.connection() as conn:
+def _db_pool():
+    pool = get_pool()
+    if pool is None:
+        raise RuntimeError("Database pool is not initialized")
+    return pool
+
+
+async def init_schema() -> None:
+    async with _db_pool().connection() as conn:
         await conn.execute(_SCHEMA)
-
-
-async def close_pool() -> None:
-    if _pool is not None:
-        await _pool.close()
 
 
 def _row_to_dict(row) -> dict:
@@ -72,7 +68,7 @@ def public_action(action: dict) -> dict:
 
 
 async def create_action(user_id: str, session_id: str, action_type: str, payload: dict) -> dict:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             f"select {_COLUMNS} from pending_agent_actions "
             "where user_id = %s and session_id = %s and action_type = %s "
@@ -93,7 +89,7 @@ async def create_action(user_id: str, session_id: str, action_type: str, payload
 
 
 async def set_action_anchor(user_id: str, action_id: str, anchor_message_id: str) -> None:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         await conn.execute(
             "update pending_agent_actions set anchor_message_id = %s "
             "where id = %s and user_id = %s",
@@ -102,7 +98,7 @@ async def set_action_anchor(user_id: str, action_id: str, anchor_message_id: str
 
 
 async def list_pending_actions(user_id: str, session_id: str) -> list[dict]:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         await conn.execute(
             "update pending_agent_actions set status = 'expired' "
             "where user_id = %s and session_id = %s and status = 'pending' and expires_at <= now()",
@@ -118,7 +114,7 @@ async def list_pending_actions(user_id: str, session_id: str) -> list[dict]:
 
 
 async def list_session_actions(user_id: str, session_id: str) -> list[dict]:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         await conn.execute(
             "update pending_agent_actions set status = 'expired' "
             "where user_id = %s and session_id = %s and status = 'pending' and expires_at <= now()",
@@ -134,7 +130,7 @@ async def list_session_actions(user_id: str, session_id: str) -> list[dict]:
 
 
 async def get_action(user_id: str, action_id: str) -> dict | None:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         await conn.execute(
             "update pending_agent_actions set status = 'expired' "
             "where id = %s and user_id = %s and status = 'pending' and expires_at <= now()",
@@ -149,7 +145,7 @@ async def get_action(user_id: str, action_id: str) -> dict | None:
 
 
 async def claim_action(user_id: str, action_id: str) -> dict | None:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             "update pending_agent_actions set status = 'executing' "
             "where id = %s and user_id = %s and status = 'pending' and expires_at > now() "
@@ -161,7 +157,7 @@ async def claim_action(user_id: str, action_id: str) -> dict | None:
 
 
 async def complete_action(user_id: str, action_id: str) -> dict:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             "update pending_agent_actions set status = 'completed', completed_at = now(), error = null "
             "where id = %s and user_id = %s and status = 'executing' "
@@ -172,7 +168,7 @@ async def complete_action(user_id: str, action_id: str) -> dict:
 
 
 async def fail_action(user_id: str, action_id: str, error: str) -> None:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         await conn.execute(
             "update pending_agent_actions set status = 'failed', error = %s "
             "where id = %s and user_id = %s and status = 'executing'",
@@ -181,7 +177,7 @@ async def fail_action(user_id: str, action_id: str, error: str) -> None:
 
 
 async def cancel_action(user_id: str, action_id: str) -> dict | None:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             "update pending_agent_actions set status = 'cancelled' "
             "where id = %s and user_id = %s and status = 'pending' "

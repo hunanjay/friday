@@ -1,8 +1,5 @@
-import os
-from psycopg_pool import AsyncConnectionPool
 from app.agents.message_visibility import normalize_preview
-
-_pool: AsyncConnectionPool | None = None
+from app.infrastructure.db.pool import get_pool
 
 _SCHEMA = """
 create table if not exists chat_sessions (
@@ -20,21 +17,20 @@ create index if not exists chat_sessions_user_updated_idx on chat_sessions (user
 """
 
 
-async def init_pool():
-    global _pool
-    _pool = AsyncConnectionPool(os.environ["CHECKPOINT_DB_URL"], open=False)
-    await _pool.open()
-    async with _pool.connection() as conn:
+def _db_pool():
+    pool = get_pool()
+    if pool is None:
+        raise RuntimeError("Database pool is not initialized")
+    return pool
+
+
+async def init_schema():
+    async with _db_pool().connection() as conn:
         await conn.execute(_SCHEMA)
 
 
-async def close_pool():
-    if _pool is not None:
-        await _pool.close()
-
-
 async def list_sessions(user_id: str) -> list[dict]:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             "select id, title, preview, created_at, updated_at from chat_sessions "
             "where user_id = %s order by updated_at desc",
@@ -54,7 +50,7 @@ async def list_sessions(user_id: str) -> list[dict]:
 
 
 async def create_session(user_id: str, title: str = "New chat") -> dict:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             "insert into chat_sessions (user_id, title) values (%s, %s) "
             "returning id, title, preview, created_at, updated_at",
@@ -71,7 +67,7 @@ async def create_session(user_id: str, title: str = "New chat") -> dict:
 
 
 async def get_session(user_id: str, session_id: str) -> dict | None:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             "select id, title, preview, created_at, updated_at from chat_sessions "
             "where id = %s and user_id = %s",
@@ -92,7 +88,7 @@ async def get_session(user_id: str, session_id: str) -> dict | None:
 
 
 async def update_session_title(user_id: str, session_id: str, title: str) -> None:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         await conn.execute(
             "update chat_sessions set title = %s where id = %s and user_id = %s",
             (title, session_id, user_id),
@@ -110,7 +106,7 @@ async def update_session_preview(
     if not preview:
         return ""
     update_clause = "preview = %s, updated_at = now()" if touch_updated_at else "preview = %s"
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         await conn.execute(
             f"update chat_sessions set {update_clause} where id = %s and user_id = %s",
             (preview, session_id, user_id),
@@ -119,7 +115,7 @@ async def update_session_preview(
 
 
 async def delete_session(user_id: str, session_id: str) -> bool:
-    async with _pool.connection() as conn:
+    async with _db_pool().connection() as conn:
         cur = await conn.execute(
             "delete from chat_sessions where id = %s and user_id = %s returning id",
             (session_id, user_id),

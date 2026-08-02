@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import { Mail, Calendar, MessageSquare, Edit3, Github, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
+import { Mail, Calendar, MessageSquare, Edit3, Users, Github, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 import GithubRepoDropdown from '../common/GithubRepoDropdown';
 
@@ -85,7 +85,7 @@ export default function MainLayout() {
         </div>
 
         <nav className="sidebar-nav">
-          <Link 
+          <Link
             to="/email"
             className={`nav-link ${activeTab === 'email' ? 'active' : ''}`}
             title={isSidebarCollapsed ? t('common.email') : ""}
@@ -121,6 +121,14 @@ export default function MainLayout() {
           >
             <Edit3 size={20} />
             {!isSidebarCollapsed && <span>{t('common.memos')}</span>}
+          </Link>
+          <Link
+            to="/contacts"
+            className={`nav-link ${activeTab === 'contacts' ? 'active' : ''}`}
+            title={isSidebarCollapsed ? (t('common.contacts') || '联系人') : ""}
+          >
+            <Users size={20} />
+            {!isSidebarCollapsed && <span>{t('common.contacts') || '联系人'}</span>}
           </Link>
         </nav>
 

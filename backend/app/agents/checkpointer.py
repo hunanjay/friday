@@ -1,23 +1,25 @@
-import os
-
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-_saver_cm = None
+from app.infrastructure.db.pool import get_pool
+
 _checkpointer = None
 
 
 async def init_checkpointer():
     """Opens the Postgres connection pool and runs the checkpoint table
     migrations. Call once from the FastAPI lifespan startup."""
-    global _saver_cm, _checkpointer
-    _saver_cm = AsyncPostgresSaver.from_conn_string(os.environ["CHECKPOINT_DB_URL"])
-    _checkpointer = await _saver_cm.__aenter__()
+    global _checkpointer
+    pool = get_pool()
+    if pool is None:
+        raise RuntimeError("Database pool must be initialized before the checkpointer")
+    _checkpointer = AsyncPostgresSaver(pool)
     await _checkpointer.setup()
 
 
 async def close_checkpointer():
-    if _saver_cm is not None:
-        await _saver_cm.__aexit__(None, None, None)
+    global _checkpointer
+    # The FastAPI lifespan owns and closes the shared application pool.
+    _checkpointer = None
 
 
 def get_checkpointer():
