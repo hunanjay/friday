@@ -24,8 +24,6 @@ export default function ApprovalCard({
 
   const isResolved = action.resolved;
   const isSendEmail = action.action_type === 'send_email' || !action.action_type;
-  const isDeleteEmail = action.action_type === 'delete_email';
-
   const defaultTitle = title || (isSendEmail ? t('chat.reviewEmail') : t('chat.reviewDelete'));
   const defaultSubtitle = subtitle || t('chat.approvalRequired');
   const defaultStatusLabel = statusLabel || (isResolved ? t('chat.approvalStatusSent') : t('chat.approvalStatusPending'));

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useWorkspace } from '../context/WorkspaceContext';
+import React, { useState, useEffect, useRef } from 'react';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronLeft, ChevronRight, X, Trash } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
@@ -38,8 +38,12 @@ export default function CalendarPage() {
   // Gated on presence (hasAuthToken), not the token's exact value, so
   // periodic Supabase token refreshes don't re-trigger a refetch.
   const hasAuthToken = Boolean(authToken);
+  const authTokenRef = useRef(authToken);
   useEffect(() => {
-    if (!authToken) return;
+    authTokenRef.current = authToken;
+  }, [authToken]);
+  useEffect(() => {
+    if (!hasAuthToken) return;
     const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
     const params = new URLSearchParams({
@@ -49,7 +53,7 @@ export default function CalendarPage() {
 
     setIsSyncingEvents(true);
     fetch(`${API_URL}/api/graph/calendar/events?${params}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
+      headers: { Authorization: `Bearer ${authTokenRef.current}` },
     })
       .then(res => {
         if (res.status === 401) {

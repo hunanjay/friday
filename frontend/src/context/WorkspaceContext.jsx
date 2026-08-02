@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { WorkspaceContext } from './workspace-context';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
@@ -41,8 +42,6 @@ function mapMemo(memo) {
   };
 }
 
-const WorkspaceContext = createContext();
-
 export function WorkspaceProvider({ children }) {
   // User state
   const [user, setUser] = useState(() => {
@@ -82,6 +81,22 @@ export function WorkspaceProvider({ children }) {
 
   const showToast = useCallback((message) => {
     setToast({ message, visible: true });
+  }, []);
+
+  const handleLogin = useCallback((userInfo) => {
+    setUser(userInfo);
+    localStorage.setItem('user', JSON.stringify(userInfo));
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    supabase.auth.signOut();
+    // Wipe all workspace data from both memory and localStorage so the next
+    // user on this machine can't see prior session data.
+    clearWorkspaceStorage();
+    setUser(null);
+    setEmails([]);
+    setEvents([]);
+    setMessages([]);
   }, []);
 
   useEffect(() => {
@@ -183,7 +198,7 @@ export function WorkspaceProvider({ children }) {
     });
 
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [handleLogin]);
 
   // Periodically confirm the backend can still use the stored Microsoft
   // token (it silently refreshes on our behalf); if refresh itself failed
@@ -204,7 +219,7 @@ export function WorkspaceProvider({ children }) {
     checkStatus();
     const interval = setInterval(checkStatus, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [authToken]);
+  }, [authToken, handleLogout]);
 
   useEffect(() => {
     if (!authToken) {
@@ -357,22 +372,6 @@ export function WorkspaceProvider({ children }) {
     setEvents(calendarEvents);
   }, []);
 
-  const handleLogin = useCallback((userInfo) => {
-    setUser(userInfo);
-    localStorage.setItem('user', JSON.stringify(userInfo));
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    supabase.auth.signOut();
-    // Wipe all workspace data from both memory and localStorage so the next
-    // user on this machine can't see prior session data.
-    clearWorkspaceStorage();
-    setUser(null);
-    setEmails([]);
-    setEvents([]);
-    setMessages([]);
-  }, []);
-
   // State modifiers
   const handleAddEmail = (email) => {
     setEmails(prev => [email, ...prev]);
@@ -490,12 +489,4 @@ export function WorkspaceProvider({ children }) {
       {children}
     </WorkspaceContext.Provider>
   );
-}
-
-export function useWorkspace() {
-  const context = useContext(WorkspaceContext);
-  if (!context) {
-    throw new Error('useWorkspace must be used within a WorkspaceProvider');
-  }
-  return context;
 }

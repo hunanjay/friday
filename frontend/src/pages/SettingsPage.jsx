@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useWorkspace } from '../context/WorkspaceContext';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { Github, Search, X, Moon, Sun, LogOut } from '../components/common/Icons';
 import LanguageSwitcher from '../components/common/LanguageSwitcher';
 
@@ -70,8 +69,6 @@ export default function SettingsPage() {
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
-
   const [checked, setChecked] = useState(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);

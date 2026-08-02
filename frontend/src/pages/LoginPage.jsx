@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Github, Globe, Info, MicrosoftIcon, Moon, Sun } from '../components/common/Icons';
 import { supabase } from '../supabaseClient';
-import { useWorkspace } from '../context/WorkspaceContext';
-import { useTheme } from '../context/ThemeContext';
+import { useWorkspace } from '../hooks/useWorkspace';
+import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
 
 export default function LoginPage() {

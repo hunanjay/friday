@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../context/WorkspaceContext';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Search, Plus, Trash, Mail, Phone, Building, Briefcase, Users, X, UserPlus, Edit3 } from '../components/common/Icons';
+import { Search, Trash, Mail, Phone, Building, Briefcase, Users, X, UserPlus, Edit3 } from '../components/common/Icons';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
 
 export default function ContactsPage() {
   const { authToken, showToast } = useWorkspace();
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const navigate = useNavigate();
 
   const [contacts, setContacts] = useState([]);
@@ -41,7 +41,7 @@ export default function ContactsPage() {
   // Delete Confirmation State
   const [deletingId, setDeletingId] = useState(null);
 
-  const fetchContacts = async (query = '') => {
+  const fetchContacts = useCallback(async (query = '') => {
     setIsLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/graph/contacts?query=${encodeURIComponent(query)}`, {
@@ -50,23 +50,21 @@ export default function ContactsPage() {
       if (res.ok) {
         const data = await res.json();
         setContacts(Array.isArray(data) ? data : []);
-        if (data.length > 0 && !selectedContact) {
-          setSelectedContact(data[0]);
-        }
+        setSelectedContact(current => current || data[0] || null);
       }
     } catch (err) {
       console.error('Failed to fetch contacts:', err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [authToken]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchContacts(searchQuery);
     }, 250);
     return () => clearTimeout(timer);
-  }, [searchQuery, authToken]);
+  }, [searchQuery, fetchContacts]);
 
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
@@ -151,7 +149,7 @@ export default function ContactsPage() {
       });
 
       if (res.ok) {
-        const updated = await res.json();
+        await res.json();
         showToast(i18n.language === 'zh' ? '联系人资料已成功更新！' : 'Contact profile updated!');
         const newContact = { ...selectedContact, ...editForm };
         setSelectedContact(newContact);
@@ -168,7 +166,7 @@ export default function ContactsPage() {
     }
   };
 
-  const handleSendEmail = (email) => {
+  const handleSendEmail = () => {
     navigate(`/email`);
   };
 
@@ -318,7 +316,7 @@ export default function ContactsPage() {
                   <button
                     type="button"
                     className="action-icon-btn active"
-                    onClick={() => handleSendEmail(selectedContact.email)}
+                    onClick={handleSendEmail}
                   >
                     <Mail size={16} />
                     <span>{isZh ? '发送邮件' : 'Send Email'}</span>

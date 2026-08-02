@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../context/WorkspaceContext';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
@@ -68,14 +68,15 @@ export default function ChatPage() {
 
   // Contact mention picker: triggers when user types `@` or `@query` at the end of input
   const mentionMatch = inputText.match(/@([^\s@]*)$/);
+  const mentionQuery = mentionMatch?.[1] ?? null;
   const showContactMenu = Boolean(mentionMatch) && !showAgentMenu && (isLoadingContacts || contactList.length > 0);
 
   useEffect(() => {
-    if (!mentionMatch || showAgentMenu) {
+    if (!mentionQuery || showAgentMenu) {
       setContactList([]);
       return;
     }
-    const q = mentionMatch[1];
+    const q = mentionQuery;
     setIsLoadingContacts(true);
     const timer = setTimeout(() => {
       fetch(`${API_URL}/api/graph/contacts?query=${encodeURIComponent(q)}`, {
@@ -90,7 +91,7 @@ export default function ChatPage() {
         .finally(() => setIsLoadingContacts(false));
     }, 150);
     return () => clearTimeout(timer);
-  }, [mentionMatch ? mentionMatch[1] : null, showAgentMenu, authToken]);
+  }, [mentionQuery, showAgentMenu, authToken]);
 
   useEffect(() => {
     if (showAgentMenu && activeAgentItemRef.current) {

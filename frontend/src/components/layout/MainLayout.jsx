@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
-import { useWorkspace } from '../../context/WorkspaceContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useWorkspace } from '../../hooks/useWorkspace';
+import { useTheme } from '../../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
-import { Mail, Calendar, MessageSquare, Edit3, Users, Github, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
+import { Mail, Calendar, MessageSquare, Edit3, Users, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
-import GithubRepoDropdown from '../common/GithubRepoDropdown';
 
 export default function MainLayout() {
   const {
@@ -18,8 +17,6 @@ export default function MainLayout() {
     toast,
     isSyncingInbox,
     isSyncingEvents,
-    githubStatus,
-    handleConnectGithub
   } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
@@ -27,7 +24,6 @@ export default function MainLayout() {
   const location = useLocation();
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsView, setSettingsView] = useState('main'); // 'main' | 'github'
   const settingsRef = useRef(null);
 
   // Redirect to login if not logged in
@@ -44,7 +40,6 @@ export default function MainLayout() {
     const onClickOutside = (e) => {
       if (settingsRef.current && !settingsRef.current.contains(e.target)) {
         setIsSettingsOpen(false);
-        setSettingsView('main');
       }
     };
     document.addEventListener('mousedown', onClickOutside);

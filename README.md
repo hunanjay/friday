@@ -1,16 +1,15 @@
 <div align="center">
 
 # Friday (Dora)
-### Enterprise-Grade Personal AI Workspace & Multi-Agent Copilot Platform
+### Self-Hostable Personal AI Workspace & Multi-Agent Copilot
 
   <p align="center">
-    A production-ready, bilingual (zh/en) personal AI workspace integrating <b>Outlook Mail</b>, <b>Calendar</b>, <b>Qdrant-powered RAG Memos</b>, and <b>GitHub Work Analytics</b> via an autonomous multi-agent orchestration architecture styled after Anthropic's design language.
+    An open-source, bilingual (zh/en) personal workspace integrating <b>Outlook Mail</b>, <b>Calendar</b>, <b>Qdrant-powered RAG Memos</b>, and <b>GitHub Work Analytics</b> through an explicit multi-agent orchestration architecture. Currently in active alpha.
   </p>
 
   <p align="center">
-    <a href="https://github.com/hunanjay/friday/actions"><img src="https://img.shields.io/badge/Build-Passing-brightgreen.svg" alt="Build Status"></a>
+    <a href="https://github.com/hunanjay/friday/actions/workflows/ci.yml"><img src="https://github.com/hunanjay/friday/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://github.com/hunanjay/friday/issues"><img src="https://img.shields.io/github/issues/hunanjay/friday" alt="Issues"></a>
-    <a href="https://github.com/hunanjay/friday/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
     <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.139.0-009688.svg?logo=fastapi&logoColor=white" alt="FastAPI"></a>
     <a href="https://langchain-ai.github.io/langgraph/"><img src="https://img.shields.io/badge/LangGraph-1.2.7-FF6F00.svg?logo=langchain&logoColor=white" alt="LangGraph"></a>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19.0-61DAFB.svg?logo=react&logoColor=black" alt="React 19"></a>
@@ -23,15 +22,17 @@
 
 ## 📖 Overview
 
-**Friday** (branded in UI as **Dora**) is an autonomous AI assistant and productivity engine designed for privacy-conscious professionals and developers. Built on top of **FastAPI**, **LangGraph Multi-Agent Supervisor Pattern**, and **React 19**, Friday seamlessly bridges external enterprise APIs (Microsoft Graph, GitHub) with personal knowledge management (Qdrant RAG) under a unified human-in-the-loop safety protocol.
+**Friday** (branded in UI as **Dora**) is an open-source, self-hostable personal productivity workspace in active alpha. Built on **FastAPI**, a **LangGraph multi-agent supervisor pattern**, and **React 19**, it connects Microsoft Graph and GitHub with personal knowledge management through Qdrant RAG. Its agent layer applies explicit routing and bounded, domain-specific context instead of sharing an unbounded cross-domain conversation history.
 
-Key architectural design goals include **strict control flow scoping**, **deterministic agent routing**, **zero-trust destructive action gates**, and **stateful multi-agent turn persistence**.
+> **Project status: Alpha.** APIs, database schemas, and deployment details may change. Use a test Microsoft tenant/account when evaluating the project, and review its integration permissions before using sensitive data.
+
+Design goals include **explicit control-flow scoping**, **deterministic agent routing**, **email write approval**, and **stateful multi-agent turn persistence**.
 
 ---
 
 ## 🏗️ System Architecture
 
-The workspace utilizes a decoupled micro-architecture separating client-side presentation, agent orchestration runtime, and persistent enterprise storage providers.
+The workspace separates client-side presentation, agent orchestration, and persistent storage integrations.
 
 ```mermaid
 graph TD
@@ -52,7 +53,7 @@ graph TD
             GHA["GitHub Agent (Analytics)"]
         end
 
-        Gate["Destructive Action Gate (pending_agent_actions)"]
+        Gate["Email Action Gate (pending_agent_actions)"]
     end
 
     subgraph PersistenceLayer ["Persistence & External Services Layer"]
@@ -87,17 +88,19 @@ graph TD
 - **Routing Policy**: A single explicit policy applies slash-command routing first, deterministic email-send routing second, then falls back to the supervisor. This keeps the public entry paths consistent while preserving shared state checkpoints.
 - **Context Management**: Conversation turns are persisted in PostgreSQL via `langgraph-checkpoint-postgres`. The supervisor receives a 20k-token trimmed history; each domain agent receives a 10k-token scoped task brief, its current tool-call chain, and only relevant same-domain prior turns.
 
-### 2. Zero-Trust Human-in-the-Loop (HITL) Action Gate
-To prevent autonomous model hallucinations from mutating enterprise data:
+### 2. Email Human-in-the-Loop (HITL) Action Gate
+For supported email write operations:
 - Mutating tools (`send_email`, `delete_email`) **never directly invoke external APIs**.
 - When triggered, actions write an atomic payload to `pending_agent_actions` with a **15-minute TTL**.
 - The frontend renders an isolated, trusted approval widget. Confirmation invokes `/api/agent/actions/{id}/confirm`, atomically transition states (`pending → executing → completed`) before executing downstream Graph API calls.
+
+This is not yet a universal approval layer: other integration write paths must be reviewed separately before production use.
 
 ### 3. Hybrid RAG Knowledge Engine
 - **Vector Infrastructure**: Powered by **Qdrant** combined with **FastEmbed** ONNX embeddings.
 - **Hybrid Retrieval**: Merges dense semantic vector similarity with BM25 keyword matching for high-precision personal memo retrieval.
 
-### 4. Enterprise Identity & OAuth Token Lifecycle
+### 4. OAuth Identity & Token Lifecycle
 - **Identity Provider**: Supabase Auth coupled with Microsoft Entra (Azure AD) OAuth2.
 - **Silent Refresh Protocol**: Server-side token store (`token_store.py`) handles token refresh cycles out-of-band via `httpx` async connection pools, maintaining un-interrupted Graph API access without client-side credential exposure.
 
@@ -161,7 +164,7 @@ Key environment variables to populate in `backend/.env`:
 - `OPENAI_API_KEY` & `OPENAI_BASE_URL`
 - `AZURE_CLIENT_ID` & `AZURE_CLIENT_SECRET`
 - `SUPABASE_URL` & `SUPABASE_SERVICE_ROLE_KEY`
-- `POSTGRES_DB_URL`
+- `CHECKPOINT_DB_URL`
 - `QDRANT_URL` & `QDRANT_API_KEY`
 
 ### 2. Backend Installation & Execution
@@ -198,6 +201,24 @@ Navigate to `http://localhost:3005` in your browser.
 
 ---
 
+### Quality Checks
+
+```bash
+# Backend smoke tests
+cd backend
+.venv/bin/python tests/test_smoke.py
+
+# Frontend lint, tests, and production build
+cd frontend
+npm run lint
+npm test
+npm run build
+```
+
+GitHub Actions runs these checks for every push and pull request.
+
+---
+
 ## 🛣️ Development Roadmap
 
 Refer to [TODO.md](./TODO.md) or [GitHub Issue #1](https://github.com/hunanjay/friday/issues/1) for full feature specifications.
@@ -222,4 +243,4 @@ Refer to [TODO.md](./TODO.md) or [GitHub Issue #1](https://github.com/hunanjay/f
 
 ## 📜 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+No license has been selected yet. Until one is added, do not assume permission to reuse, redistribute, or contribute code under particular terms.

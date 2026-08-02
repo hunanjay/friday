@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useWorkspace } from '../../context/WorkspaceContext';
+import { useWorkspace } from '../../hooks/useWorkspace';
 import { ChevronLeft, Github, Search, X } from './Icons';
 
 function RepoSection({ label, repos, checked, onToggle }) {

@@ -24,9 +24,15 @@ cd frontend && npm install && npm run dev   # port 3005 (see vite.config.js)
 
 # frontend lint
 cd frontend && npm run lint                 # oxlint
+
+# backend smoke tests
+cd backend && .venv/bin/python tests/test_smoke.py
+
+# frontend tests and production build
+cd frontend && npm test && npm run build
 ```
 
-No test suite exists in either package yet.
+GitHub Actions runs the backend smoke test and frontend lint, test, and build checks on every push and pull request.
 
 ## Backend architecture
 

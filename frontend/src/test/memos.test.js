@@ -6,7 +6,7 @@
  * query-rewriter fast-path heuristic mirrored from the backend.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // ---------------------------------------------------------------------------
 // Helpers — replicate inline so tests have no module-import side-effects

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useWorkspace } from '../context/WorkspaceContext';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Edit3, Plus, Search, Trash, Pin, X, Paperclip, FileText, Image as ImageIcon } from '../components/common/Icons';
 

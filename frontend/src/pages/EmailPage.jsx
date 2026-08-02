@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useWorkspace } from '../context/WorkspaceContext';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Trash, Search, Plus, X, Sparkles } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
@@ -34,7 +34,6 @@ export default function EmailPage() {
   const {
     user,
     emails,
-    handleAddEmail,
     handleDeleteEmail,
     handleMarkEmailRead,
     showToast,
@@ -68,12 +67,6 @@ export default function EmailPage() {
   const [hasFetchedSent, setHasFetchedSent] = useState(false);
   const [isSyncingSent, setIsSyncingSent] = useState(false);
 
-  // Per-session body cache: maps email id -> Graph body object (content +
-  // contentType). Not persisted - fetched on demand when an email is selected.
-  // Keyed separately from `emails` so re-renders from inbox updates don't
-  // evict already-loaded bodies.
-  const [bodyCache, setBodyCache] = useState({});
-
   // Thread detail state (must be declared before any useEffect that references them)
   const [selectedConvKey, setSelectedConvKey] = useState(null);
   const [threadMessages, setThreadMessages] = useState([]);
@@ -95,11 +88,15 @@ export default function EmailPage() {
   // (The authoritative unread count is fetched in WorkspaceContext so the
   // sidebar badge shares it.)
   const hasAuthToken = Boolean(authToken);
+  const authTokenRef = useRef(authToken);
   useEffect(() => {
-    if (!authToken) return;
+    authTokenRef.current = authToken;
+  }, [authToken]);
+  useEffect(() => {
+    if (!hasAuthToken) return;
     setIsSyncingInbox(true);
     fetch(`${API_URL}/api/graph/mail/inbox`, {
-      headers: { Authorization: `Bearer ${authToken}` },
+      headers: { Authorization: `Bearer ${authTokenRef.current}` },
     })
       .then(res => {
         if (res.status === 401) {
