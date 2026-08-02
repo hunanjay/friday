@@ -11,9 +11,13 @@ Exit code 0 = all passed. Any failure prints the failing assertion and exits 1.
 import os
 import sys
 import time
-import re
 import ast
+import asyncio
 from pathlib import Path
+
+# Add parent dir to sys.path so tests can import small, dependency-free app
+# modules instead of duplicating their implementation.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,33 +40,28 @@ def section(title: str):
 
 
 # ---------------------------------------------------------------------------
-# 1. _TAG_RE  (api/agent.py)
+# 1. Explicit routing policy
 # ---------------------------------------------------------------------------
 
-section("1. _TAG_RE routing regex")
+section("1. explicit routing policy")
 
-# Mirrors the exact pattern in api/agent.py
-_TAG_RE = re.compile(r"^/(\w+)\s+(.*)", re.DOTALL)
+from app.agents.routing import decide_route  # noqa: E402
 
-m = _TAG_RE.match("/mail_agent 帮我看邮件")
-check("valid tag splits agent name", m is not None)
-if m:
-    check("agent name = mail_agent", m.group(1) == "mail_agent")
-    check("body = '帮我看邮件'", m.group(2) == "帮我看邮件")
+slash = decide_route("/mail_agent 帮我看邮件")
+check("slash command selects named agent", slash.agent_name == "mail_agent" and slash.source == "slash_command")
+check("slash command removes its prefix", slash.message == "帮我看邮件")
 
-m2 = _TAG_RE.match("/mail_agent help me read email with multiple\nlines")
-check("multi-line body captured", m2 is not None and "\nlines" in m2.group(2))
+multi_line = decide_route("/mail_agent help me read email with multiple\nlines")
+check("slash command preserves multiline body", multi_line.message.endswith("multiple\nlines"))
 
-# No leading slash → no match → falls through to supervisor
-check("no-tag message doesn't match", _TAG_RE.match("just a regular message") is None)
-check("slash-only no-space doesn't match (incomplete slash command)", _TAG_RE.match("/mail_agent") is None)
+send = decide_route("Send an email to alice@example.com about the launch")
+check("explicit send selects mail agent", send.agent_name == "mail_agent" and send.source == "email_send")
 
-# Unknown agent: match returns a group(1) that isn't in AGENT_NAMES
-AGENT_NAMES = {"mail_agent", "calendar_agent", "memos_agent", "github_agent"}
-m3 = _TAG_RE.match("/unknown_agent do something")
-unknown_tag = m3.group(1) if m3 else None
-check("unknown agent tag matched but not in AGENT_NAMES → falls to supervisor",
-      unknown_tag is not None and unknown_tag not in AGENT_NAMES)
+plain = decide_route("just a regular message")
+check("ordinary request uses supervisor", plain.uses_supervisor)
+
+unknown = decide_route("/unknown_agent do something")
+check("unknown slash command remains a supervisor request", unknown.uses_supervisor and unknown.message.startswith("/unknown_agent"))
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +70,6 @@ check("unknown agent tag matched but not in AGENT_NAMES → falls to supervisor"
 
 section("2. html_sanitizer")
 
-# Add parent dir to sys.path so we can import app modules directly.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.tools.html_sanitizer import sanitize_html_to_text  # noqa: E402
 
 # 2a. Bare <meta> must NOT swallow subsequent content (production regression).
@@ -281,6 +278,206 @@ check(
 )
 check("preview handles empty content", normalize_preview("") == "")
 check("preview length is bounded", len(normalize_preview("x" * 500)) == 180)
+
+
+# ---------------------------------------------------------------------------
+# 7. Mail contact tool and per-session turn serialization
+# ---------------------------------------------------------------------------
+
+section("7. agent tool registration and turn serialization")
+
+
+def _returned_tool_names(builder_name: str) -> set[str]:
+    builder = next(
+        (
+            node
+            for node in tools_tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == builder_name
+        ),
+        None,
+    )
+    if not builder:
+        return set()
+    # Only inspect the builder's own return; ast.walk would also collect the
+    # nested @tool functions' ordinary string returns.
+    returns = [node for node in builder.body if isinstance(node, ast.Return)]
+    if not returns or not isinstance(returns[-1].value, ast.List):
+        return set()
+    return {
+        element.id
+        for element in returns[-1].value.elts
+        if isinstance(element, ast.Name)
+    }
+
+
+check(
+    "mail agent exposes search_contacts",
+    "search_contacts" in _returned_tool_names("make_mail_tools"),
+)
+
+from app.agents.turn_lock import session_turn_lock  # noqa: E402
+
+
+async def _verify_turn_serialization() -> list[str]:
+    order: list[str] = []
+    first_entered = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def first_turn():
+        async with session_turn_lock("test-session"):
+            order.append("first-entered")
+            first_entered.set()
+            await release_first.wait()
+            order.append("first-exited")
+
+    async def second_turn():
+        async with session_turn_lock("test-session"):
+            order.append("second-entered")
+
+    first = asyncio.create_task(first_turn())
+    await first_entered.wait()
+    second = asyncio.create_task(second_turn())
+    await asyncio.sleep(0)
+    blocked = order == ["first-entered"]
+    release_first.set()
+    await asyncio.gather(first, second)
+    return order if blocked else []
+
+
+check(
+    "same-session turns execute serially",
+    asyncio.run(_verify_turn_serialization()) == ["first-entered", "first-exited", "second-entered"],
+)
+
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: E402
+from app.agents.context import make_agent_context_hook  # noqa: E402
+
+mail_context = make_agent_context_hook("mail_agent")(
+    {
+        "messages": [
+            HumanMessage(content="安排明天的日历会议"),
+            AIMessage(content="日历已安排"),
+            HumanMessage(content="帮我看邮箱"),
+            AIMessage(content="邮箱中有两封未读邮件"),
+            HumanMessage(content="最新一封是什么？"),
+            AIMessage(content="", tool_calls=[{"name": "list_inbox", "args": {}, "id": "call-1"}]),
+            ToolMessage(content="subject=Launch update", tool_call_id="call-1", name="list_inbox"),
+        ]
+    }
+)["llm_input_messages"]
+mail_context_text = "\n".join(getattr(message, "content", "") for message in mail_context if isinstance(getattr(message, "content", ""), str))
+check("mail context excludes unrelated calendar history", "日历已安排" not in mail_context_text)
+check("mail context keeps relevant prior turn and task brief", "邮箱中有两封未读邮件" in mail_context_text and "最新一封是什么" in mail_context_text)
+check("mail context keeps active tool chain intact", any(isinstance(message, ToolMessage) and message.name == "list_inbox" for message in mail_context))
+
+checkpointer_source = (backend_dir / "app/agents/checkpointer.py").read_text()
+repository_sources = [
+    (backend_dir / "app/infrastructure/db/repositories" / name).read_text()
+    for name in ("chat_sessions.py", "pending_actions.py", "memos.py")
+]
+check("checkpointer uses the shared application pool", "AsyncPostgresSaver(pool)" in checkpointer_source)
+check("repositories use no private connection pools", all("AsyncConnectionPool" not in source for source in repository_sources))
+
+config_source = (backend_dir / "app/core/config.py").read_text()
+supervisor_source = (backend_dir / "app/agents/supervisor.py").read_text()
+github_source = (backend_dir / "app/api/github.py").read_text()
+check("model configuration has one OPENAI_MODEL setting", "OPENAI_MODEL" in config_source and "DEFAULT_MODEL" not in config_source)
+check("all LLM callers use Settings.OPENAI_MODEL", "model=settings.OPENAI_MODEL" in supervisor_source and "model=settings.OPENAI_MODEL" in github_source)
+
+
+# ---------------------------------------------------------------------------
+# 8. Query Rewriter Fast-Path / Slow-Path heuristic
+# ---------------------------------------------------------------------------
+
+section("8. Query Rewriter heuristic")
+
+import re as _re
+
+_AMBIGUOUS_PATTERNS = _re.compile(
+    r"(它|他|她|这个|那个|这些|那些|其中|上面|前面|刚才|是什么|有哪些|怎么|如何|什么时候|为什么|how|what|which|it |they |this |that )",
+    _re.IGNORECASE,
+)
+
+def _needs_rewrite_test(query: str) -> bool:
+    q = query.strip()
+    if len(q) <= 6:
+        return True
+    if _AMBIGUOUS_PATTERNS.search(q):
+        return True
+    return False
+
+check("fast-path: 'ACP考试大纲' -> False", _needs_rewrite_test("ACP考试大纲") is False)
+check("slow-path: '技能要求是什么' -> True", _needs_rewrite_test("技能要求是什么") is True)
+check("slow-path: '它有哪些考点' -> True", _needs_rewrite_test("它有哪些考点") is True)
+check("slow-path: '大纲' -> True", _needs_rewrite_test("大纲") is True)
+check("fast-path: 'RAG pipeline architecture' -> False", _needs_rewrite_test("RAG pipeline architecture") is False)
+check("slow-path: 'what is it' -> True", _needs_rewrite_test("what is it") is True)
+check("fast-path: '今天调通了Caddy反代' -> False", _needs_rewrite_test("今天调通了Caddy反代") is False)
+
+
+# ---------------------------------------------------------------------------
+# 9. Qdrant search_memos graceful degradation
+# ---------------------------------------------------------------------------
+
+section("9. Qdrant search_memos graceful degradation")
+
+qdrant_source = (backend_dir / "app/infrastructure/vector/qdrant.py").read_text()
+qdrant_tree = ast.parse(qdrant_source)
+
+search_memos_fn = next(
+    (node for node in ast.walk(qdrant_tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == "search_memos"),
+    None,
+)
+check("search_memos function exists", search_memos_fn is not None)
+
+if search_memos_fn:
+    returns_empty_list = any(
+        isinstance(node, ast.If)
+        and any(
+            isinstance(child, ast.Return)
+            and isinstance(child.value, ast.List)
+            and len(child.value.elts) == 0
+            for child in node.body
+        )
+        for node in search_memos_fn.body
+    )
+    check("search_memos returns [] when client is None", returns_empty_list)
+
+    has_try = any(isinstance(node, ast.Try) for node in search_memos_fn.body)
+    check("search_memos body contains try/except block", has_try)
+
+check("fallback client.search( exists in source", "client.search(" in qdrant_source)
+check("AsyncQdrantClient is initialised with timeout=", "timeout=" in qdrant_source and "AsyncQdrantClient" in qdrant_source)
+
+
+# ---------------------------------------------------------------------------
+# 10. Storage signed URL
+# ---------------------------------------------------------------------------
+
+section("10. Storage signed URL")
+
+storage_source = (backend_dir / "app/services/storage.py").read_text()
+
+check("sign_url is called", "sign_url(" in storage_source)
+check("x-oss-object-acl is NOT present", "x-oss-object-acl" not in storage_source)
+check("fallback /uploads/memos/ path still exists", "/uploads/memos/" in storage_source)
+check("OSS upload branch guarded by credentials",
+      "bucket_name and access_key_id and access_key_secret" in storage_source)
+
+
+# ---------------------------------------------------------------------------
+# 11. Document parser MIME routing
+# ---------------------------------------------------------------------------
+
+section("11. Document parser MIME routing")
+
+parser_source = (backend_dir / "app/services/document_parser.py").read_text()
+
+check("Images are handled", '"image/"' in parser_source or "'image/'" in parser_source)
+check("PDF files are handled", "pdf" in parser_source.lower())
+check("DOCX files are handled", "docx" in parser_source.lower())
+check("ChatOpenAI call includes timeout= parameter", "timeout=" in parser_source and "ChatOpenAI" in parser_source)
+check("Aliyun OCR branch exists", "RecognizeGeneral" in parser_source or "aliyun" in parser_source.lower() or "alibabacloud" in parser_source.lower())
 
 
 # ---------------------------------------------------------------------------

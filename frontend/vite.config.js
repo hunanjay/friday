@@ -7,4 +7,13 @@ export default defineConfig({
   server: {
     port: 3005,
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
+    include: ['src/**/*.test.{js,jsx}'],
+    coverage: {
+      reporter: ['text', 'lcov'],
+    },
+  },
 })
