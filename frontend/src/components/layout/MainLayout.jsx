@@ -5,6 +5,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
 import { Mail, Calendar, MessageSquare, Edit3, Users, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
+import { Grid24Regular } from '@fluentui/react-icons';
 
 export default function MainLayout() {
   const {
@@ -80,6 +81,14 @@ export default function MainLayout() {
         </div>
 
         <nav className="sidebar-nav">
+          <Link
+            to="/dashboard"
+            className={`nav-link ${activeTab === 'dashboard' ? 'active' : ''}`}
+            title={isSidebarCollapsed ? (i18n.language === 'zh' ? '概览' : 'Dashboard') : ''}
+          >
+            <Grid24Regular className="sidebar-dashboard-icon" />
+            {!isSidebarCollapsed && <span>{i18n.language === 'zh' ? '概览' : 'Dashboard'}</span>}
+          </Link>
           <Link
             to="/email"
             className={`nav-link ${activeTab === 'email' ? 'active' : ''}`}

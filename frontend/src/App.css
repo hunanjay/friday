@@ -1134,6 +1134,16 @@
   position: relative;
 }
 
+/* Fluent icons use an em-sized box, unlike the fixed-size SVGs used by the
+   existing navigation. Lock the Dashboard glyph to the same 20px footprint
+   so all sidebar rows share one baseline in expanded and collapsed modes. */
+.sidebar-dashboard-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: block;
+}
+
 .nav-link:hover {
   background-color: rgba(25, 25, 25, 0.04);
   color: var(--text-primary);

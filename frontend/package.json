@@ -13,6 +13,8 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@fluentui/react-components": "^9.74.4",
+    "@fluentui/react-icons": "^2.0.316",
     "@supabase/supabase-js": "^2.110.0",
     "i18next": "^26.3.4",
     "react": "^19.2.7",

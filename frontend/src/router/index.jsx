@@ -8,6 +8,7 @@ import ChatPage from '../pages/ChatPage';
 import MemosPage from '../pages/MemosPage';
 import ContactsPage from '../pages/ContactsPage';
 import SettingsPage from '../pages/SettingsPage';
+import DashboardPage from '../pages/DashboardPage';
 
 export const router = createBrowserRouter([
   {
@@ -20,7 +21,11 @@ export const router = createBrowserRouter([
     children: [
       {
         path: '',
-        element: <Navigate to="/email" replace />
+        element: <Navigate to="/dashboard" replace />
+      },
+      {
+        path: 'dashboard',
+        element: <DashboardPage />
       },
       {
         path: 'email',
@@ -48,12 +53,12 @@ export const router = createBrowserRouter([
       },
       {
         path: '*',
-        element: <Navigate to="/email" replace />
+        element: <Navigate to="/dashboard" replace />
       }
     ]
   },
   {
     path: '*',
-    element: <Navigate to="/email" replace />
+    element: <Navigate to="/dashboard" replace />
   }
 ]);
