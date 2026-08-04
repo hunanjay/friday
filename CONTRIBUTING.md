@@ -52,19 +52,30 @@ Fix Bug.         # 首字母大写 + 句号
 
 ---
 
-## 分支规范
+## 分支流与协作规范 (Git Flow)
 
-从 `main` 拉取功能分支，命名格式：
+项目采用 **dev 主开发分支 + main 稳定分支** 的 Git Flow 模式：
+
+- **`main` 分支**：受保护的生产/发布稳定分支，仅接受从 `dev` 经过测试后的合并。
+- **`dev` 分支**：团队日常协作开发的核心集成分支。**所有同学的 PR 默认提交合并到 `dev`**。
+- **功能/修复分支**：基于 `dev` 分支创建，命名格式：
 
 ```
 <type>/<short-description>
 ```
 
+例如：
 ```bash
-feat/invoice-ocr-parser
-fix/sse-stream-disconnect
-docs/deploy-guide
-refactor/supervisor-routing
+# 1. 从最新 dev 分支切出功能分支
+git checkout dev
+git pull origin dev
+git checkout -b feat/invoice-ocr-parser
+
+# 2. 开发并提交
+git commit -m "feat(invoice): add pdf ocr parser tool"
+
+# 3. 提交 PR 至 dev 分支
+git push origin feat/invoice-ocr-parser
 ```
 
 ---
