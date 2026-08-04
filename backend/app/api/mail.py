@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from app.core.security import get_user_id
 from app.services.mail_service import MailService

@@ -1,5 +1,6 @@
 import logging
-from app.infrastructure.graph.client import graph_get, graph_delete
+
+from app.infrastructure.graph.client import graph_get
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class ContactService:
             display_name = item.get("displayName") or f"{item.get('givenName', '')} {item.get('surname', '')}".strip() or "Unnamed Contact"
             emails = item.get("emailAddresses") or []
             email_addr = emails[0].get("address", "") if emails else ""
-            
+
             # Extract phone
             phones = item.get("businessPhones") or []
             mobile = item.get("mobilePhone")
@@ -60,9 +61,10 @@ class ContactService:
         job_title: str | None = None,
     ) -> dict:
         """Create a new contact in Outlook using MS Graph SDK."""
-        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
         from msgraph.generated.models.contact import Contact
         from msgraph.generated.models.email_address import EmailAddress
+
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
 
@@ -114,9 +116,10 @@ class ContactService:
         job_title: str | None = None,
     ) -> dict:
         """Update an existing contact using MS Graph SDK."""
-        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
         from msgraph.generated.models.contact import Contact
         from msgraph.generated.models.email_address import EmailAddress
+
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
 

@@ -1,4 +1,5 @@
 import json
+
 from app.infrastructure.db.pool import get_pool
 
 _SCHEMA = """

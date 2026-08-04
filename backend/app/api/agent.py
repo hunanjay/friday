@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from urllib.parse import quote
@@ -5,10 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-import json
 
-from app.agents.draft import draft_reply
 from app.agents.checkpointer import get_checkpointer
+from app.agents.draft import draft_reply
 from app.agents.message_visibility import visible_message_parts
 from app.agents.routing import EMAIL_ADDRESS_RE, decide_route, is_email_send_request
 from app.agents.supervisor import build_agent, build_supervisor, generate_session_title

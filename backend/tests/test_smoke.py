@@ -8,11 +8,10 @@ Run from the repo root:
 Exit code 0 = all passed. Any failure prints the failing assertion and exits 1.
 """
 
-import os
-import sys
-import time
 import ast
 import asyncio
+import os
+import sys
 from pathlib import Path
 
 # Add parent dir to sys.path so tests can import small, dependency-free app
@@ -106,7 +105,7 @@ check("script tag content stripped", "alert" not in result5)
 check("surrounding text preserved around stripped script", "Safe" in result5 and "Also safe" in result5)
 
 # 2f. Invisible unicode characters stripped.
-unicode_html = f"<p>Normal\u200bZero\u200bWidth</p>"
+unicode_html = "<p>Normal\u200bZero\u200bWidth</p>"
 result6 = sanitize_html_to_text(unicode_html)
 check("zero-width spaces stripped", "\u200b" not in result6)
 check("visible text around invisible chars preserved", "NormalZeroWidth" in result6.replace(" ", ""))
@@ -350,6 +349,7 @@ check(
 )
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: E402
+
 from app.agents.context import make_agent_context_hook  # noqa: E402
 
 mail_context = make_agent_context_hook("mail_agent")(
@@ -481,6 +481,29 @@ check("Aliyun OCR branch exists", "RecognizeGeneral" in parser_source or "aliyun
 
 
 # ---------------------------------------------------------------------------
+# 12. Todo API input contract
+# ---------------------------------------------------------------------------
+
+section("12. Todo API input contract")
+
+todos_api_source = (backend_dir / "app/api/todos.py").read_text()
+todos_api_tree = ast.parse(todos_api_source)
+todo_fields_fn = next(
+    (node for node in ast.walk(todos_api_tree) if isinstance(node, ast.FunctionDef) and node.name == "_todo_fields"),
+    None,
+)
+check("todo input validator exists", todo_fields_fn is not None)
+check("todo input trims and bounds text", "text.strip()" in todos_api_source and "len(text) > 100" in todos_api_source)
+check("todo input validates completion state", "completed must be a boolean" in todos_api_source)
+check("todo input parses due dates", "date.fromisoformat" in todos_api_source)
+check("todo API exposes CRUD routes", all(route in todos_api_source for route in ('@router.get("")', '@router.post("")', '@router.put("/{todo_id}")', '@router.delete("/{todo_id}")')))
+
+main_source = (backend_dir / "app/main.py").read_text()
+check("todo router is registered", "app.include_router(todos.router)" in main_source)
+check("todo schema is initialized", "await todos_db.init_schema()" in main_source)
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -493,5 +516,5 @@ if _failures:
     sys.exit(1)
 else:
     total = 25  # approximate
-    print(f"All checks passed.")
+    print("All checks passed.")
     sys.exit(0)

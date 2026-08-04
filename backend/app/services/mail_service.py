@@ -1,5 +1,6 @@
 from urllib.parse import quote
-from app.infrastructure.graph.client import graph_get, graph_get_binary, graph_post, graph_patch, graph_delete
+
+from app.infrastructure.graph.client import graph_get, graph_get_binary
 from app.tools.mail_queries import MAIL_FOLDERS, search_path
 
 LIST_SELECT_FIELDS = (
@@ -75,8 +76,9 @@ class MailService:
 
     @classmethod
     async def mark_read(cls, user_id: str, email_id: str, is_read: bool = True) -> dict:
-        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
         from msgraph.generated.models.message import Message
+
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
         msg = Message(is_read=is_read)
@@ -98,15 +100,17 @@ class MailService:
 
     @classmethod
     async def send_message(cls, user_id: str, to: str, subject: str, content: str, attachments: list = None) -> dict:
-        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
-        from msgraph.generated.models.message import Message
-        from msgraph.generated.models.item_body import ItemBody
+        import base64
+
         from msgraph.generated.models.body_type import BodyType
-        from msgraph.generated.models.recipient import Recipient
         from msgraph.generated.models.email_address import EmailAddress
         from msgraph.generated.models.file_attachment import FileAttachment
+        from msgraph.generated.models.item_body import ItemBody
+        from msgraph.generated.models.message import Message
+        from msgraph.generated.models.recipient import Recipient
         from msgraph.generated.users.item.send_mail.send_mail_post_request_body import SendMailPostRequestBody
-        import base64
+
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
         html_content = content.replace("\r\n", "\n").replace("\n", "<br>")
@@ -140,13 +144,15 @@ class MailService:
 
     @classmethod
     async def reply_message(cls, user_id: str, email_id: str, content: str, attachments: list = None) -> dict:
-        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
-        from msgraph.generated.models.message import Message
-        from msgraph.generated.models.item_body import ItemBody
+        import base64
+
         from msgraph.generated.models.body_type import BodyType
         from msgraph.generated.models.file_attachment import FileAttachment
+        from msgraph.generated.models.item_body import ItemBody
+        from msgraph.generated.models.message import Message
         from msgraph.generated.users.item.messages.item.reply.reply_post_request_body import ReplyPostRequestBody
-        import base64
+
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
         html_content = content.replace("\r\n", "\n").replace("\n", "<br>")

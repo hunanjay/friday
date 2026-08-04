@@ -11,7 +11,6 @@ from collections.abc import Callable
 from langchain_core.messages import SystemMessage, trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
 
-
 _MAX_AGENT_CONTEXT_TOKENS = 10_000
 _MAX_RELEVANT_TURNS = 4
 

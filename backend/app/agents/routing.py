@@ -1,8 +1,7 @@
 """The single, explicit policy for choosing an agent entry path."""
 
-from dataclasses import dataclass
 import re
-
+from dataclasses import dataclass
 
 AGENT_NAMES = ("mail_agent", "calendar_agent", "memos_agent", "github_agent")
 

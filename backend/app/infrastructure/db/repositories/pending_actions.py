@@ -1,4 +1,5 @@
 from psycopg.types.json import Jsonb
+
 from app.infrastructure.db.pool import get_pool
 
 _SCHEMA = """

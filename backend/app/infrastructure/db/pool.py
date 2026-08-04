@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import AsyncGenerator
+
 from psycopg_pool import AsyncConnectionPool
 
 logger = logging.getLogger(__name__)

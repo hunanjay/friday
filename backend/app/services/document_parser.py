@@ -2,10 +2,11 @@ import base64
 import json
 import logging
 import os
-import pypdf
+
 import docx
-from langchain_openai import ChatOpenAI
+import pypdf
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class DocumentParser:
                     data_dict = json.loads(response.body.data)
                     content = data_dict.get("content", "")
                     if content:
-                        clean_lines = [l.strip() for l in content.split("\n") if l.strip()]
+                        clean_lines = [line.strip() for line in content.split("\n") if line.strip()]
                         return "\n".join(clean_lines)
         except Exception as exc:
             logger.warning("Alibaba Cloud OCR recognition failed, falling back: %s", exc)

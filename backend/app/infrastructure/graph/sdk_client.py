@@ -5,15 +5,14 @@ from typing import TypeVar
 
 from azure.core.credentials import AccessToken
 from azure.core.credentials_async import AsyncTokenCredential
-from msgraph import GraphServiceClient
 from fastapi import HTTPException
+from msgraph import GraphServiceClient
 from starlette.concurrency import run_in_threadpool
 
 from app.infrastructure.graph.client import (
     _get_cached_ms_token,
-    get_ms_token,
     cache_ms_token,
-    refresh_ms_token,
+    get_ms_token,
 )
 
 logger = logging.getLogger(__name__)

@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from langchain_openai import ChatOpenAI
 from starlette.concurrency import run_in_threadpool
 
-from app.core.security import get_user_id
 from app.core.config import settings
+from app.core.security import get_user_id
 from app.infrastructure.db.repositories.token_store import get_github_repos, set_github_repos
 from app.tools.github_client import format_commits, github_get, list_commits
 

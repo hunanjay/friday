@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from langchain_core.messages import trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
@@ -12,6 +12,7 @@ from app.agents.context import make_agent_context_hook
 from app.agents.routing import AGENT_NAMES
 from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
 from app.core.config import settings
+
 
 class _ProxyCompatChatOpenAI(ChatOpenAI):
     # ponytail: langgraph-supervisor tags handoff-back messages with a `name`

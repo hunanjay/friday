@@ -8,16 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
+from app.agents import checkpointer
+from app.api import agent, auth, calendar, contact, github, github_auth, mail, memos, todos
 from app.core.config import settings
 from app.infrastructure.db import pool as db_pool
-from app.infrastructure.vector import qdrant as vector_store
-from app.infrastructure.graph import client as graph_client
+from app.infrastructure.db.repositories import chat_sessions, memos as memos_db, pending_actions, todos as todos_db
 from app.infrastructure.github import client as github_client
-from app.agents import checkpointer
-from app.infrastructure.db.repositories import chat_sessions, pending_actions
-from app.infrastructure.db.repositories import memos as memos_db
-
-from app.api import agent, auth, calendar, contact, github, github_auth, mail, memos
+from app.infrastructure.graph import client as graph_client
+from app.infrastructure.vector import qdrant as vector_store
 
 
 @asynccontextmanager
@@ -28,6 +26,7 @@ async def lifespan(_app: FastAPI):
     await chat_sessions.init_schema()
     await pending_actions.init_schema()
     await memos_db.init_schema()
+    await todos_db.init_schema()
     await vector_store.init_collection()
 
     yield
@@ -60,11 +59,13 @@ app.include_router(calendar.router)
 app.include_router(contact.router)
 app.include_router(agent.router)
 app.include_router(memos.router)
+app.include_router(todos.router)
 app.include_router(github_auth.router)
 app.include_router(github.router)
 
-from fastapi.staticfiles import StaticFiles
 import os
+
+from fastapi.staticfiles import StaticFiles
 
 uploads_dir = os.path.join(os.getcwd(), "uploads")
 os.makedirs(uploads_dir, exist_ok=True)
