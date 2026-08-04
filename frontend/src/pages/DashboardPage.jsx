@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Badge,
@@ -57,15 +57,23 @@ const doraDarkTheme = {
   colorCompoundBrandBackgroundPressed: '#C96648',
 };
 
+const DASHBOARD_TIME_ZONE = 'Asia/Shanghai';
+
 function dayKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: DASHBOARD_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).formatToParts(date);
   const value = Object.fromEntries(parts.map(part => [part.type, part.value]));
   return `${value.year}-${value.month}-${value.day}`;
+}
+
+function shiftDayKey(dateKey, offsetDays) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + offsetDays));
+  return shifted.toISOString().slice(0, 10);
 }
 
 function eventDateTime(event) {
@@ -81,6 +89,7 @@ function eventTime(event, locale) {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    timeZone: DASHBOARD_TIME_ZONE,
   }).format(parsed);
 }
 
@@ -88,33 +97,87 @@ function formatEmailDate(dateStr, locale) {
   if (!dateStr) return '';
   const parsed = new Date(dateStr);
   if (Number.isNaN(parsed.valueOf())) return '';
-  const now = new Date();
-  const isToday = parsed.toDateString() === now.toDateString();
+  const isToday = dayKey(parsed) === dayKey();
   if (isToday) {
-    return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsed);
+    return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: DASHBOARD_TIME_ZONE }).format(parsed);
   }
-  return new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' }).format(parsed);
+  return new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric', timeZone: DASHBOARD_TIME_ZONE }).format(parsed);
 }
 
 function getWeekWindow(offsetWeeks = 0) {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
+  const todayKey = dayKey();
+  const [year, month, day] = todayKey.split('-').map(Number);
+  const today = new Date(Date.UTC(year, month - 1, day));
+  const dayOfWeek = today.getUTCDay();
   const distanceToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek) + (offsetWeeks * 7);
 
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + distanceToMonday);
-  monday.setHours(0, 0, 0, 0);
-
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
+  const mondayKey = shiftDayKey(todayKey, distanceToMonday);
+  const sundayKey = shiftDayKey(mondayKey, 6);
+  const [mondayMonth, mondayDay] = mondayKey.split('-').slice(1).map(Number);
+  const [sundayMonth, sundayDay] = sundayKey.split('-').slice(1).map(Number);
 
   return {
-    since: monday.toISOString(),
-    until: sunday.toISOString(),
-    mondayStr: `${monday.getMonth() + 1}.${monday.getDate()}`,
-    sundayStr: `${sunday.getMonth() + 1}.${sunday.getDate()}`,
+    since: new Date(`${mondayKey}T00:00:00+08:00`).toISOString(),
+    until: new Date(`${sundayKey}T23:59:59.999+08:00`).toISOString(),
+    mondayStr: `${mondayMonth}.${mondayDay}`,
+    sundayStr: `${sundayMonth}.${sundayDay}`,
   };
+}
+
+function useDialogFocus(isOpen, onClose) {
+  const dialogRef = useRef(null);
+  const previousFocusRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    previousFocusRef.current = document.activeElement;
+    const dialog = dialogRef.current;
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusInitialControl = () => {
+      const initialControl = dialog?.querySelector('[data-dialog-autofocus]') || dialog?.querySelector(focusableSelector);
+      initialControl?.focus();
+    };
+    const frame = window.requestAnimationFrame(focusInitialControl);
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+
+      const controls = [...dialog.querySelectorAll(focusableSelector)];
+      if (!controls.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', handleKeyDown);
+      previousFocusRef.current?.focus?.();
+    };
+  }, [isOpen]);
+
+  return dialogRef;
 }
 
 function handleAutoResize(e, minHeight = 34, maxHeight = 120) {
@@ -140,17 +203,22 @@ export default function DashboardPage() {
     if (!isoStr) return '';
     const d = new Date(isoStr);
     if (isNaN(d.getTime())) return '';
-    const month = d.getMonth() + 1;
-    const date = d.getDate();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const mins = String(d.getMinutes()).padStart(2, '0');
-    return `${month}/${date} ${hours}:${mins}`;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: DASHBOARD_TIME_ZONE,
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+    const value = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${value.month}/${value.day} ${value.hour}:${value.minute}`;
   };
 
   const getDueDateStatus = (dueDateStr) => {
     if (!dueDateStr) return null;
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const today = dayKey();
+    const tomorrow = shiftDayKey(today, 1);
 
     const shortDate = dueDateStr.slice(5).replace('-', '/'); // "08/01"
 
@@ -172,8 +240,8 @@ export default function DashboardPage() {
       if (saved) return JSON.parse(saved);
     } catch {}
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const todayStr = dayKey(now);
+    const tomorrowStr = shiftDayKey(todayStr, 1);
     return [
       { id: '1', text: isZh ? '回复重要工作邮件' : 'Reply to urgent work emails', completed: false, createdAt: now.toISOString(), dueDate: todayStr },
       { id: '2', text: isZh ? '准备团队同步例会资料' : 'Prepare sync meeting materials', completed: false, createdAt: new Date(Date.now() - 7200000).toISOString(), dueDate: tomorrowStr },
@@ -231,6 +299,12 @@ export default function DashboardPage() {
     setIsAddModalOpen(false);
   };
 
+  const handleCloseAddModal = () => {
+    setIsAddModalOpen(false);
+    setNewTodoText('');
+    setNewDueDate('');
+  };
+
   const handleToggleTodo = (id) => {
     setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
   };
@@ -276,6 +350,10 @@ export default function DashboardPage() {
     setTodoToDelete(null);
   };
 
+  const addDialogRef = useDialogFocus(isAddModalOpen, handleCloseAddModal);
+  const editDialogRef = useDialogFocus(Boolean(todoToEdit), handleCloseEditModal);
+  const deleteDialogRef = useDialogFocus(Boolean(todoToDelete), handleCloseDeleteModal);
+
   const handleClearCompleted = () => {
     setTodos(prev => prev.filter(t => !t.completed));
   };
@@ -293,7 +371,10 @@ export default function DashboardPage() {
   const [isEmailsLoading, setIsEmailsLoading] = useState(Boolean(authToken) && !emails.length);
   const [memosReady, setMemosReady] = useState(memos.length > 0);
 
-  const [loadError, setLoadError] = useState(false);
+  const [panelErrors, setPanelErrors] = useState({ email: false, calendar: false, github: false });
+  const [retryKey, setRetryKey] = useState(0);
+  const loadError = Object.values(panelErrors).some(Boolean);
+  const handleRetry = () => setRetryKey(key => key + 1);
 
   useEffect(() => { if (memos.length > 0) setMemosReady(true); }, [memos]);
   useEffect(() => {
@@ -308,13 +389,14 @@ export default function DashboardPage() {
     if (!authToken) { setIsEmailsLoading(false); return; }
     let active = true;
     setIsEmailsLoading(true);
+    setPanelErrors(errors => ({ ...errors, email: false }));
 
     fetch(`${API_URL}/api/graph/mail/inbox`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
-      .then(res => (res.ok ? res.json() : null))
+      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
       .then(data => {
-        if (!active || !data) return;
+        if (!active) return;
         const normalized = (data.value || []).map(msg => ({
           id: msg.id,
           subject: msg.subject,
@@ -330,17 +412,18 @@ export default function DashboardPage() {
         }));
         handleSyncInboxEmails(normalized);
       })
-      .catch(() => {})
+      .catch(() => { if (active) setPanelErrors(errors => ({ ...errors, email: true })); })
       .finally(() => { if (active) setIsEmailsLoading(false); });
 
     return () => { active = false; };
-  }, [authToken, handleSyncInboxEmails]);
+  }, [authToken, handleSyncInboxEmails, retryKey]);
 
   // ── Fetch Calendar ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!authToken) { setIsCalendarLoading(false); return; }
     let active = true;
     setIsCalendarLoading(true);
+    setPanelErrors(errors => ({ ...errors, calendar: false }));
 
     const from = new Date();
     const until = new Date();
@@ -352,11 +435,11 @@ export default function DashboardPage() {
     })
       .then(res => { if (!res.ok) throw new Error(); return res.json(); })
       .then(data => { if (active) setEvents(data.value || []); })
-      .catch(() => { if (active) setLoadError(true); })
+      .catch(() => { if (active) setPanelErrors(errors => ({ ...errors, calendar: true })); })
       .finally(() => { if (active) setIsCalendarLoading(false); });
 
     return () => { active = false; };
-  }, [authToken]);
+  }, [authToken, retryKey]);
 
   // ── GitHub Commits Week Window & Pagination ──────────────────────────────
   const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, -1 = last week
@@ -371,6 +454,7 @@ export default function DashboardPage() {
     let active = true;
     setIsCommitsLoading(true);
     setCommitsPage(1);
+    setPanelErrors(errors => ({ ...errors, github: false }));
 
     const { since, until } = currentWeekInfo;
     const params = new URLSearchParams({ since, until });
@@ -378,13 +462,17 @@ export default function DashboardPage() {
     fetch(`${API_URL}/api/github/commits?${params}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
-      .then(res => (res.ok ? res.json() : { commits: [] }))
+      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
       .then(data => { if (active) setCommits(data.commits || []); })
-      .catch(() => { if (active) setCommits([]); })
+      .catch(() => {
+        if (!active) return;
+        setCommits([]);
+        setPanelErrors(errors => ({ ...errors, github: true }));
+      })
       .finally(() => { if (active) setIsCommitsLoading(false); });
 
     return () => { active = false; };
-  }, [authToken, currentWeekInfo]);
+  }, [authToken, currentWeekInfo, retryKey]);
 
   const totalCommitPages = useMemo(() => Math.max(1, Math.ceil(commits.length / commitsPerPage)), [commits]);
   const pagedCommits = useMemo(() => {
@@ -523,7 +611,7 @@ export default function DashboardPage() {
         {loadError && (
           <div className="dashboard-error" role="status">
             <Text>{copy.error}</Text>
-            <Button appearance="subtle" onClick={() => window.location.reload()}>{copy.retry}</Button>
+            <Button appearance="subtle" onClick={handleRetry}>{copy.retry}</Button>
           </div>
         )}
 
@@ -628,9 +716,9 @@ export default function DashboardPage() {
 
             {/* New Task Modal */}
             {isAddModalOpen && (
-              <div className="dashboard-modal-overlay" onClick={() => setIsAddModalOpen(false)}>
-                <div className="dashboard-modal-card add-task-card" onClick={(e) => e.stopPropagation()}>
-                  <h3 className="dashboard-modal-title">{isZh ? '新建待办事项' : 'New Task'}</h3>
+              <div className="dashboard-modal-overlay" onClick={handleCloseAddModal}>
+                <div ref={addDialogRef} className="dashboard-modal-card add-task-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-add-task-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+                  <h3 id="dashboard-add-task-title" className="dashboard-modal-title">{isZh ? '新建待办事项' : 'New Task'}</h3>
                   <form onSubmit={handleModalAddTodo} className="dashboard-modal-form">
                     <div className="dashboard-todo-input-wrap">
                       <textarea
@@ -640,7 +728,7 @@ export default function DashboardPage() {
                           handleAutoResize(e, 200, 340);
                         }}
                         maxLength={100}
-                        autoFocus
+                        data-dialog-autofocus
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
@@ -672,15 +760,15 @@ export default function DashboardPage() {
                       <div className="modal-date-presets">
                         <button
                           type="button"
-                          className={`preset-chip ${newDueDate === new Date().toISOString().split('T')[0] ? 'active' : ''}`}
-                          onClick={() => setNewDueDate(new Date().toISOString().split('T')[0])}
+                          className={`preset-chip ${newDueDate === dayKey() ? 'active' : ''}`}
+                          onClick={() => setNewDueDate(dayKey())}
                         >
                           {isZh ? '今天' : 'Today'}
                         </button>
                         <button
                           type="button"
-                          className={`preset-chip ${newDueDate === new Date(Date.now() + 86400000).toISOString().split('T')[0] ? 'active' : ''}`}
-                          onClick={() => setNewDueDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])}
+                          className={`preset-chip ${newDueDate === shiftDayKey(dayKey(), 1) ? 'active' : ''}`}
+                          onClick={() => setNewDueDate(shiftDayKey(dayKey(), 1))}
                         >
                           {isZh ? '明天' : 'Tomorrow'}
                         </button>
@@ -700,7 +788,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         className="modal-btn-cancel"
-                        onClick={() => { setIsAddModalOpen(false); setNewTodoText(''); setNewDueDate(''); }}
+                        onClick={handleCloseAddModal}
                       >
                         {isZh ? '取消' : 'Cancel'}
                       </button>
@@ -721,8 +809,8 @@ export default function DashboardPage() {
             {/* Edit Task Modal */}
             {todoToEdit && (
               <div className="dashboard-modal-overlay" onClick={handleCloseEditModal}>
-                <div className="dashboard-modal-card add-task-card" onClick={(e) => e.stopPropagation()}>
-                  <h3 className="dashboard-modal-title">{isZh ? '编辑待办事项' : 'Edit Task'}</h3>
+                <div ref={editDialogRef} className="dashboard-modal-card add-task-card" role="dialog" aria-modal="true" aria-labelledby="dashboard-edit-task-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+                  <h3 id="dashboard-edit-task-title" className="dashboard-modal-title">{isZh ? '编辑待办事项' : 'Edit Task'}</h3>
                   <form onSubmit={handleSaveModalEdit} className="dashboard-modal-form">
                     <div className="dashboard-todo-input-wrap">
                       <textarea
@@ -732,13 +820,12 @@ export default function DashboardPage() {
                           handleAutoResize(e, 200, 340);
                         }}
                         maxLength={100}
-                        autoFocus
+                        data-dialog-autofocus
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             handleSaveModalEdit(e);
                           }
-                          if (e.key === 'Escape') handleCloseEditModal();
                         }}
                         placeholder={copy.addTodoPlaceholder}
                         className="dashboard-todo-input modal-textarea"
@@ -765,15 +852,15 @@ export default function DashboardPage() {
                       <div className="modal-date-presets">
                         <button
                           type="button"
-                          className={`preset-chip ${editingDueDate === new Date().toISOString().split('T')[0] ? 'active' : ''}`}
-                          onClick={() => setEditingDueDate(new Date().toISOString().split('T')[0])}
+                          className={`preset-chip ${editingDueDate === dayKey() ? 'active' : ''}`}
+                          onClick={() => setEditingDueDate(dayKey())}
                         >
                           {isZh ? '今天' : 'Today'}
                         </button>
                         <button
                           type="button"
-                          className={`preset-chip ${editingDueDate === new Date(Date.now() + 86400000).toISOString().split('T')[0] ? 'active' : ''}`}
-                          onClick={() => setEditingDueDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])}
+                          className={`preset-chip ${editingDueDate === shiftDayKey(dayKey(), 1) ? 'active' : ''}`}
+                          onClick={() => setEditingDueDate(shiftDayKey(dayKey(), 1))}
                         >
                           {isZh ? '明天' : 'Tomorrow'}
                         </button>
@@ -814,9 +901,9 @@ export default function DashboardPage() {
             {/* Delete Confirmation Modal */}
             {todoToDelete && (
               <div className="dashboard-modal-overlay" onClick={handleCloseDeleteModal}>
-                <div className="dashboard-modal-card delete-task-card" onClick={(e) => e.stopPropagation()}>
-                  <h3 className="dashboard-modal-title">{isZh ? '确认删除待办事项？' : 'Delete Task?'}</h3>
-                  <p className="dashboard-modal-subtitle">
+                <div ref={deleteDialogRef} className="dashboard-modal-card delete-task-card" role="alertdialog" aria-modal="true" aria-labelledby="dashboard-delete-task-title" aria-describedby="dashboard-delete-task-description" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+                  <h3 id="dashboard-delete-task-title" className="dashboard-modal-title">{isZh ? '确认删除待办事项？' : 'Delete Task?'}</h3>
+                  <p id="dashboard-delete-task-description" className="dashboard-modal-subtitle">
                     {isZh ? '确认要删除以下待办事项吗？此操作无法撤销。' : 'Are you sure you want to delete this task? This action cannot be undone.'}
                   </p>
                   <div className="dashboard-modal-preview">
@@ -825,7 +912,8 @@ export default function DashboardPage() {
                   <div className="dashboard-modal-footer">
                     <button
                       type="button"
-                      className="modal-btn-cancel"
+                        className="modal-btn-cancel"
+                        data-dialog-autofocus
                       onClick={handleCloseDeleteModal}
                     >
                       {isZh ? '取消' : 'Cancel'}

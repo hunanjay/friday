@@ -221,3 +221,7 @@ __marimo__/
 # `langgraph dev` and contain serialized agent state (real thread_ids,
 # user_ids, message history). They have no place in version control.
 .langgraph_api/*.pckl
+
+# Uploaded files
+uploads/
+backend/uploads/

@@ -14,6 +14,19 @@
     <a href="https://langchain-ai.github.io/langgraph/"><img src="https://img.shields.io/badge/LangGraph-1.2.7-FF6F00.svg?logo=langchain&logoColor=white" alt="LangGraph"></a>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19.0-61DAFB.svg?logo=react&logoColor=black" alt="React 19"></a>
     <a href="https://qdrant.tech/"><img src="https://img.shields.io/badge/Qdrant-Hybrid_Vector_DB-DC2626.svg?logo=qdrant&logoColor=white" alt="Qdrant"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
+  </p>
+
+  <p align="center">
+    <a href="./DEPLOY.md">📦 部署指南</a>
+    &nbsp;·&nbsp;
+    <a href="./CONTRIBUTING.md">🤝 贡献规范</a>
+    &nbsp;·&nbsp;
+    <a href="./SECURITY.md">🛡️ 安全策略</a>
+    &nbsp;·&nbsp;
+    <a href="./TODO.md">🛣️ Roadmap</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/hunanjay/friday/issues">🐛 报告 Bug</a>
   </p>
 
 </div>
@@ -243,4 +256,6 @@ Refer to [TODO.md](./TODO.md) or [GitHub Issue #1](https://github.com/hunanjay/f
 
 ## 📜 License
 
-No license has been selected yet. Until one is added, do not assume permission to reuse, redistribute, or contribute code under particular terms.
+This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
+
+Copyright (c) 2026 Logan Jian (hunanjay)

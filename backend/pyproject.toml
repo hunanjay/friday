@@ -1,0 +1,30 @@
+[tool.ruff]
+# Target Python version
+target-version = "py312"
+
+# Maximum line length
+line-length = 120
+
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+# Select rules: E (pycodestyle errors), F (Pyflakes), I (isort), W (pycodestyle warnings), B (flake8-bugbear)
+select = ["E", "F", "I", "W", "B"]
+
+# Ignore specific rules
+ignore = [
+    "E501", # line-too-long
+    "B008", # do not perform function calls in argument defaults (FastAPI Depends/File/Form pattern)
+    "E402", # module level import not at top of file
+    "B904", # raise ... from err
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
