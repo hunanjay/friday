@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Edit3, Plus, Search, Trash, Pin, X, Paperclip, FileText, Image as ImageIcon } from '../components/common/Icons';
@@ -12,6 +13,8 @@ const getAttachmentUrl = (url) => {
 };
 
 export default function MemosPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const {
     memos,
     handleAddMemo,
@@ -42,6 +45,17 @@ export default function MemosPage() {
 
   // Lightbox Preview State
   const [previewImage, setPreviewImage] = useState(null);
+
+  const targetMemoId = location.state?.memoId;
+  useEffect(() => {
+    if (!targetMemoId) return;
+    const memo = memos.find(item => item.id === targetMemoId);
+    if (!memo) return;
+    setSearchQuery('');
+    setActiveCategory('all');
+    setEditingMemo({ ...memo });
+    navigate('/memos', { replace: true, state: null });
+  }, [memos, navigate, targetMemoId]);
 
   // Filter memos
   const filteredMemos = memos.filter(memo => {

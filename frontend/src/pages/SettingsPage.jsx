@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Github, Search, X, Moon, Sun, LogOut } from '../components/common/Icons';
@@ -55,6 +56,8 @@ function RepoSection({ label, repos, checked, onToggle }) {
 }
 
 export default function SettingsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const {
     user,
     theme,
@@ -73,6 +76,7 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const selectedCommit = location.state?.commit;
 
   // Sync selection state from context when ready
   useEffect(() => {
@@ -147,6 +151,17 @@ export default function SettingsPage() {
   };
 
   const isZh = i18n.language === 'zh';
+  const closeCommitDetails = () => navigate('/settings', { replace: true, state: null });
+  const commitUrl = selectedCommit?.repo && selectedCommit?.sha
+    ? `https://github.com/${selectedCommit.repo}/commit/${selectedCommit.sha}`
+    : null;
+  const commitDate = selectedCommit?.date
+    ? new Intl.DateTimeFormat(isZh ? 'zh-CN' : 'en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'Asia/Shanghai',
+    }).format(new Date(selectedCommit.date))
+    : '';
 
   return (
     <div className="settings-page-container">
@@ -340,6 +355,31 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+      {selectedCommit && (
+        <div className="settings-commit-detail-overlay" onClick={closeCommitDetails}>
+          <section className="settings-commit-detail" role="dialog" aria-modal="true" aria-labelledby="commit-detail-title" onClick={event => event.stopPropagation()}>
+            <div className="settings-commit-detail-header">
+              <div>
+                <span className="settings-commit-repo">{selectedCommit.repo}</span>
+                <h2 id="commit-detail-title">{selectedCommit.message?.split('\n')[0] || (isZh ? '未命名提交' : 'Untitled commit')}</h2>
+              </div>
+              <button type="button" className="close-modal-btn" onClick={closeCommitDetails} aria-label={isZh ? '关闭提交详情' : 'Close commit details'}>
+                <X size={18} />
+              </button>
+            </div>
+            <dl className="settings-commit-detail-meta">
+              <div><dt>{isZh ? '作者' : 'Author'}</dt><dd>{selectedCommit.author || '-'}</dd></div>
+              <div><dt>{isZh ? '提交时间' : 'Committed'}</dt><dd>{commitDate || '-'}</dd></div>
+              <div><dt>SHA</dt><dd><code>{selectedCommit.sha}</code></dd></div>
+            </dl>
+            {selectedCommit.message && <pre className="settings-commit-message">{selectedCommit.message}</pre>}
+            <div className="settings-commit-detail-actions">
+              {commitUrl && <a className="settings-btn btn-primary" href={commitUrl} target="_blank" rel="noreferrer">{isZh ? '在 GitHub 中查看' : 'View on GitHub'}</a>}
+              <button type="button" className="settings-btn" onClick={closeCommitDetails}>{isZh ? '关闭' : 'Close'}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

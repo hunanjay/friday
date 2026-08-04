@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronLeft, ChevronRight, X, Trash } from '../components/common/Icons';
@@ -17,6 +18,8 @@ function hasVisibleEventBody(body) {
 }
 
 export default function CalendarPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const {
     events,
     handleAddEvent,
@@ -87,6 +90,22 @@ export default function CalendarPage() {
   const [eventLocation, setEventLocation] = useState('');
   const [eventCategory, setEventCategory] = useState('work'); // work, personal, urgent, study
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const targetEventId = location.state?.eventId;
+  const targetEventStart = location.state?.eventStart;
+
+  useEffect(() => {
+    if (!targetEventStart) return;
+    const targetDate = new Date(targetEventStart);
+    if (!Number.isNaN(targetDate.valueOf())) setCurrentDate(targetDate);
+  }, [targetEventStart]);
+
+  useEffect(() => {
+    if (!targetEventId) return;
+    const event = events.find(item => item.id === targetEventId);
+    if (!event) return;
+    setSelectedEvent(event);
+    navigate('/calendar', { replace: true, state: null });
+  }, [events, navigate, targetEventId]);
 
   // Month navigation
   const prevMonth = () => {

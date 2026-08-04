@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Trash, Search, Plus, X, Sparkles } from '../components/common/Icons';
@@ -31,6 +32,8 @@ function normalizeMessage(msg, parentFolderId) {
 }
 
 export default function EmailPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const {
     user,
     emails,
@@ -75,6 +78,7 @@ export default function EmailPage() {
   const threadRequestsRef = useRef(new Map());
   const threadPrefetchTimersRef = useRef(new Map());
   const threadSelectionSequenceRef = useRef(0);
+  const handleSelectEmailRef = useRef(null);
   // IDs of messages whose full body is expanded in the timeline view.
   const [expandedMsgIds, setExpandedMsgIds] = useState(new Set());
 
@@ -603,6 +607,17 @@ export default function EmailPage() {
         }
       });
   };
+  handleSelectEmailRef.current = handleSelectEmail;
+
+  const targetEmailId = location.state?.emailId;
+  useEffect(() => {
+    if (!targetEmailId) return;
+    const targetEmail = location.state?.email || emails.find(email => email.id === targetEmailId);
+    if (!targetEmail) return;
+    setActiveFolder(targetEmail.parentFolderId || 'inbox');
+    handleSelectEmailRef.current?.({ ...targetEmail, _threadKey: targetEmail.conversationId || targetEmail.id });
+    navigate('/email', { replace: true, state: null });
+  }, [emails, location.state, navigate, targetEmailId]);
 
   const toggleMsgExpand = (msgId) => {
     setExpandedMsgIds(prev => {

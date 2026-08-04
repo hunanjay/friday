@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Badge,
@@ -104,6 +104,21 @@ function formatEmailDate(dateStr, locale) {
   return new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric', timeZone: DASHBOARD_TIME_ZONE }).format(parsed);
 }
 
+function formatCommitDate(dateStr, locale) {
+  if (!dateStr) return '';
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.valueOf())) return '';
+  const isToday = dayKey(parsed) === dayKey();
+  return new Intl.DateTimeFormat(locale, {
+    month: isToday ? undefined : 'numeric',
+    day: isToday ? undefined : 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: DASHBOARD_TIME_ZONE,
+  }).format(parsed);
+}
+
 function getWeekWindow(offsetWeeks = 0) {
   const todayKey = dayKey();
   const [year, month, day] = todayKey.split('-').map(Number);
@@ -191,6 +206,17 @@ function displayName(user) {
   return user?.name?.trim()?.split(/\s+/)[0] || '';
 }
 
+function mapTodo(todo) {
+  return {
+    id: todo.id,
+    text: todo.text,
+    completed: todo.completed,
+    dueDate: todo.due_date || null,
+    createdAt: todo.created_at,
+    updatedAt: todo.updated_at,
+  };
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
@@ -198,7 +224,7 @@ export default function DashboardPage() {
   const { authToken, emails, githubStatus, inboxUnread, memos, user, handleSyncInboxEmails } = useWorkspace();
   const isZh = i18n.language === 'zh';
 
-  // ── Todo List Helpers & State (CRUD + Due Date + Persistence) ────────────
+  // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────
   const formatTodoCreated = (isoStr) => {
     if (!isoStr) return '';
     const d = new Date(isoStr);
@@ -234,20 +260,9 @@ export default function DashboardPage() {
     return { label: shortDate, status: 'future' };
   };
 
-  const [todos, setTodos] = useState(() => {
-    try {
-      const saved = localStorage.getItem('friday_dashboard_todos');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const now = new Date();
-    const todayStr = dayKey(now);
-    const tomorrowStr = shiftDayKey(todayStr, 1);
-    return [
-      { id: '1', text: isZh ? '回复重要工作邮件' : 'Reply to urgent work emails', completed: false, createdAt: now.toISOString(), dueDate: todayStr },
-      { id: '2', text: isZh ? '准备团队同步例会资料' : 'Prepare sync meeting materials', completed: false, createdAt: new Date(Date.now() - 7200000).toISOString(), dueDate: tomorrowStr },
-      { id: '3', text: isZh ? '整理周度备忘录知识库' : 'Organize weekly memo repository', completed: true, createdAt: new Date(Date.now() - 86400000).toISOString(), dueDate: null },
-    ];
-  });
+  const [todos, setTodos] = useState([]);
+  const [isTodosLoading, setIsTodosLoading] = useState(Boolean(authToken));
+  const [todosError, setTodosError] = useState(false);
   const [newTodoText, setNewTodoText] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -256,11 +271,40 @@ export default function DashboardPage() {
   const [editingDueDate, setEditingDueDate] = useState('');
   const [todoToDelete, setTodoToDelete] = useState(null);
 
-  useEffect(() => {
+  const loadTodos = useCallback(async () => {
+    if (!authToken) {
+      setTodos([]);
+      setIsTodosLoading(false);
+      setTodosError(false);
+      return;
+    }
+    setIsTodosLoading(true);
+    setTodosError(false);
     try {
-      localStorage.setItem('friday_dashboard_todos', JSON.stringify(todos));
-    } catch {}
-  }, [todos]);
+      const response = await fetch(`${API_URL}/api/todos`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) throw new Error('Failed to load todos');
+      const data = await response.json();
+      setTodos((data.todos || []).map(mapTodo));
+    } catch {
+      setTodosError(true);
+    } finally {
+      setIsTodosLoading(false);
+    }
+  }, [authToken]);
+
+  useEffect(() => { loadTodos(); }, [loadTodos]);
+
+  const saveTodo = async (todo) => {
+    const response = await fetch(`${API_URL}/api/todos/${encodeURIComponent(todo.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ text: todo.text, completed: todo.completed, dueDate: todo.dueDate }),
+    });
+    if (!response.ok) throw new Error('Failed to save todo');
+    return mapTodo(await response.json());
+  };
 
   // Sort Todos: Uncompleted first -> Overdue / Earliest Due Date -> Newest Created
   const sortedTodos = useMemo(() => {
@@ -283,20 +327,22 @@ export default function DashboardPage() {
     });
   }, [todos]);
 
-  const handleModalAddTodo = (e) => {
+  const handleModalAddTodo = async (e) => {
     if (e) e.preventDefault();
     if (!newTodoText.trim()) return;
-    const item = {
-      id: Date.now().toString(),
-      text: newTodoText.trim(),
-      completed: false,
-      createdAt: new Date().toISOString(),
-      dueDate: newDueDate || null
-    };
-    setTodos(prev => [item, ...prev]);
-    setNewTodoText('');
-    setNewDueDate('');
-    setIsAddModalOpen(false);
+    try {
+      const response = await fetch(`${API_URL}/api/todos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ text: newTodoText.trim(), dueDate: newDueDate || null }),
+      });
+      if (!response.ok) throw new Error('Failed to create todo');
+      const created = mapTodo(await response.json());
+      setTodos(prev => [created, ...prev]);
+      handleCloseAddModal();
+    } catch {
+      setTodosError(true);
+    }
   };
 
   const handleCloseAddModal = () => {
@@ -305,8 +351,18 @@ export default function DashboardPage() {
     setNewDueDate('');
   };
 
-  const handleToggleTodo = (id) => {
-    setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  const handleToggleTodo = async (id) => {
+    const current = todos.find(todo => todo.id === id);
+    if (!current) return;
+    const optimistic = { ...current, completed: !current.completed };
+    setTodos(prev => prev.map(todo => todo.id === id ? optimistic : todo));
+    try {
+      const saved = await saveTodo(optimistic);
+      setTodos(prev => prev.map(todo => todo.id === id ? saved : todo));
+    } catch {
+      setTodos(prev => prev.map(todo => todo.id === id ? current : todo));
+      setTodosError(true);
+    }
   };
 
   const handleStartEdit = (todo, e) => {
@@ -316,17 +372,23 @@ export default function DashboardPage() {
     setEditingDueDate(todo.dueDate || '');
   };
 
-  const handleSaveModalEdit = (e) => {
+  const handleSaveModalEdit = async (e) => {
     if (e) e.preventDefault();
     if (!todoToEdit || !editingText.trim()) return;
-    setTodos(prev => prev.map(t => t.id === todoToEdit.id ? {
-      ...t,
+    const optimistic = {
+      ...todoToEdit,
       text: editingText.trim(),
       dueDate: editingDueDate || null
-    } : t));
-    setTodoToEdit(null);
-    setEditingText('');
-    setEditingDueDate('');
+    };
+    setTodos(prev => prev.map(todo => todo.id === optimistic.id ? optimistic : todo));
+    try {
+      const saved = await saveTodo(optimistic);
+      setTodos(prev => prev.map(todo => todo.id === saved.id ? saved : todo));
+      handleCloseEditModal();
+    } catch {
+      setTodos(prev => prev.map(todo => todo.id === todoToEdit.id ? todoToEdit : todo));
+      setTodosError(true);
+    }
   };
 
   const handleCloseEditModal = () => {
@@ -340,10 +402,19 @@ export default function DashboardPage() {
     setTodoToDelete(todo);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!todoToDelete) return;
-    setTodos(prev => prev.filter(t => t.id !== todoToDelete.id));
-    setTodoToDelete(null);
+    try {
+      const response = await fetch(`${API_URL}/api/todos/${encodeURIComponent(todoToDelete.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) throw new Error('Failed to delete todo');
+      setTodos(prev => prev.filter(todo => todo.id !== todoToDelete.id));
+      setTodoToDelete(null);
+    } catch {
+      setTodosError(true);
+    }
   };
 
   const handleCloseDeleteModal = () => {
@@ -354,8 +425,19 @@ export default function DashboardPage() {
   const editDialogRef = useDialogFocus(Boolean(todoToEdit), handleCloseEditModal);
   const deleteDialogRef = useDialogFocus(Boolean(todoToDelete), handleCloseDeleteModal);
 
-  const handleClearCompleted = () => {
-    setTodos(prev => prev.filter(t => !t.completed));
+  const handleClearCompleted = async () => {
+    const completed = todos.filter(todo => todo.completed);
+    const results = await Promise.allSettled(completed.map(async (todo) => {
+      const response = await fetch(`${API_URL}/api/todos/${encodeURIComponent(todo.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) throw new Error('Failed to delete todo');
+      return todo.id;
+    }));
+    const deletedIds = new Set(results.filter(result => result.status === 'fulfilled').map(result => result.value));
+    setTodos(prev => prev.filter(todo => !deletedIds.has(todo.id)));
+    if (deletedIds.size !== completed.length) setTodosError(true);
   };
 
   const pendingTodosCount = useMemo(() => todos.filter(t => !t.completed).length, [todos]);
@@ -644,7 +726,7 @@ export default function DashboardPage() {
 
             {/* Todo Item List */}
             <div className="dashboard-todo-list">
-              {sortedTodos.length ? (
+              {isTodosLoading ? <PanelSkeleton rows={3} /> : sortedTodos.length ? (
                 sortedTodos.map(todo => {
                   const dueInfo = getDueDateStatus(todo.dueDate);
                   return (
@@ -713,6 +795,12 @@ export default function DashboardPage() {
                 <EmptyState icon={<TaskListLtr24Regular />} message={copy.noTodos} action={isZh ? '新建待办' : 'Add Task'} onAction={() => setIsAddModalOpen(true)} />
               )}
             </div>
+            {todosError && (
+              <div className="dashboard-todo-error" role="status">
+                <Text>{isZh ? '待办同步失败' : 'Could not sync tasks'}</Text>
+                <Button appearance="subtle" size="small" onClick={loadTodos}>{copy.retry}</Button>
+              </div>
+            )}
 
             {/* New Task Modal */}
             {isAddModalOpen && (
@@ -949,7 +1037,7 @@ export default function DashboardPage() {
               {isCalendarLoading ? <PanelSkeleton rows={3} times /> : upcomingEvents.length ? (
                 <div className="dashboard-agenda-list">
                   {upcomingEvents.map(event => (
-                    <button type="button" className="dashboard-list-item" key={event.id} onClick={() => navigate('/calendar')}>
+                    <button type="button" className="dashboard-list-item" key={event.id} onClick={() => navigate('/calendar', { state: { eventId: event.id, eventStart: eventDateTime(event) } })}>
                       <span className="dashboard-agenda-time">{event.isAllDay ? copy.allDay : eventTime(event, i18n.language)}</span>
                       <div className="dashboard-item-text">
                         <strong className="dashboard-item-title">{event.subject || (isZh ? '未命名日程' : 'Untitled event')}</strong>
@@ -976,7 +1064,7 @@ export default function DashboardPage() {
               {isEmailsLoading ? <PanelSkeleton rows={3} avatars dates /> : displayEmails.length ? (
                 <div className="dashboard-inbox-list">
                   {displayEmails.map(email => (
-                    <button type="button" className="dashboard-list-item" key={email.id} onClick={() => navigate('/email')}>
+                    <button type="button" className="dashboard-list-item" key={email.id} onClick={() => navigate('/email', { state: { emailId: email.id, email } })}>
                       <span className="dashboard-email-avatar">{(email.from?.emailAddress?.name || email.sender?.emailAddress?.name || '?')[0]}</span>
                       <div className="dashboard-item-text">
                         <strong className="dashboard-item-title">{email.subject || (isZh ? '无主题' : 'No subject')}</strong>
@@ -1009,7 +1097,7 @@ export default function DashboardPage() {
               {!memosReady ? <PanelSkeleton rows={3} swatches /> : relevantMemos.length ? (
                 <div className="dashboard-memo-list">
                   {relevantMemos.map(memo => (
-                    <button type="button" className="dashboard-list-item" key={memo.id} onClick={() => navigate('/memos')}>
+                    <button type="button" className="dashboard-list-item" key={memo.id} onClick={() => navigate('/memos', { state: { memoId: memo.id } })}>
                       <span className={`dashboard-memo-swatch memo-${memo.color || 'beige'}`} />
                       <div className="dashboard-item-text">
                         <strong className="dashboard-item-title">{memo.title}</strong>
@@ -1073,11 +1161,14 @@ export default function DashboardPage() {
                   <div className="dashboard-panel-body-with-footer">
                     <div className="dashboard-commit-list">
                       {pagedCommits.map(commit => (
-                        <button type="button" className="dashboard-list-item dashboard-commit-item" key={`${commit.repo}-${commit.sha}`} onClick={() => navigate('/settings')}>
+                        <button type="button" className="dashboard-list-item dashboard-commit-item" key={`${commit.repo}-${commit.sha}`} onClick={() => navigate('/settings', { state: { commit } })}>
                           <span className="dashboard-commit-repo">{commit.repo}</span>
                           <div className="dashboard-item-text">
                             <strong className="dashboard-item-title">{commit.message?.split('\n')[0]}</strong>
-                            <span className="dashboard-item-sub">{commit.author}</span>
+                            <div className="dashboard-commit-meta">
+                              <span className="dashboard-item-sub">{commit.author}</span>
+                              {commit.date && <span className="dashboard-commit-date">{formatCommitDate(commit.date, i18n.language)}</span>}
+                            </div>
                           </div>
                         </button>
                       ))}

@@ -418,6 +418,22 @@
   padding-right: 4px;
 }
 
+.dashboard-todo-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.dashboard-todo-error .fui-Text {
+  font-size: .72rem;
+}
+
 .dashboard-todo-item {
   display: flex;
   align-items: center;
@@ -1136,6 +1152,27 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
+}
+
+.dashboard-commit-date {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: .66rem;
+  line-height: 1.25;
+}
+
+.dashboard-commit-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dashboard-commit-meta .dashboard-item-sub,
+.dashboard-commit-meta .dashboard-commit-date {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-panel-header-actions {
