@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { WorkspaceContext } from './workspace-context';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 // All keys written to localStorage for this app's workspace data.
 // Clearing all of them on logout prevents a subsequent user on the same

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 
 const INJECTED_STYLE_ATTRIBUTE = 'data-email-content-renderer-style';
 const MAX_IFRAME_WIDTH = 2400;
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const API_URL = import.meta.env.VITE_API_URL || '';
 const INLINE_IMAGE_CACHE_MAX_ENTRIES = 40;
 const INLINE_IMAGE_CACHE_MAX_BYTES = 20 * 1024 * 1024;
 const inlineImageCache = new Map();

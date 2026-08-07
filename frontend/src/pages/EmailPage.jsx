@@ -7,7 +7,7 @@ import EmailContentRenderer from '../components/common/EmailContentRenderer';
 import EmailAttachments from '../components/common/EmailAttachments';
 import ApprovalCard from '../components/common/ApprovalCard';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const API_URL = import.meta.env.VITE_API_URL || '';
 const THREAD_PREFETCH_DELAY_MS = 300;
 const THREAD_CACHE_MAX_ENTRIES = 10;
 

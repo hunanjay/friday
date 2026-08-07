@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Paperclip, Download } from './Icons';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const API_URL = import.meta.env.VITE_API_URL || '';
 const PREFETCH_MAX_BYTES = 1024 * 1024;
 const attachmentRequests = new Map();
 const attachmentDownloadRequests = new Map();

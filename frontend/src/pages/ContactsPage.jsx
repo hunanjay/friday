@@ -23,7 +23,7 @@ import {
 } from '../components/common/Icons';
 import ChatLogPasteModal from '../components/ChatLogPasteModal';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function ContactsPage() {
   const { authToken, showToast } = useWorkspace();

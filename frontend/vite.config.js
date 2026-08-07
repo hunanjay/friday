@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3005,
+    proxy: {
+      '/api': 'http://localhost:8005',
+      '/uploads': 'http://localhost:8005',
+    },
   },
   test: {
     globals: true,
