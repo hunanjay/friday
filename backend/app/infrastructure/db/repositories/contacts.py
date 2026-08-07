@@ -1,6 +1,4 @@
-import json
 import logging
-from typing import Any
 
 from app.infrastructure.db.pool import get_pool
 
@@ -102,7 +100,7 @@ _CONTACT_COLS = "id, user_id, outlook_contact_id, name, email, phone, company, j
 async def list_contacts(user_id: str, query: str | None = None, tag: str | None = None) -> list[dict]:
     async with _db_pool().connection() as conn:
         if tag:
-            sql = f"""
+            sql = """
                 SELECT DISTINCT c.id, c.user_id, c.outlook_contact_id, c.name, c.email, c.phone, c.company, c.job_title, c.location, c.ai_summary, c.last_synced_at, c.created_at, c.updated_at
                 FROM contacts c
                 JOIN contact_tags t ON c.id = t.contact_id
@@ -128,7 +126,7 @@ async def list_contacts(user_id: str, query: str | None = None, tag: str | None 
         rows = await cur.fetchall()
 
     contacts = [_row_to_contact_dict(r) for r in rows]
-    
+
     # Attach profiles, tags, and timeline for each contact
     for c in contacts:
         contact_id = c["id"]

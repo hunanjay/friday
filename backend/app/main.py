@@ -12,7 +12,13 @@ from app.agents import checkpointer
 from app.api import agent, auth, calendar, contact, github, github_auth, mail, memos, todos
 from app.core.config import settings
 from app.infrastructure.db import pool as db_pool
-from app.infrastructure.db.repositories import chat_sessions, contacts as contacts_db, memos as memos_db, pending_actions, todos as todos_db
+from app.infrastructure.db.repositories import (
+    chat_sessions,
+    contacts as contacts_db,
+    memos as memos_db,
+    pending_actions,
+    todos as todos_db,
+)
 from app.infrastructure.github import client as github_client
 from app.infrastructure.graph import client as graph_client
 from app.infrastructure.vector import qdrant as vector_store

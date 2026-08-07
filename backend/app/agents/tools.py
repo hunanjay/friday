@@ -183,12 +183,12 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         fact_value: str,
     ) -> str:
         """Record a single explicit memory fact for a contact into the Personal Relationship Brain.
-        
+
         WHEN TO USE:
-        Use ONLY when the user gives a single, explicit fact update about a contact in casual conversation 
+        Use ONLY when the user gives a single, explicit fact update about a contact in casual conversation
         (e.g., "Note down that Zhang Ming likes Pu'er tea", "Zhang Ming just bought an AITO M9 car").
         Do NOT use for long chat logs or raw multi-sentence text — use `extract_contact_memory` instead.
-        
+
         PARAMETERS:
         - `contact_name` (str, REQUIRED): Contact's full name or name used in conversation. If not found in DB, a new contact will be auto-created.
         - `dimension` (str, REQUIRED): MUST be strictly one of:
@@ -200,8 +200,8 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         - `fact_key` (str, REQUIRED): Short snake_case identifier (e.g., 'tea_preference', 'car_model', 'travel_destination').
         - `fact_value` (str, REQUIRED): The actual fact content (e.g., 'Likes hot Pu'er tea', 'AITO M9', 'San Francisco next Tuesday').
         """
-        from app.services.contact_service import ContactService
         from app.infrastructure.db.repositories import contacts as contacts_repo
+        from app.services.contact_service import ContactService
 
         contacts = await ContactService.get_contacts(user_id=user_id, query=contact_name)
         if contacts:
@@ -234,11 +234,11 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
     @tool
     async def extract_contact_memory(text: str) -> str:
         """Deeply analyze and extract structured profiles, 4-dimension facts, tags, and timeline events from raw text into the Relationship Brain.
-        
+
         WHEN TO USE:
-        Use when the user pastes a raw chat log, a long dialogue snippet, or multi-topic unstructured meeting notes 
+        Use when the user pastes a raw chat log, a long dialogue snippet, or multi-topic unstructured meeting notes
         and requests archiving, extracting, or summarizing contact memory.
-        
+
         PARAMETERS:
         - `text` (str, REQUIRED): The full raw text / conversation transcript to analyze. Must be non-empty.
         """
