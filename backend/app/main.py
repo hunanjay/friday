@@ -12,7 +12,13 @@ from app.agents import checkpointer
 from app.api import agent, auth, calendar, contact, github, github_auth, mail, memos, todos
 from app.core.config import settings
 from app.infrastructure.db import pool as db_pool
-from app.infrastructure.db.repositories import chat_sessions, memos as memos_db, pending_actions, todos as todos_db
+from app.infrastructure.db.repositories import (
+    chat_sessions,
+    contacts as contacts_db,
+    memos as memos_db,
+    pending_actions,
+    todos as todos_db,
+)
 from app.infrastructure.github import client as github_client
 from app.infrastructure.graph import client as graph_client
 from app.infrastructure.vector import qdrant as vector_store
@@ -25,6 +31,7 @@ async def lifespan(_app: FastAPI):
     await checkpointer.init_checkpointer()
     await chat_sessions.init_schema()
     await pending_actions.init_schema()
+    await contacts_db.init_schema()
     await memos_db.init_schema()
     await todos_db.init_schema()
     await vector_store.init_collection()
@@ -46,7 +53,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3005"],
+    allow_origins=[
+        settings.FRONTEND_URL,
+        "https://friday.loganjian.top",
+        "http://localhost:3005",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

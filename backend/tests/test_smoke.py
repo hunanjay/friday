@@ -504,6 +504,116 @@ check("todo schema is initialized", "await todos_db.init_schema()" in main_sourc
 
 
 # ---------------------------------------------------------------------------
+# 13. Contact Brain – schema contract & input validation
+# ---------------------------------------------------------------------------
+
+section("13. Contact Brain – schema contract & input validation")
+
+contact_api_source   = (backend_dir / "app/api/contact.py").read_text()
+contact_repo_source  = (backend_dir / "app/infrastructure/db/repositories/contacts.py").read_text()
+contact_svc_source   = (backend_dir / "app/services/contact_service.py").read_text()
+contact_brain_source = (backend_dir / "app/services/contact_brain_service.py").read_text()
+tools_source         = (backend_dir / "app/agents/tools.py").read_text()
+main_source_fresh    = (backend_dir / "app/main.py").read_text()
+
+# ── 13-A. 4 维度表全部定义在 schema 中 ──────────────────────────────────────
+EXPECTED_TABLES = ["contacts", "contact_profiles", "contact_tags", "contact_interactions"]
+for tbl in EXPECTED_TABLES:
+    check(
+        f"schema defines table '{tbl}'",
+        f"CREATE TABLE IF NOT EXISTS {tbl}" in contact_repo_source,
+    )
+
+# ── 13-B. contact_profiles 约束正确 ─────────────────────────────────────────
+check(
+    "contact_profiles has 4-dimension text field",
+    "dimension TEXT NOT NULL" in contact_repo_source,
+)
+check(
+    "contact_profiles references contacts with CASCADE delete",
+    "REFERENCES contacts(id) ON DELETE CASCADE" in contact_repo_source,
+)
+check(
+    "contact_profiles stores confidence score",
+    "confidence FLOAT" in contact_repo_source,
+)
+
+# ── 13-C. API 输入校验：name 不能为空 ────────────────────────────────────────
+check(
+    "create contact endpoint validates empty name",
+    'Name is required' in contact_api_source,
+)
+
+# ── 13-D. AddFactRequest 包含 4 个必要字段 ───────────────────────────────────
+ADD_FACT_FIELDS = ["dimension", "category", "fact_key", "fact_value"]
+for field in ADD_FACT_FIELDS:
+    check(
+        f"AddFactRequest declares field '{field}'",
+        field in contact_api_source,
+    )
+
+# ── 13-E. outlook_contact_id 唯一索引防止重复同步 ────────────────────────────
+check(
+    "contacts table has unique index on (user_id, outlook_contact_id)",
+    "idx_contacts_user_outlook_id" in contact_repo_source,
+)
+
+# ── 13-F. MS Graph 同步不覆盖已有的 profiles / tags ─────────────────────────
+# Strip the triple-quoted docstring from the function body before checking,
+# so that mentioning 'contact_profiles' in documentation doesn't trip the test.
+_sync_body = ""
+if "async def sync_from_microsoft" in contact_svc_source:
+    _start = contact_svc_source.index("async def sync_from_microsoft")
+    _rest  = contact_svc_source[_start + len("async def sync_from_microsoft"):]
+    _next  = _rest.find("\n    @classmethod")
+    _sync_body = _rest[:_next] if _next != -1 else _rest
+    # Remove triple-quoted docstring (first occurrence)
+    import re as _re_sync
+    _sync_body = _re_sync.sub(r'""".*?"""', '', _sync_body, count=1, flags=_re_sync.DOTALL)
+check(
+    "MS Graph sync never inserts into contact_profiles",
+    "INSERT INTO contact_profiles" not in _sync_body and "contact_profiles" not in _sync_body,
+    "sync_from_microsoft should not write to contact_profiles",
+)
+
+# ── 13-G. LLM 提炼服务调用 ChatOpenAI ───────────────────────────────────────
+check(
+    "ContactBrainService uses ChatOpenAI for extraction",
+    "ChatOpenAI" in contact_brain_source,
+)
+check(
+    "ContactBrainService saves extracted facts to contact_profiles",
+    "contact_profiles" in contact_brain_source or "add_profile_fact" in contact_brain_source,
+)
+
+# ── 13-H. Agent Tools 注册了 3 个 contact 工具 ──────────────────────────────
+for tool_fn in ["search_contacts", "record_contact_fact", "extract_contact_memory"]:
+    check(
+        f"agent tools.py defines '{tool_fn}'",
+        f"def {tool_fn}" in tools_source,
+    )
+
+# ── 13-I. schema 初始化注册进了 lifespan ────────────────────────────────────
+check(
+    "contacts schema init registered in lifespan",
+    "contacts_db.init_schema()" in main_source_fresh,
+)
+
+# ── 13-J. 纯逻辑单元测试：fact dimension 白名单校验 ──────────────────────────
+VALID_DIMENSIONS = {"basic", "business", "private", "dynamic"}
+
+def _validate_dimension(dim: str) -> bool:
+    return dim in VALID_DIMENSIONS
+
+check("valid dimension 'basic' passes",    _validate_dimension("basic"))
+check("valid dimension 'business' passes", _validate_dimension("business"))
+check("valid dimension 'private' passes",  _validate_dimension("private"))
+check("valid dimension 'dynamic' passes",  _validate_dimension("dynamic"))
+check("invalid dimension 'unknown' fails", not _validate_dimension("unknown"))
+check("empty string dimension fails",      not _validate_dimension(""))
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

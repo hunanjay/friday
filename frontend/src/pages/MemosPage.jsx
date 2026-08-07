@@ -4,7 +4,7 @@ import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import { Edit3, Plus, Search, Trash, Pin, X, Paperclip, FileText, Image as ImageIcon } from '../components/common/Icons';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const getAttachmentUrl = (url) => {
   if (!url) return '';

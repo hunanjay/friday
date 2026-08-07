@@ -1,0 +1,44 @@
+name: CD (Deploy dev to Server)
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            echo "==> Navigating to project directory..."
+            cd ~/friday
+
+            echo "==> Pulling latest code from git dev branch..."
+            git fetch --all
+            git reset --hard origin/dev
+
+            echo "==> Building frontend..."
+            cd frontend
+            /usr/local/bin/npm install
+            /usr/local/bin/npm run build
+            cd ..
+
+            echo "==> Rebuilding and restarting backend container..."
+            sudo docker compose up -d --build backend
+
+            echo "==> Deployment successful!"

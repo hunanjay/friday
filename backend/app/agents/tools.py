@@ -62,14 +62,19 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
 
     @tool
     async def search_contacts(query: str = "") -> str:
-        """Search the user's Outlook contacts by name, email, or company."""
+        """Search the user's Personal Contact Relationship Brain by name, email, company, job title, tags, or memory facts."""
         from app.services.contact_service import ContactService
-        contacts = await ContactService.get_contacts(user_id=user_id, query=query, top=20)
+        contacts = await ContactService.get_contacts(user_id=user_id, query=query)
         if not contacts:
             return "No contacts matched that search."
         lines = []
-        for c in contacts:
-            lines.append(f"- {c['name']} <{c['email']}> | Company: {c['company']} | Job Title: {c['jobTitle']} | Phone: {c['phone']}")
+        for c in contacts[:15]:
+            tags_str = f" [Tags: {', '.join(c.get('tags', []))}]" if c.get("tags") else ""
+            facts_list = []
+            for p in c.get("profiles", []):
+                facts_list.append(f"{p.get('fact_key', '')}: {p.get('fact_value', '')}")
+            facts_str = f" | Memory Facts: {'; '.join(facts_list)}" if facts_list else ""
+            lines.append(f"- {c['name']} <{c.get('email', '')}> | Company: {c.get('company', '')} | Job: {c.get('jobTitle', '')}{tags_str}{facts_str}")
         return "\n".join(lines)
 
     @tool
@@ -169,9 +174,91 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
             "The user must review the message and press Confirm delete in the chat UI."
         )
 
+    @tool
+    async def record_contact_fact(
+        contact_name: str,
+        dimension: str,
+        category: str,
+        fact_key: str,
+        fact_value: str,
+    ) -> str:
+        """Record a single explicit memory fact for a contact into the Personal Relationship Brain.
+
+        WHEN TO USE:
+        Use ONLY when the user gives a single, explicit fact update about a contact in casual conversation
+        (e.g., "Note down that Zhang Ming likes Pu'er tea", "Zhang Ming just bought an AITO M9 car").
+        Do NOT use for long chat logs or raw multi-sentence text — use `extract_contact_memory` instead.
+
+        PARAMETERS:
+        - `contact_name` (str, REQUIRED): Contact's full name or name used in conversation. If not found in DB, a new contact will be auto-created.
+        - `dimension` (str, REQUIRED): MUST be strictly one of:
+            * 'basic': Static personal info (hometown, school, birthday)
+            * 'business': Professional context (company size, investment focus, tech stack, budget)
+            * 'private': Personal habits/lifestyle (diet, coffee/tea preference, vehicle, family, health)
+            * 'dynamic': Recent events/activities (travel plans, recent purchases, upcoming meetings)
+        - `category` (str, REQUIRED): MUST be one of: 'preference', 'pain_point', 'demand', 'family', 'anniversary', 'event', 'other'.
+        - `fact_key` (str, REQUIRED): Short snake_case identifier (e.g., 'tea_preference', 'car_model', 'travel_destination').
+        - `fact_value` (str, REQUIRED): The actual fact content (e.g., 'Likes hot Pu'er tea', 'AITO M9', 'San Francisco next Tuesday').
+        """
+        from app.infrastructure.db.repositories import contacts as contacts_repo
+        from app.services.contact_service import ContactService
+
+        contacts = await ContactService.get_contacts(user_id=user_id, query=contact_name)
+        if contacts:
+            contact_id = contacts[0]["id"]
+            cname = contacts[0]["name"]
+        else:
+            new_c = await ContactService.create_contact(user_id=user_id, name=contact_name)
+            contact_id = new_c["id"]
+            cname = new_c["name"]
+
+        # Normalize and validate dimension against strict whitelist
+        dim_clean = dimension.strip().lower()
+        if dim_clean not in ("basic", "business", "private", "dynamic"):
+            dim_clean = "private"
+
+        cat_clean = category.strip().lower()
+        if cat_clean not in ("preference", "pain_point", "demand", "family", "anniversary", "event", "other"):
+            cat_clean = "other"
+
+        fact = await contacts_repo.add_contact_profile(
+            user_id=user_id,
+            contact_id=contact_id,
+            dimension=dim_clean,
+            category=cat_clean,
+            fact_key=fact_key.strip(),
+            fact_value=fact_value.strip(),
+        )
+        return f"Successfully recorded memory fact for {cname}: [{dim_clean} / {cat_clean}] {fact_key} = {fact_value} (fact_id: {fact['id']})."
+
+    @tool
+    async def extract_contact_memory(text: str) -> str:
+        """Deeply analyze and extract structured profiles, 4-dimension facts, tags, and timeline events from raw text into the Relationship Brain.
+
+        WHEN TO USE:
+        Use when the user pastes a raw chat log, a long dialogue snippet, or multi-topic unstructured meeting notes
+        and requests archiving, extracting, or summarizing contact memory.
+
+        PARAMETERS:
+        - `text` (str, REQUIRED): The full raw text / conversation transcript to analyze. Must be non-empty.
+        """
+        if not text or not text.strip():
+            return "Error: text argument cannot be empty for memory extraction."
+
+        from app.services.contact_brain_service import ContactBrainService
+        try:
+            res = await ContactBrainService.extract_and_save(user_id=user_id, raw_text=text)
+            c = res.get("contact", {})
+            profs = res.get("extracted_profiles", [])
+            return f"Successfully extracted memory for contact '{c.get('name')}' with {len(profs)} facts recorded and archived to Relationship Brain."
+        except Exception as exc:
+            return f"Failed to extract contact memory: {str(exc)}"
+
     return [
         list_inbox,
         search_contacts,
+        record_contact_fact,
+        extract_contact_memory,
         search_emails,
         read_email,
         send_email,

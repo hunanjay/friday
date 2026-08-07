@@ -6,7 +6,7 @@ import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github } from '../
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 import ApprovalCard from '../components/common/ApprovalCard';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8005';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Mirrors the sub-agent names in backend/app/agents/supervisor.py.
 const AGENT_ICONS = { mail_agent: Mail, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
