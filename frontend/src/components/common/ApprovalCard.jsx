@@ -1,16 +1,18 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Mail, Trash } from './Icons';
+import { getApprovalRenderer } from './ApprovalPreview';
 
 /**
- * Reusable Approval Card component for AI-generated actions & drafts.
- * Used in both ChatPage (HitL Action Approvals) and EmailPage (Dora Assistant Drafts).
+ * Generic human-in-the-loop approval shell. The backend selects the preview,
+ * placement, and allowed decisions; renderer components only display trusted
+ * structured payloads and never decide what can be executed.
  */
 export default function ApprovalCard({
   action,
   title,
   subtitle,
   statusLabel,
+  onDecision,
   onConfirm,
   onCancel,
   confirmText,
@@ -22,54 +24,61 @@ export default function ApprovalCard({
 
   if (!action || !action.payload) return null;
 
-  const isResolved = action.resolved;
-  const isSendEmail = action.action_type === 'send_email' || !action.action_type;
-  const defaultTitle = title || (isSendEmail ? t('chat.reviewEmail') : t('chat.reviewDelete'));
-  const defaultSubtitle = subtitle || t('chat.approvalRequired');
-  const defaultStatusLabel = statusLabel || (isResolved ? t('chat.approvalStatusSent') : t('chat.approvalStatusPending'));
+  const presentation = action.presentation || {};
+  const { Preview, Icon } = getApprovalRenderer(action);
+  const isResolved = action.resolved || action.status === 'completed';
+  const defaultTitle = title || (presentation.title_key
+    ? t(presentation.title_key)
+    : t('chat.reviewAction'));
+  const defaultSubtitle = subtitle || (presentation.subtitle_key
+    ? t(presentation.subtitle_key)
+    : t('chat.approvalRequired'));
+  const statusKey = isResolved
+    ? presentation.completed_status_key || 'chat.approvalStatusCompleted'
+    : presentation.pending_status_key || 'chat.approvalStatusPending';
+  const defaultStatusLabel = statusLabel || t(statusKey);
+  const configuredDecisions = action.decisions || [];
+
+  const renderActions = () => {
+    if (customActions) return customActions;
+    if (configuredDecisions.length && onDecision) {
+      return configuredDecisions.map((decision) => (
+        <button
+          key={decision.id}
+          type="button"
+          className={decision.style === 'secondary'
+            ? 'approval-cancel-btn'
+            : `approval-confirm-btn ${decision.style === 'danger' ? 'approval-danger-btn' : ''}`}
+          disabled={action.busy}
+          onClick={() => onDecision(decision.id)}
+        >
+          {action.busy ? t('chat.approvalWorking') : t(decision.label_key)}
+        </button>
+      ));
+    }
+    return (
+      <>
+        {onCancel && (
+          <button type="button" className="approval-cancel-btn" disabled={action.busy} onClick={onCancel}>
+            {cancelText || t('common.cancel')}
+          </button>
+        )}
+        {onConfirm && (
+          <button type="button" className="approval-confirm-btn" disabled={action.busy} onClick={onConfirm}>
+            {action.busy ? t('chat.approvalWorking') : confirmText || t('common.confirm')}
+          </button>
+        )}
+      </>
+    );
+  };
 
   if (isResolved) {
     return (
       <div className={`approval-card approval-card-resolved ${className}`} role="status">
         <div className="approval-resolved-status">
-          <span className="approval-status approval-status-sent">
-            {defaultStatusLabel}
-          </span>
+          <span className="approval-status approval-status-sent">{defaultStatusLabel}</span>
         </div>
-        {isSendEmail ? (
-          <div className="approval-email-preview">
-            {action.payload.to && (
-              <div className="approval-email-recipient">
-                <span>{t('email.to')}</span>
-                <strong>{action.payload.to}</strong>
-              </div>
-            )}
-            {action.payload.subject && (
-              <h4 className="approval-email-subject">{action.payload.subject}</h4>
-            )}
-            {action.payload.body && (
-              <div className="approval-email-body">
-                <span>{t('email.body')}</span>
-                <p>{action.payload.body}</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="approval-details">
-            {action.payload.subject && (
-              <div>
-                <span>{t('email.subject')}</span>
-                <strong>{action.payload.subject}</strong>
-              </div>
-            )}
-            {action.payload.sender && (
-              <div>
-                <span>{t('chat.sender')}</span>
-                <strong>{action.payload.sender}</strong>
-              </div>
-            )}
-          </div>
-        )}
+        <Preview payload={action.payload} action={action} t={t} />
       </div>
     );
   }
@@ -77,87 +86,19 @@ export default function ApprovalCard({
   return (
     <div className={`approval-card ${className}`} role="group" aria-label={defaultTitle}>
       <div className="approval-card-header">
-        <span className="approval-card-icon">
-          {isSendEmail ? <Mail size={18} /> : <Trash size={18} />}
-        </span>
+        <span className="approval-card-icon"><Icon size={18} /></span>
         <div>
           <div className="approval-title-row">
             <strong>{defaultTitle}</strong>
-            <span className={`approval-status ${statusLabel ? 'approval-status-pending' : 'approval-status-pending'}`}>
-              {defaultStatusLabel}
-            </span>
+            <span className="approval-status approval-status-pending">{defaultStatusLabel}</span>
           </div>
           <p>{defaultSubtitle}</p>
         </div>
       </div>
 
-      {isSendEmail ? (
-        <div className="approval-email-preview">
-          {action.payload.to && (
-            <div className="approval-email-recipient">
-              <span>{t('email.to')}</span>
-              <strong>{action.payload.to}</strong>
-            </div>
-          )}
-          {action.payload.subject && (
-            <h4 className="approval-email-subject">{action.payload.subject}</h4>
-          )}
-          {action.payload.body && (
-            <div className="approval-email-body">
-              <span>{t('email.body')}</span>
-              <p>{action.payload.body}</p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="approval-details">
-          {action.payload.subject && (
-            <div>
-              <span>{t('email.subject')}</span>
-              <strong>{action.payload.subject}</strong>
-            </div>
-          )}
-          {action.payload.sender && (
-            <div>
-              <span>{t('chat.sender')}</span>
-              <strong>{action.payload.sender}</strong>
-            </div>
-          )}
-        </div>
-      )}
-
+      <Preview payload={action.payload} action={action} t={t} />
       {action.error && <p className="approval-error" role="alert">{action.error}</p>}
-
-      <div className="approval-actions">
-        {customActions ? (
-          customActions
-        ) : (
-          <>
-            {onCancel && (
-              <button
-                type="button"
-                className="approval-cancel-btn"
-                disabled={action.busy}
-                onClick={onCancel}
-              >
-                {cancelText || t('common.cancel')}
-              </button>
-            )}
-            {onConfirm && (
-              <button
-                type="button"
-                className="approval-confirm-btn"
-                disabled={action.busy}
-                onClick={onConfirm}
-              >
-                {action.busy
-                  ? t('chat.approvalWorking')
-                  : confirmText || (isSendEmail ? t('chat.confirmSend') : t('chat.confirmDelete'))}
-              </button>
-            )}
-          </>
-        )}
-      </div>
+      <div className="approval-actions">{renderActions()}</div>
     </div>
   );
 }

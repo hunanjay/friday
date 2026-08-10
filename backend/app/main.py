@@ -15,8 +15,8 @@ from app.infrastructure.db import pool as db_pool
 from app.infrastructure.db.repositories import (
     chat_sessions,
     contacts as contacts_db,
+    hitl_audit,
     memos as memos_db,
-    pending_actions,
     todos as todos_db,
 )
 from app.infrastructure.github import client as github_client
@@ -30,7 +30,7 @@ async def lifespan(_app: FastAPI):
     await db_pool.init_db_pool()
     await checkpointer.init_checkpointer()
     await chat_sessions.init_schema()
-    await pending_actions.init_schema()
+    await hitl_audit.init_schema()
     await contacts_db.init_schema()
     await memos_db.init_schema()
     await todos_db.init_schema()

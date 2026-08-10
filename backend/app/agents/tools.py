@@ -1,11 +1,13 @@
 import logging
 import os
+from datetime import timedelta
 from urllib.parse import quote
 
 from fastapi import HTTPException
 from langchain_core.tools import tool
 
-from app.infrastructure.db.repositories import memos as memos_db, pending_actions
+from app.agents.calendar_dates import resolve_calendar_day
+from app.infrastructure.db.repositories import memos as memos_db
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
 from app.tools.graph_client import graph_delete, graph_get, graph_get_paginated, graph_patch, graph_post
@@ -45,7 +47,58 @@ def _format_email_row(m: dict) -> str:
     )
 
 
+def _make_search_contacts_tool(user_id: str):
+    @tool
+    async def search_contacts(query: str = "") -> str:
+        """Search and retrieve full profiles from the user's Personal Contact Relationship Brain.
+        Matches by name, email, company, job title, location, tags, memory facts (diet, hobby, background, scale), or AI summary.
+        Use this tool whenever asked about a person, contact, colleague, investor, their recent activities/plans ('他最近在干啥', '张明是谁'), or relationships."""
+        from app.services.contact_service import ContactService
+        contacts = await ContactService.get_contacts(user_id=user_id, query=query)
+        if not contacts:
+            return "No contacts matched that search in your Relationship Brain."
+        lines = []
+        for c in contacts[:10]:
+            parts = [f"=== Contact: {c['name']} ==="]
+            meta = [
+                f"Email: {c.get('email', '') or 'N/A'}",
+                f"Phone: {c.get('phone', '') or 'N/A'}",
+                f"Company: {c.get('company', '') or 'N/A'}",
+                f"Job Title: {c.get('jobTitle', '') or 'N/A'}",
+                f"Location: {c.get('location', '') or 'N/A'}",
+            ]
+            parts.append(" | ".join(meta))
+            if c.get("ai_summary"):
+                parts.append(f"AI Summary / Profile: {c['ai_summary']}")
+            if c.get("tags"):
+                parts.append(f"Tags: {', '.join('#' + t for t in c['tags'])}")
+
+            # Memory Facts
+            facts = c.get("profiles", [])
+            if facts:
+                fact_lines = ["Memory Facts (4 Dimensions):"]
+                for p in facts:
+                    fact_lines.append(f"  * [{p.get('dimension', 'fact')} / {p.get('category', '')}] {p.get('fact_key')}: {p.get('fact_value')}")
+                parts.append("\n".join(fact_lines))
+
+            # Timeline & Recent Activities
+            timeline = c.get("timeline", [])
+            if timeline:
+                tl_lines = ["Recent Interactions & Timeline Activity:"]
+                for item in timeline[:5]:
+                    date_str = str(item.get("event_date", ""))[:10]
+                    tl_lines.append(f"  * {date_str} [{item.get('source_type', 'activity')}]: {item.get('summary', '')}")
+                parts.append("\n".join(tl_lines))
+
+            lines.append("\n".join(parts))
+
+        return "\n\n".join(lines)
+    return search_contacts
+
+
 def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
+    search_contacts = _make_search_contacts_tool(user_id)
+
     @tool
     async def list_inbox(top: int = 10, folder: str = "inbox") -> str:
         """List the most recent messages in a mail folder (subject, sender, preview).
@@ -59,23 +112,6 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         if not messages:
             return f"No messages in {folder}."
         return "\n".join(_format_email_row(m) for m in messages)
-
-    @tool
-    async def search_contacts(query: str = "") -> str:
-        """Search the user's Personal Contact Relationship Brain by name, email, company, job title, tags, or memory facts."""
-        from app.services.contact_service import ContactService
-        contacts = await ContactService.get_contacts(user_id=user_id, query=query)
-        if not contacts:
-            return "No contacts matched that search."
-        lines = []
-        for c in contacts[:15]:
-            tags_str = f" [Tags: {', '.join(c.get('tags', []))}]" if c.get("tags") else ""
-            facts_list = []
-            for p in c.get("profiles", []):
-                facts_list.append(f"{p.get('fact_key', '')}: {p.get('fact_value', '')}")
-            facts_str = f" | Memory Facts: {'; '.join(facts_list)}" if facts_list else ""
-            lines.append(f"- {c['name']} <{c.get('email', '')}> | Company: {c.get('company', '')} | Job: {c.get('jobTitle', '')}{tags_str}{facts_str}")
-        return "\n".join(lines)
 
     @tool
     async def search_emails(
@@ -122,21 +158,26 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
 
     @tool
     async def send_email(to: str, subject: str, body: str) -> str:
-        """Request approval to send an email. This tool cannot send anything itself:
-        it creates a short-lived server-side request that only the user's confirmation
-        button can execute. Call it once with the final recipient, subject, and body."""
-        if not session_id:
-            return "Email approval is unavailable outside an authenticated chat session."
-        action = await pending_actions.create_action(
-            user_id,
-            session_id,
-            "send_email",
-            {"to": to, "subject": subject, "body": body},
+        """Send an email with final recipient, subject, and body. This tool is
+        guarded by LangChain HITL middleware and only runs after approval."""
+        html_body = body.replace("\r\n", "\n").replace("\n", "<br>")
+        _, err = await _graph(
+            graph_post(
+                user_id,
+                "/me/sendMail",
+                {
+                    "message": {
+                        "subject": subject,
+                        "body": {"contentType": "HTML", "content": html_body},
+                        "toRecipients": [{"emailAddress": {"address": to}}],
+                    },
+                    "saveToSentItems": True,
+                },
+            )
         )
-        return (
-            f"Approval required (action {action['id']}). Nothing has been sent. "
-            "The user must review the email and press Confirm and send in the chat UI."
-        )
+        if err:
+            return err
+        return f"Email sent to {to}."
 
     @tool
     async def mark_email_read(email_id: str, is_read: bool = True) -> str:
@@ -147,32 +188,19 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         return f"Email {email_id} marked as {'read' if is_read else 'unread'}."
 
     @tool
-    async def delete_email(email_id: str) -> str:
-        """Request approval to move an email to Deleted Items. This tool cannot
-        delete anything itself; only the user's confirmation button can execute
-        the short-lived server-side request."""
-        if not session_id:
-            return "Email approval is unavailable outside an authenticated chat session."
-        message, err = await _graph(
-            graph_get(user_id, f"/me/messages/{quote(email_id)}?$select=id,subject,from")
+    async def delete_email(email_id: str, subject: str = "", sender: str = "") -> str:
+        """Move an email to Deleted Items. Include subject/sender when known so
+        the HITL card is informative. Execution is blocked until approval."""
+        _, err = await _graph(
+            graph_post(
+                user_id,
+                f"/me/messages/{quote(email_id)}/move",
+                {"destinationId": "deleteditems"},
+            )
         )
         if err:
             return err
-        sender = (message.get("from") or {}).get("emailAddress") or {}
-        action = await pending_actions.create_action(
-            user_id,
-            session_id,
-            "delete_email",
-            {
-                "email_id": email_id,
-                "subject": message.get("subject") or "(no subject)",
-                "sender": sender.get("address") or sender.get("name") or "",
-            },
-        )
-        return (
-            f"Approval required (action {action['id']}). Nothing has been deleted. "
-            "The user must review the message and press Confirm delete in the chat UI."
-        )
+        return f"Email moved to Deleted Items: {subject or email_id}."
 
     @tool
     async def record_contact_fact(
@@ -294,29 +322,87 @@ def _graph_tz() -> str:
     return graph_tz
 
 
-def make_calendar_tools(user_id: str) -> list:
+def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
+    async def list_event_range(start: str, end: str) -> tuple[list[dict] | None, str | None]:
+        path = f"/me/calendarView?startDateTime={start}&endDateTime={end}&$top=50&$orderby=start/dateTime"
+        data, err = await _graph(
+            graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_graph_tz()}"'})
+        )
+        return (data.get("value", []), None) if not err else (None, err)
+
+    def format_event_rows(events: list[dict]) -> str:
+        return "\n".join(
+            f"- id={event['id']} subject={event.get('subject')!r} "
+            f"start={(event.get('start') or {}).get('dateTime')} "
+            f"end={(event.get('end') or {}).get('dateTime')}"
+            for event in events
+        )
+
     @tool
     async def list_events(start: str, end: str) -> str:
         """List calendar events between two ISO 8601 datetimes in the user's
         local timezone (configured via TIMEZONE env var, default Asia/Shanghai).
         Example: 2026-07-01T00:00:00."""
-        path = f"/me/calendarView?startDateTime={start}&endDateTime={end}&$top=50&$orderby=start/dateTime"
-        data, err = await _graph(
-            graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_graph_tz()}"'})
-        )
+        events, err = await list_event_range(start, end)
         if err:
             return err
-        events = data.get("value", [])
         if not events:
             return "No events in that range."
-        return "\n".join(
-            f"- id={e['id']} subject={e.get('subject')!r} start={e['start']['dateTime']} end={e['end']['dateTime']}"
-            for e in events
-        )
+        return format_event_rows(events)
+
+    @tool
+    async def list_events_on_day(day: str) -> str:
+        """List events on one natural-language or ISO calendar day. Pass the
+        user's exact phrase, such as `本周三`, `下周五`, `tomorrow`, or
+        `2026-08-12`; do not calculate start/end datetimes yourself."""
+        resolved = resolve_calendar_day(day)
+        if not resolved:
+            return f"Could not resolve calendar day: {day!r}. Ask the user for an exact date."
+        start = resolved.isoformat() + "T00:00:00"
+        end = (resolved + timedelta(days=1)).isoformat() + "T00:00:00"
+        events, err = await list_event_range(start, end)
+        if err:
+            return err
+        if not events:
+            return f"Resolved date: {resolved.isoformat()}. No events on that day."
+        return f"Resolved date: {resolved.isoformat()}.\n{format_event_rows(events)}"
+
+    @tool
+    async def request_delete_event_on_day(day: str, subject: str = "") -> str:
+        """Find and delete one matching event on a natural-language/ISO day.
+        Use this for requests such as "删除本周三的事件". The entire tool call is
+        blocked by LangChain HITL middleware until the user approves it."""
+        resolved = resolve_calendar_day(day)
+        if not resolved:
+            return f"Could not resolve calendar day: {day!r}. Ask the user for an exact date."
+        start = resolved.isoformat() + "T00:00:00"
+        end = (resolved + timedelta(days=1)).isoformat() + "T00:00:00"
+        events, err = await list_event_range(start, end)
+        if err:
+            return err
+        if subject.strip():
+            needle = " ".join(subject.casefold().split())
+            events = [
+                event
+                for event in events
+                if needle in " ".join((event.get("subject") or "").casefold().split())
+            ]
+        if not events:
+            return f"Resolved date: {resolved.isoformat()}. No matching event was found."
+        if len(events) > 1:
+            return (
+                f"Resolved date: {resolved.isoformat()}. Multiple events matched; "
+                f"ask the user which one:\n{format_event_rows(events)}"
+            )
+        event = events[0]
+        _, err = await _graph(graph_delete(user_id, f"/me/events/{quote(event['id'])}"))
+        if err:
+            return err
+        return f"Event deleted: {event.get('subject') or '(no subject)'}."
 
     @tool
     async def create_event(subject: str, start: str, end: str, location: str = "") -> str:
-        """Create a calendar event. `start`/`end` are ISO 8601 datetimes in the
+        """Create a calendar event after HITL approval. `start`/`end` are ISO 8601 datetimes in the
         user's local timezone (configured via TIMEZONE env var, default Asia/Shanghai).
         Example: 2026-07-10T20:00:00 for 8pm local time."""
         tz = _graph_tz()
@@ -327,36 +413,63 @@ def make_calendar_tools(user_id: str) -> list:
         }
         if location:
             body["location"] = {"displayName": location}
-        created, err = await _graph(graph_post(user_id, "/me/events", body))
+        _, err = await _graph(graph_post(user_id, "/me/events", body))
         if err:
             return err
-        return f"Event created: id={created['id']} subject={subject}"
+        return f"Event created: {subject}."
 
     @tool
-    async def delete_event(event_id: str) -> str:
-        """Delete a calendar event by its id (get the id from list_events first)."""
-        _, err = await _graph(graph_delete(user_id, f"/me/events/{event_id}"))
+    async def delete_event(
+        event_id: str,
+        subject: str = "",
+        start: str = "",
+        end: str = "",
+        location: str = "",
+    ) -> str:
+        """Delete a calendar event by id after HITL approval. Include the
+        display fields when known so the approval card can show them."""
+        _, err = await _graph(graph_delete(user_id, f"/me/events/{quote(event_id)}"))
         if err:
             return err
-        return f"Event {event_id} deleted."
+        return f"Event deleted: {subject or event_id}."
 
     @tool
     async def accept_event(event_id: str, comment: str = "") -> str:
-        """Accept a calendar event invitation by its id."""
-        _, err = await _graph(graph_post(user_id, f"/me/events/{event_id}/accept", {"comment": comment}))
+        """Accept a calendar invitation after HITL approval."""
+        _, err = await _graph(
+            graph_post(
+                user_id,
+                f"/me/events/{quote(event_id)}/accept",
+                {"comment": comment},
+            )
+        )
         if err:
             return err
-        return f"Event {event_id} accepted."
+        return "Event invitation accepted."
 
     @tool
     async def decline_event(event_id: str, comment: str = "") -> str:
-        """Decline a calendar event invitation by its id."""
-        _, err = await _graph(graph_post(user_id, f"/me/events/{event_id}/decline", {"comment": comment}))
+        """Decline a calendar invitation after HITL approval."""
+        _, err = await _graph(
+            graph_post(
+                user_id,
+                f"/me/events/{quote(event_id)}/decline",
+                {"comment": comment},
+            )
+        )
         if err:
             return err
-        return f"Event {event_id} declined."
+        return "Event invitation declined."
 
-    return [list_events, create_event, delete_event, accept_event, decline_event]
+    return [
+        list_events,
+        list_events_on_day,
+        request_delete_event_on_day,
+        create_event,
+        delete_event,
+        accept_event,
+        decline_event,
+    ]
 
 
 def _format_memo_row(m: dict) -> str:
@@ -504,7 +617,7 @@ def make_memos_tools(user_id: str) -> list:
             logging.exception("Postgres DB fallback failed in search_memos")
             return "No memos matched that search."
 
-    return [list_memos, _make_create_memo_tool(user_id), search_memos]
+    return [list_memos, _make_create_memo_tool(user_id), search_memos, _make_search_contacts_tool(user_id)]
 
 
 _GITHUB_NOT_CONNECTED = (

@@ -5,6 +5,11 @@ import { useTranslation } from 'react-i18next';
 import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 import ApprovalCard from '../components/common/ApprovalCard';
+import {
+  getApprovalPlacementMode,
+  resolveLiveApprovalAnchor,
+  resolvePersistedApprovalAnchor,
+} from '../components/common/approvalPlacement';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -162,7 +167,10 @@ export default function ChatPage() {
               && message.text?.toLowerCase().includes(recipient)
             ));
           }
-          const anchorMessageId = action.anchor_message_id || matchingMessage?.id || lastBotMessageId;
+          const anchorMessageId = resolvePersistedApprovalAnchor(
+            action,
+            matchingMessage?.id || lastBotMessageId,
+          );
           if (anchorMessageId) usedAnchorIds.add(anchorMessageId);
           return {
             ...action,
@@ -218,10 +226,14 @@ export default function ChatPage() {
       item.id === action.id ? { ...item, busy: true, error: '' } : item
     )));
     try {
-      const res = await fetch(`${API_URL}/api/agent/actions/${action.id}/${decision}`, {
+      const sessionId = action.session_id || activeThreadId;
+      const res = await fetch(
+        `${API_URL}/api/agent/actions/${action.id}/decisions/${decision}?session_id=${encodeURIComponent(sessionId)}`,
+        {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}` },
-      });
+        },
+      );
       if (res.status === 401) {
         handleLogout();
         navigate('/login');
@@ -230,10 +242,17 @@ export default function ChatPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || t('chat.approvalFailed'));
 
-      // Keep the action in the message stream and replace the confirmation
-      // card with a plain result message. This makes the completed state read
-      // naturally in place instead of jumping to the bottom of the chat.
-      if (decision === 'confirm') {
+      const selectedDecision = action.decisions?.find(item => item.id === decision);
+      if (Array.isArray(data.pending_actions)) {
+        setPendingActions(prev => {
+          const existingById = new Map(prev.map(item => [item.id, item]));
+          return data.pending_actions.map(item => ({
+            ...item,
+            resolved: item.status === 'completed',
+            anchorMessageId: existingById.get(item.id)?.anchorMessageId || item.anchorMessageId || null,
+          }));
+        });
+      } else if ((selectedDecision?.outcome || decision) === 'approve') {
         setPendingActions(prev => prev.map(item => (
           item.id === action.id
             ? { ...item, busy: false, resolved: true, status: 'completed' }
@@ -242,7 +261,7 @@ export default function ChatPage() {
       } else {
         setPendingActions(prev => prev.filter(item => item.id !== action.id));
       }
-      handleUpdateSessionPreview(activeThreadId, data.preview);
+      if (data.preview) handleUpdateSessionPreview(activeThreadId, data.preview);
     } catch (error) {
       setPendingActions(prev => prev.map(item => (
         item.id === action.id ? { ...item, busy: false, error: error.message } : item
@@ -338,6 +357,23 @@ export default function ChatPage() {
               if (data.error) {
                   botText += `\n[Error: ${data.error}]`;
                   setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
+                } else if (data.tool_call) {
+                  setThreadMessages(prev => prev.map(m => {
+                    if (m.id !== botMsgId) return m;
+                    const existingCalls = m.toolCalls || [];
+                    const incoming = data.tool_call;
+                    const idx = existingCalls.findIndex(c => c.name === incoming.name && c.status === 'running');
+                    let updatedCalls;
+                    if (idx >= 0 && incoming.status === 'completed') {
+                      updatedCalls = [...existingCalls];
+                      updatedCalls[idx] = { ...updatedCalls[idx], ...incoming };
+                    } else if (idx < 0) {
+                      updatedCalls = [...existingCalls, incoming];
+                    } else {
+                      updatedCalls = existingCalls;
+                    }
+                    return { ...m, toolCalls: updatedCalls };
+                  }));
                 } else if (data.chunk) {
                   botText += data.chunk;
                   setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
@@ -351,7 +387,11 @@ export default function ChatPage() {
                     return data.pending_actions.map(action => ({
                       ...action,
                       resolved: action.status === 'completed',
-                      anchorMessageId: action.anchor_message_id || existingById.get(action.id)?.anchorMessageId || botMsgId,
+                      anchorMessageId: resolveLiveApprovalAnchor(
+                        action,
+                        existingById.get(action.id)?.anchorMessageId,
+                        botMsgId,
+                      ),
                     }));
                   });
                 }
@@ -381,7 +421,11 @@ export default function ChatPage() {
                 return data.pending_actions.map(action => ({
                   ...action,
                   resolved: action.status === 'completed',
-                  anchorMessageId: action.anchor_message_id || existingById.get(action.id)?.anchorMessageId || botMsgId,
+                  anchorMessageId: resolveLiveApprovalAnchor(
+                    action,
+                    existingById.get(action.id)?.anchorMessageId,
+                    botMsgId,
+                  ),
                 }));
               });
             }
@@ -461,8 +505,9 @@ export default function ChatPage() {
       <ApprovalCard
         key={action.id}
         action={action}
-        onCancel={() => handleActionDecision(action, 'cancel')}
-        onConfirm={() => handleActionDecision(action, 'confirm')}
+        onDecision={(decision) => handleActionDecision(action, decision)}
+        onCancel={() => handleActionDecision(action, 'reject')}
+        onConfirm={() => handleActionDecision(action, 'approve')}
       />
     );
   };
@@ -557,6 +602,43 @@ export default function ChatPage() {
                       <div className="message-bubble-wrapper">
                         {!isUser && <span className="message-sender-name">{msg.senderName}</span>}
                         <div className={`message-bubble ${isUser ? 'user-bubble' : 'other-bubble'} ${isBot ? 'bot-bubble' : ''}`}>
+                          {/* Tool call status badges */}
+                          {!isUser && msg.toolCalls && msg.toolCalls.length > 0 && (
+                            <div className="tool-calls-container" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                              {msg.toolCalls.map((call, idx) => (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '4px 10px',
+                                    borderRadius: 6,
+                                    fontSize: '0.78rem',
+                                    background: 'rgba(99, 102, 241, 0.08)',
+                                    border: '1px solid rgba(99, 102, 241, 0.2)',
+                                    color: '#6366f1',
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {call.status === 'running' ? (
+                                    <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />
+                                  ) : (
+                                    <span>⚡</span>
+                                  )}
+                                  <span>
+                                    {call.status === 'running' ? '正在调用工具: ' : '已调用工具: '}
+                                    <strong style={{ fontFamily: 'monospace' }}>{call.name}</strong>
+                                    {call.input && typeof call.input === 'object' && Object.keys(call.input).length > 0 && (
+                                      <span style={{ opacity: 0.8, marginLeft: 4 }}>
+                                        ({Object.entries(call.input).map(([k, v]) => `${k}="${String(v).slice(0, 30)}"`).join(', ')})
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {isUser ? (
                             <p className="markdown-p">{msg.text}</p>
                           ) : (
@@ -569,16 +651,30 @@ export default function ChatPage() {
                         <span className="message-time">{msg.timestamp}</span>
                       </div>
                     </div>
-                    {pendingActions.filter(action => action.anchorMessageId === msg.id).map(renderApprovalAction)}
+                    {pendingActions
+                      .filter(action => getApprovalPlacementMode(action) === 'after_message' && action.anchorMessageId === msg.id)
+                      .sort((a, b) => (b.placement?.priority || 0) - (a.placement?.priority || 0))
+                      .map(renderApprovalAction)}
                     </React.Fragment>
                   );
                 })
               )}
 
-              {pendingActions.filter(action => !action.anchorMessageId).map(renderApprovalAction)}
+              {pendingActions
+                .filter(action => {
+                  const mode = getApprovalPlacementMode(action);
+                  return mode === 'end' || (mode === 'after_message' && !action.anchorMessageId);
+                })
+                .sort((a, b) => (b.placement?.priority || 0) - (a.placement?.priority || 0))
+                .map(renderApprovalAction)}
 
               <div ref={messagesEndRef} />
             </div>
+
+            {pendingActions
+              .filter(action => getApprovalPlacementMode(action) === 'composer')
+              .sort((a, b) => (b.placement?.priority || 0) - (a.placement?.priority || 0))
+              .map(renderApprovalAction)}
 
             <form onSubmit={handleSend} className="chat-input-area">
               {showAgentMenu && (

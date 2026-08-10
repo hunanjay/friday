@@ -8,26 +8,30 @@ belong to the same domain.
 
 from collections.abc import Callable
 
+from langchain.agents.middleware.types import AgentMiddleware, ModelRequest
 from langchain_core.messages import SystemMessage, trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
+
+from app.agents.routing import is_memo_write_request
 
 _MAX_AGENT_CONTEXT_TOKENS = 10_000
 _MAX_RELEVANT_TURNS = 4
 
 _AGENT_TOOLS = {
     "mail_agent": {
-        "list_inbox", "search_contacts", "search_emails", "read_email",
+        "list_inbox", "search_contacts", "record_contact_fact", "extract_contact_memory", "search_emails", "read_email",
         "send_email", "mark_email_read", "delete_email",
     },
     "calendar_agent": {
-        "list_events", "create_event", "delete_event", "accept_event", "decline_event",
+        "list_events", "list_events_on_day", "request_delete_event_on_day",
+        "create_event", "delete_event", "accept_event", "decline_event",
     },
-    "memos_agent": {"list_memos", "search_memos", "create_memo"},
+    "memos_agent": {"list_memos", "search_memos", "create_memo", "search_contacts"},
     "github_agent": {"list_todays_commits", "create_memo"},
 }
 
 _DOMAIN_KEYWORDS = {
-    "mail_agent": ("email", "mail", "inbox", "outlook", "邮件", "邮箱", "收件箱", "联系人"),
+    "mail_agent": ("email", "mail", "inbox", "outlook", "邮件", "邮箱", "收件箱", "联系人", "是谁", "是谁？", "张明", "人脉", "同事", "投资人", "公司", "电话", "contact", "contacts", "person", "who is"),
     "calendar_agent": ("calendar", "event", "schedule", "meeting", "日历", "日程", "会议", "安排"),
     "memos_agent": ("memo", "note", "notes", "rag", "备忘", "笔记", "记录"),
     "github_agent": ("github", "commit", "commits", "日报", "工作报告", "work report"),
@@ -143,3 +147,80 @@ def make_agent_context_hook(agent_name: str) -> Callable[[dict], dict]:
         return {"llm_input_messages": trimmed}
 
     return project_context
+
+
+class ScopedContextMiddleware(AgentMiddleware):
+    """Apply the existing domain projection through LangChain middleware."""
+
+    def __init__(self, agent_name: str):
+        super().__init__()
+        self.agent_name = agent_name
+        self._project = make_agent_context_hook(agent_name)
+
+    @property
+    def name(self) -> str:
+        return f"scoped_context_{self.agent_name}"
+
+    def _request(self, request: ModelRequest) -> ModelRequest:
+        projected = self._project({"messages": request.messages})["llm_input_messages"]
+        system_parts = []
+        if request.system_message and request.system_message.content:
+            system_parts.append(str(request.system_message.content))
+        system_parts.extend(
+            str(message.content)
+            for message in projected
+            if getattr(message, "type", None) == "system"
+        )
+        messages = [message for message in projected if getattr(message, "type", None) != "system"]
+        return request.override(
+            messages=messages,
+            system_message=SystemMessage(content="\n\n".join(system_parts)),
+        )
+
+    def wrap_model_call(self, request, handler):
+        return handler(self._request(request))
+
+    async def awrap_model_call(self, request, handler):
+        return await handler(self._request(request))
+
+
+def memo_tool_choice(messages: list) -> str:
+    """Return the enforced tool choice for the active memo-agent turn."""
+    latest_human = next(
+        (index for index in range(len(messages) - 1, -1, -1) if _is_human(messages[index])),
+        0,
+    )
+    active_turn = messages[latest_human:]
+    memo_tools = {"list_memos", "search_memos", "create_memo", "search_contacts"}
+    used_tool = any(
+        _message_type(message) == "tool" and _message_name(message) in memo_tools
+        for message in active_turn
+    )
+    if used_tool:
+        return "none"
+    return "create_memo" if is_memo_write_request(_latest_task(active_turn)) else "required"
+
+
+class RequireMemosToolMiddleware(AgentMiddleware):
+    """Make one memo tool call mandatory, then stop the tool loop.
+
+    Prompt instructions alone are not an execution guarantee: a model can
+    still answer "saved" without calling ``create_memo``. On the first model
+    call of a user turn this middleware requires a tool (and selects
+    ``create_memo`` for explicit save requests). Once a memo tool result exists
+    in that turn, tools are disabled so the agent can only report the result.
+    """
+
+    @property
+    def name(self) -> str:
+        return "require_one_memos_tool"
+
+    def _request(self, request: ModelRequest) -> ModelRequest:
+        messages = list(request.messages)
+        return request.override(tool_choice=memo_tool_choice(messages))
+
+    def wrap_model_call(self, request, handler):
+        return handler(self._request(request))
+
+    async def awrap_model_call(self, request, handler):
+        return await handler(self._request(request))
