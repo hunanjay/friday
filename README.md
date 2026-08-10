@@ -39,7 +39,7 @@
 
 > **Project status: Alpha.** APIs, database schemas, and deployment details may change. Use a test Microsoft tenant/account when evaluating the project, and review its integration permissions before using sensitive data.
 
-Design goals include **explicit control-flow scoping**, **deterministic agent routing**, **email write approval**, and **stateful multi-agent turn persistence**.
+Design goals include **explicit control-flow scoping**, **deterministic agent routing**, **reusable write approval**, and **stateful multi-agent turn persistence**.
 
 ---
 
@@ -66,7 +66,7 @@ graph TD
             GHA["GitHub Agent (Analytics)"]
         end
 
-        Gate["Email Action Gate (pending_agent_actions)"]
+        Gate["LangChain HumanInTheLoopMiddleware"]
     end
 
     subgraph PersistenceLayer ["Persistence & External Services Layer"]
@@ -87,9 +87,10 @@ graph TD
     MemoA <-->|Hybrid Vector Search| QdrantDB
     
     SubAgents -->|Persist Turn Checkpoints| Postgres
-    MailA -->|Enqueue Mutating Request| Gate
-    FE -->|User Explicit Confirmation| Gate
-    Gate -->|Execute Validated Request| MSGraph
+    SubAgents -->|Tool Call| Gate
+    Gate -->|LangGraph interrupt| Postgres
+    FE -->|Command resume: approve/reject| Gate
+    Gate -->|Approved Tool Execution| MSGraph
 ```
 
 ---
@@ -101,13 +102,15 @@ graph TD
 - **Routing Policy**: A single explicit policy applies slash-command routing first, deterministic email-send routing second, then falls back to the supervisor. This keeps the public entry paths consistent while preserving shared state checkpoints.
 - **Context Management**: Conversation turns are persisted in PostgreSQL via `langgraph-checkpoint-postgres`. The supervisor receives a 20k-token trimmed history; each domain agent receives a 10k-token scoped task brief, its current tool-call chain, and only relevant same-domain prior turns.
 
-### 2. Email Human-in-the-Loop (HITL) Action Gate
-For supported email write operations:
-- Mutating tools (`send_email`, `delete_email`) **never directly invoke external APIs**.
-- When triggered, actions write an atomic payload to `pending_agent_actions` with a **15-minute TTL**.
-- The frontend renders an isolated, trusted approval widget. Confirmation invokes `/api/agent/actions/{id}/confirm`, atomically transition states (`pending → executing → completed`) before executing downstream Graph API calls.
+### 2. LangChain Human-in-the-Loop (HITL)
+For policy-controlled agent write operations:
+- Domain agents use LangChain's official `HumanInTheLoopMiddleware` with `interrupt_on` policies for email and calendar mutations.
+- The middleware pauses the actual tool call before execution and persists the interrupt in the existing PostgreSQL LangGraph checkpoint.
+- The frontend renders the interrupt through a trusted local preview adapter. Decisions invoke `/api/agent/actions/{id}/decisions/{decision}`, which resumes the same graph thread with `Command(resume=...)`.
+- Only an approved resume reaches the original tool implementation. Rejection produces a tool error result and the write is skipped.
+- Resolved card snapshots are stored in a presentation-only audit table so confirmed cards survive refreshes; this table never authorizes or executes a tool.
 
-This is not yet a universal approval layer: other integration write paths must be reviewed separately before production use.
+Lower-risk local writes such as memo creation remain outside the mandatory gate by policy. Direct user actions in first-party pages are also separate from model-triggered approvals.
 
 ### 3. Hybrid RAG Knowledge Engine
 - **Vector Infrastructure**: Powered by **Qdrant** combined with **FastEmbed** ONNX embeddings.
@@ -126,7 +129,8 @@ friday/
 ├── backend/                        # FastAPI & LangGraph Backend Service
 │   ├── app/
 │   │   ├── agents/                 # Multi-agent graph & tool definitions
-│   │   │   ├── supervisor.py       # LangGraph supervisor router
+│   │   │   ├── hitl.py             # Official HITL policy & UI adapter
+│   │   │   ├── supervisor.py       # Single-entry LangGraph supervisor router
 │   │   │   └── tools.py            # Agent tool schemas
 │   │   ├── api/                    # REST & SSE API endpoints
 │   │   │   ├── agent.py            # Chat streaming & action confirmation
@@ -175,6 +179,7 @@ cp frontend/.env.example frontend/.env
 
 Key environment variables to populate in `backend/.env`:
 - `OPENAI_API_KEY` & `OPENAI_BASE_URL`
+- `EMBEDDING_MODEL` & `EMBEDDING_DIMENSIONS` (for 智谱 use `embedding-3` and `1536`)
 - `AZURE_CLIENT_ID` & `AZURE_CLIENT_SECRET`
 - `SUPABASE_URL` & `SUPABASE_SERVICE_ROLE_KEY`
 - `CHECKPOINT_DB_URL`
@@ -239,7 +244,7 @@ Refer to [TODO.md](./TODO.md) or [GitHub Issue #1](https://github.com/hunanjay/f
 - [x] **Core Orchestration**: LangGraph Supervisor + Checkpoint Persistence
 - [x] **Integrations**: Microsoft Graph API (Mail/Calendar) & GitHub REST API
 - [x] **RAG Subsystem**: Qdrant + FastEmbed Hybrid Search
-- [x] **HITL Gate**: 15-Minute TTL Pending Action Approval State Machine
+- [x] **HITL Gate**: LangChain HumanInTheLoopMiddleware + durable LangGraph interrupts
 - [ ] 🚧 **[In Development] Invoice & Expense Automation**: Multimodal invoice OCR, auto-duplication checks, and expense report generation.
 - [ ] 📅 **Proactive Autonomous Briefings**: Scheduled daily morning/evening summaries.
 - [ ] 🔍 **Universal RAG Indexing**: Cross-domain semantic search spanning Emails, Calendar, and Memos.

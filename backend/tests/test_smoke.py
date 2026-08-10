@@ -56,8 +56,41 @@ check("slash command preserves multiline body", multi_line.message.endswith("mul
 send = decide_route("Send an email to alice@example.com about the launch")
 check("explicit send selects mail agent", send.agent_name == "mail_agent" and send.source == "email_send")
 
+chinese_send_variants = (
+    "发一个邮件给 hunanjayhunan@gmail.com 告诉他我每天下午回家 12:30",
+    "给 hunanjayhunan@gmail.com 发一封邮件",
+    "发送给 hunanjayhunan@gmail.com：明天下午见",
+    "请发邮件到 hunanjayhunan@gmail.com",
+)
+check(
+    "Chinese email-send variants always select mail agent",
+    all(decide_route(text).agent_name == "mail_agent" for text in chinese_send_variants),
+)
+
+calendar_delete = decide_route("帮我删除周三的event")
+check(
+    "calendar mutations select approval-aware calendar agent",
+    calendar_delete.agent_name == "calendar_agent" and calendar_delete.source == "calendar_mutation",
+)
+calendar_followup_delete = decide_route("这个事情取消了 帮我移除吧")
+check(
+    "calendar follow-up mutations stay on approval-aware path",
+    calendar_followup_delete.agent_name == "calendar_agent"
+    and calendar_followup_delete.source == "calendar_mutation",
+)
+
 plain = decide_route("just a regular message")
 check("ordinary request uses supervisor", plain.uses_supervisor)
+
+memo_followup = decide_route("帮我记录下来吧")
+check(
+    "explicit memo follow-up routes directly to memos agent",
+    memo_followup.agent_name == "memos_agent" and memo_followup.source == "memo_write",
+)
+check(
+    "memo complaint is not mistaken for a write request",
+    decide_route("好像没有记录诶").uses_supervisor,
+)
 
 unknown = decide_route("/unknown_agent do something")
 check("unknown slash command remains a supervisor request", unknown.uses_supervisor and unknown.message.startswith("/unknown_agent"))
@@ -173,10 +206,10 @@ check("stale entry pruned on next issue", stale not in _pending_test)
 
 
 # ---------------------------------------------------------------------------
-# 4. Hard approval boundary for model-triggered email actions
+# 4. Official LangChain HITL boundary for model-triggered mutations
 # ---------------------------------------------------------------------------
 
-section("4. hard email approval boundary")
+section("4. official LangChain human-in-the-loop boundary")
 
 backend_dir = Path(__file__).resolve().parents[1]
 tools_source = (backend_dir / "app/agents/tools.py").read_text()
@@ -206,25 +239,146 @@ def _called_names(node: ast.AST) -> set[str]:
     }
 
 
-for tool_name in ("send_email", "delete_email"):
+for tool_name in (
+    "send_email",
+    "delete_email",
+    "create_event",
+    "delete_event",
+    "request_delete_event_on_day",
+    "accept_event",
+    "decline_event",
+):
     tool_fn = _function(tool_name)
     check(f"{tool_name} tool exists", tool_fn is not None)
     if tool_fn:
         arg_names = {arg.arg for arg in tool_fn.args.args}
         calls = _called_names(tool_fn) | _called_attributes(tool_fn)
         check(f"{tool_name} has no model-controlled confirm argument", "confirm" not in arg_names)
-        check(f"{tool_name} creates a pending action", "create_action" in calls)
-        check(f"{tool_name} cannot execute a Graph mutation", not ({"graph_post", "graph_patch", "graph_delete"} & calls))
+        check(f"{tool_name} is the real Graph mutation", bool({"graph_post", "graph_delete"} & calls))
+        check(f"{tool_name} has no custom approval proposal", "propose" not in calls)
 
 agent_source = (backend_dir / "app/api/agent.py").read_text()
-check("authenticated confirmation endpoint claims action before execution",
-      "await pending_actions.claim_action" in agent_source)
-check("confirmation endpoint is the Graph mutation boundary",
-      '@router.post("/actions/{action_id}/confirm")' in agent_source and "await graph_post" in agent_source)
+check("generic decision endpoint is available",
+      '@router.post("/actions/{action_id}/decisions/{decision_id}")' in agent_source)
+check("decision endpoint resumes the persisted graph interrupt",
+      "Command(resume={pending.id: resume_value})" in agent_source)
+check("chat input no longer schedules Command(goto) beside the default START edge",
+      "goto=routed_agent" not in agent_source
+      and '"entry_agent": routed_agent' in agent_source)
+check("custom pending-action state machine is gone",
+      "pending_actions.claim_action" not in agent_source
+      and "approval_service" not in agent_source)
 
-pending_source = (backend_dir / "app/infrastructure/db/repositories/pending_actions.py").read_text()
-check("action claim is atomic and pending-only",
-      "set status = 'executing'" in pending_source and "status = 'pending' and expires_at > now()" in pending_source)
+supervisor_source = (backend_dir / "app/agents/supervisor.py").read_text()
+check("supervisor graph has one conditional entry path",
+      'workflow.edges.discard((START, "supervisor"))' in supervisor_source
+      and "workflow.set_conditional_entry_point" in supervisor_source)
+
+from langchain.agents.middleware import HumanInTheLoopMiddleware  # noqa: E402
+from langgraph.types import Interrupt  # noqa: E402
+
+from app.agents.hitl import (  # noqa: E402
+    HITL_TOOL_CONFIGS,
+    interrupt_to_action,
+    make_hitl_middleware,
+    pending_actions_from_interrupts,
+    resume_value_for,
+)
+
+expected_hitl_tools = {
+    "send_email", "delete_email", "create_event", "delete_event",
+    "request_delete_event_on_day", "accept_event", "decline_event",
+}
+check("all email/calendar mutation tools have interrupt policies",
+      expected_hitl_tools <= set(HITL_TOOL_CONFIGS))
+middleware = make_hitl_middleware({"send_email", "list_inbox"})
+check("official HumanInTheLoopMiddleware is instantiated",
+      isinstance(middleware, HumanInTheLoopMiddleware))
+check("read-only tools are not interrupted",
+      set(middleware.interrupt_on) == {"send_email"})
+
+fake_interrupt = Interrupt(
+    {
+        "action_requests": [
+            {"name": "send_email", "args": {"to": "a@example.com", "subject": "Hi", "body": "Body"}}
+        ],
+        "review_configs": [
+            {"action_name": "send_email", "allowed_decisions": ["approve", "reject"]}
+        ],
+    },
+    id="interrupt-1",
+)
+public_interrupt = interrupt_to_action(fake_interrupt, "session-1")
+check("official interrupt is adapted to the existing confirmation card",
+      public_interrupt["id"] == "interrupt-1"
+      and public_interrupt["canonical_action_type"] == "mail.send")
+anchored_interrupt = pending_actions_from_interrupts((fake_interrupt,), "session-1")[0]
+check("pending confirmation card has a stable history-message anchor",
+      anchored_interrupt["placement"]["mode"] == "after_message"
+      and anchored_interrupt["placement"]["anchor_message_id"] == "hitl_interrupt-1")
+check("approve maps to official HITL resume payload",
+      resume_value_for(fake_interrupt, "approve") == {"decisions": [{"type": "approve"}]})
+
+from langchain.agents import create_agent  # noqa: E402
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel  # noqa: E402
+from langchain_core.messages import AIMessage  # noqa: E402
+from langchain_core.tools import tool  # noqa: E402
+from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
+from langgraph.types import Command  # noqa: E402
+
+
+class _ToolCallingFakeModel(FakeMessagesListChatModel):
+    def bind_tools(self, _tools, **_kwargs):
+        return self
+
+
+_hitl_executions = []
+
+
+@tool
+def _dangerous_test_write(value: str) -> str:
+    """Perform a test-only side effect."""
+    _hitl_executions.append(value)
+    return f"wrote {value}"
+
+
+_fake_model = _ToolCallingFakeModel(
+    responses=[
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "_dangerous_test_write", "args": {"value": "approved"}, "id": "call-hitl"}
+            ],
+        ),
+        AIMessage(content="write completed"),
+    ]
+)
+_official_hitl_agent = create_agent(
+    _fake_model,
+    tools=[_dangerous_test_write],
+    middleware=[
+        HumanInTheLoopMiddleware(
+            interrupt_on={
+                "_dangerous_test_write": {"allowed_decisions": ["approve", "reject"]}
+            }
+        )
+    ],
+    checkpointer=InMemorySaver(),
+)
+_hitl_config = {"configurable": {"thread_id": "official-hitl-smoke"}}
+_paused = _official_hitl_agent.invoke(
+    {"messages": [{"role": "user", "content": "write"}]},
+    config=_hitl_config,
+    version="v2",
+)
+check("official middleware interrupts before tool execution",
+      bool(_paused.interrupts) and _hitl_executions == [])
+_official_hitl_agent.invoke(
+    Command(resume={"decisions": [{"type": "approve"}]}),
+    config=_hitl_config,
+)
+check("official Command resume executes the approved tool exactly once",
+      _hitl_executions == ["approved"])
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +387,12 @@ check("action claim is atomic and pending-only",
 
 section("5. chat message visibility")
 
-from app.agents.message_visibility import visible_message_parts  # noqa: E402
+from app.agents.message_visibility import (  # noqa: E402
+    is_duplicate_agent_reply,
+    is_supervisor_stream_namespace,
+    visible_conversation_parts,
+    visible_message_parts,
+)
 
 handoff_message = {
     "role": "assistant",
@@ -261,6 +420,92 @@ check(
 
 tool_result = {"role": "tool", "content": "Successfully transferred back to supervisor"}
 check("tool result remains hidden", visible_message_parts(tool_result) is None)
+check(
+    "adjacent identical agent and supervisor replies collapse",
+    is_duplicate_agent_reply(
+        ("ai", "本周三有一个事件。", "agent-answer"),
+        ("ai", "本周三有一个事件。", "supervisor-answer"),
+    ),
+)
+check(
+    "a user turn never collapses with an agent reply",
+    not is_duplicate_agent_reply(
+        ("human", "本周三有一个事件。", "user-message"),
+        ("ai", "本周三有一个事件。", "agent-answer"),
+    ),
+)
+
+check(
+    "top-level supervisor stream is visible",
+    is_supervisor_stream_namespace("supervisor:run-id|agent:model-run-id"),
+)
+check(
+    "nested calendar agent stream is hidden",
+    not is_supervisor_stream_namespace(
+        "supervisor:run-id|calendar_agent:child-id|agent:model-run-id"
+    ),
+)
+handoff_turn = [
+    {"role": "user", "content": "移除这个事件", "id": "user-delete"},
+    {
+        "role": "assistant",
+        "name": "calendar_agent",
+        "content": "请确认是否删除这个事件？",
+        "id": "agent-answer",
+    },
+    {
+        "role": "assistant",
+        "name": "supervisor",
+        "content": "尚未删除，请使用确认卡片。",
+        "id": "supervisor-answer",
+    },
+]
+check(
+    "history keeps only the supervisor relay for a handoff turn",
+    visible_conversation_parts(handoff_turn)
+    == [
+        ("human", "移除这个事件", "user-delete"),
+        ("ai", "尚未删除，请使用确认卡片。", "supervisor-answer"),
+    ],
+)
+duplicate_old_turn = [
+    {"role": "user", "content": "创建周三的 event", "id": "user-1"},
+    {"role": "user", "content": "创建周三的 event", "id": "user-duplicate"},
+    {
+        "role": "assistant",
+        "name": "supervisor",
+        "content": "已创建事件。",
+        "id": "intermediate-supervisor-answer",
+    },
+    {
+        "role": "assistant",
+        "name": "supervisor",
+        "content": "已成功创建事件。",
+        "id": "final-supervisor-answer",
+    },
+]
+check(
+    "history repairs duplicate input and keeps only the final supervisor answer",
+    visible_conversation_parts(duplicate_old_turn)
+    == [
+        ("human", "创建周三的 event", "user-1"),
+        ("ai", "已成功创建事件。", "final-supervisor-answer"),
+    ],
+)
+direct_turn = [
+    {"role": "user", "content": "删除周三的 event", "id": "user-direct"},
+    {
+        "role": "assistant",
+        "name": "calendar_agent",
+        "content": "请使用确认卡片。",
+        "id": "direct-answer",
+    },
+]
+check(
+    "history keeps a directly routed agent reply",
+    visible_conversation_parts(direct_turn)[-1]
+    == ("ai", "请使用确认卡片。", "direct-answer"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +558,20 @@ check(
     "mail agent exposes search_contacts",
     "search_contacts" in _returned_tool_names("make_mail_tools"),
 )
+check(
+    "calendar agent exposes deterministic single-day lookup",
+    {"list_events_on_day", "request_delete_event_on_day"}
+    <= _returned_tool_names("make_calendar_tools"),
+)
+
+from datetime import date as _date  # noqa: E402
+
+from app.agents.calendar_dates import resolve_calendar_day  # noqa: E402
+
+calendar_base = _date(2026, 8, 10)  # Monday
+check("本周三 resolves to 2026-08-12", resolve_calendar_day("本周三", today=calendar_base) == _date(2026, 8, 12))
+check("周三 resolves to upcoming Wednesday", resolve_calendar_day("周三", today=calendar_base) == _date(2026, 8, 12))
+check("下周三 resolves deterministically", resolve_calendar_day("下周三", today=calendar_base) == _date(2026, 8, 19))
 
 from app.agents.turn_lock import session_turn_lock  # noqa: E402
 
@@ -350,7 +609,7 @@ check(
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: E402
 
-from app.agents.context import make_agent_context_hook  # noqa: E402
+from app.agents.context import make_agent_context_hook, memo_tool_choice  # noqa: E402
 
 mail_context = make_agent_context_hook("mail_agent")(
     {
@@ -369,11 +628,26 @@ mail_context_text = "\n".join(getattr(message, "content", "") for message in mai
 check("mail context excludes unrelated calendar history", "日历已安排" not in mail_context_text)
 check("mail context keeps relevant prior turn and task brief", "邮箱中有两封未读邮件" in mail_context_text and "最新一封是什么" in mail_context_text)
 check("mail context keeps active tool chain intact", any(isinstance(message, ToolMessage) and message.name == "list_inbox" for message in mail_context))
+check(
+    "memo save request forces create_memo",
+    memo_tool_choice([{"role": "user", "content": "帮我记录下来吧"}]) == "create_memo",
+)
+check(
+    "memo read request still requires one tool",
+    memo_tool_choice([{"role": "user", "content": "查一下我的涨工资记录"}]) == "required",
+)
+check(
+    "memo agent stops calling tools after one result",
+    memo_tool_choice([
+        {"role": "user", "content": "帮我记录下来吧"},
+        {"role": "tool", "name": "create_memo", "content": "Memo saved"},
+    ]) == "none",
+)
 
 checkpointer_source = (backend_dir / "app/agents/checkpointer.py").read_text()
 repository_sources = [
     (backend_dir / "app/infrastructure/db/repositories" / name).read_text()
-    for name in ("chat_sessions.py", "pending_actions.py", "memos.py")
+    for name in ("chat_sessions.py", "memos.py")
 ]
 check("checkpointer uses the shared application pool", "AsyncPostgresSaver(pool)" in checkpointer_source)
 check("repositories use no private connection pools", all("AsyncConnectionPool" not in source for source in repository_sources))
@@ -448,6 +722,15 @@ if search_memos_fn:
 
 check("fallback client.search( exists in source", "client.search(" in qdrant_source)
 check("AsyncQdrantClient is initialised with timeout=", "timeout=" in qdrant_source and "AsyncQdrantClient" in qdrant_source)
+check(
+    "dense embedding model is provider-configurable",
+    "EMBEDDING_MODEL" in qdrant_source and "EMBEDDING_BASE_URL" in qdrant_source,
+)
+check(
+    "Zhipu defaults to embedding-3 while preserving 1536 dimensions",
+    'return "embedding-3" if "bigmodel.cn" in base_url' in qdrant_source
+    and 'EMBEDDING_DIMENSIONS", "1536"' in qdrant_source,
+)
 
 
 # ---------------------------------------------------------------------------
