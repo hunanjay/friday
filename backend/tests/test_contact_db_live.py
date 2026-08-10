@@ -4,7 +4,6 @@ Live PostgreSQL Integration Test for Friday Contact Relationship Brain.
 Tests against actual PostgreSQL instance (localhost:5438).
 """
 
-import asyncio
 import os
 import sys
 import unittest
@@ -21,7 +20,7 @@ except ImportError:
 
 os.environ["CHECKPOINT_DB_URL"] = "postgresql://friday:friday@localhost:5438/friday"
 
-from app.infrastructure.db.pool import init_db_pool, close_db_pool, get_pool
+from app.infrastructure.db.pool import close_db_pool, init_db_pool
 from app.infrastructure.db.repositories import contacts as contacts_repo
 from app.services.contact_service import ContactService
 
@@ -75,7 +74,7 @@ class TestContactLivePostgres(unittest.IsolatedAsyncioTestCase):
             fact_key="tea_preference",
             fact_value="只喝2010年以前的老班章普洱茶"
         )
-        p3 = await contacts_repo.add_contact_profile(
+        await contacts_repo.add_contact_profile(
             user_id=self.user_id,
             contact_id=contact_id,
             dimension="dynamic",
@@ -83,7 +82,7 @@ class TestContactLivePostgres(unittest.IsolatedAsyncioTestCase):
             fact_key="trip_plan",
             fact_value="下周二下午从上海飞北京参加闭门会"
         )
-        p4 = await contacts_repo.add_contact_profile(
+        await contacts_repo.add_contact_profile(
             user_id=self.user_id,
             contact_id=contact_id,
             dimension="basic",
@@ -147,7 +146,7 @@ class TestContactLivePostgres(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(is_new, "Should update existing contact matched by email")
         self.assertEqual(updated_c["company"], "华创资本集团")
-        
+
         # Verify profiles and tags are INTACT after MS sync
         after_sync_c = await ContactService.get_contact_by_id(self.user_id, contact_id)
         self.assertEqual(len(after_sync_c["profiles"]), 4, "Profiles must not be wiped by MS sync")

@@ -8,11 +8,10 @@ Comprehensive Test Suite for Contact & Personal Relationship Brain Features:
 5. Agent 工具: search_contacts, record_contact_fact, extract_contact_memory
 """
 
-import asyncio
 import os
 import sys
 import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Set up paths and load environment variables
 backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -29,11 +28,10 @@ os.environ.setdefault("SUPABASE_URL", "https://sbqgivaqomoyobfamwxt.supabase.co"
 os.environ.setdefault("SUPABASE_ANON_KEY", "sb_publishable_placeholder_for_test")
 os.environ.setdefault("CHECKPOINT_DB_URL", "postgresql://friday:friday@localhost:5438/friday")
 
-from app.services.contact_service import ContactService
-from app.services.contact_brain_service import ContactBrainService
-from app.infrastructure.db.repositories import contacts as contacts_repo
 from app.agents.tools import make_mail_tools
-
+from app.infrastructure.db.repositories import contacts as contacts_repo
+from app.services.contact_brain_service import ContactBrainService
+from app.services.contact_service import ContactService
 
 
 class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
@@ -70,7 +68,7 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
         # Mock graph_get and repository
         with patch("app.services.contact_service.graph_get", new_callable=AsyncMock) as mock_graph_get, \
              patch("app.infrastructure.db.repositories.contacts.upsert_contact_from_microsoft", new_callable=AsyncMock) as mock_upsert:
-            
+
             mock_graph_get.return_value = mock_graph_response
             # 1st is new, 2nd is updated
             mock_upsert.side_effect = [
@@ -207,9 +205,6 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
     # =========================================================================
     async def test_3_four_dimension_profiles_crud(self):
         """Test adding, listing, and deleting atomic facts in 4 dimensions."""
-        dimensions = ["basic", "business", "private", "dynamic"]
-        categories = ["preference", "pain_point", "demand", "family", "anniversary", "event", "other"]
-
         with patch("app.infrastructure.db.repositories.contacts._db_pool") as mock_pool_getter:
             mock_pool = MagicMock()
             mock_conn = AsyncMock()
@@ -342,7 +337,7 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
         # 5b. record_contact_fact tool execution (casual single fact saving)
         with patch("app.services.contact_service.ContactService.get_contacts", new_callable=AsyncMock) as mock_get_c, \
              patch("app.infrastructure.db.repositories.contacts.add_contact_profile", new_callable=AsyncMock) as mock_add_p:
-            
+
             mock_get_c.return_value = [{"id": "cid-zhangming", "name": "张明"}]
             mock_add_p.return_value = {"id": "fact-new-1"}
 

@@ -20,7 +20,7 @@ except ImportError:
 
 os.environ["CHECKPOINT_DB_URL"] = "postgresql://friday:friday@localhost:5438/friday"
 
-from app.infrastructure.db.pool import init_db_pool, close_db_pool
+from app.infrastructure.db.pool import close_db_pool, init_db_pool
 from app.infrastructure.db.repositories import contacts as contacts_repo
 from app.services.contact_brain_service import ContactBrainService
 
@@ -42,7 +42,7 @@ async def main():
     try:
         print("  Calling ContactBrainService.extract_and_save with live LLM...")
         result = await ContactBrainService.extract_and_save(user_id=user_id, raw_text=raw_text)
-        
+
         contact = result["contact"]
         profiles = result["extracted_profiles"]
         interaction = result["interaction"]
