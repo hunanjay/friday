@@ -1,21 +1,28 @@
 import json
 import logging
 import re
-from urllib.parse import quote
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from langgraph.types import Command
 
 from app.agents.checkpointer import get_checkpointer
 from app.agents.draft import draft_reply
-from app.agents.message_visibility import visible_message_parts
-from app.agents.routing import EMAIL_ADDRESS_RE, decide_route, is_email_send_request
-from app.agents.supervisor import build_agent, build_supervisor, generate_session_title
+from app.agents.hitl import (
+    interrupt_to_action,
+    pending_actions_from_interrupts,
+    resume_value_for,
+)
+from app.agents.message_visibility import (
+    is_supervisor_stream_namespace,
+    visible_conversation_parts,
+    visible_message_parts,
+)
+from app.agents.routing import decide_route
+from app.agents.supervisor import build_supervisor, generate_session_title
 from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
-from app.infrastructure.db.repositories import chat_sessions, pending_actions
-from app.tools.graph_client import graph_post
+from app.infrastructure.db.repositories import chat_sessions, hitl_audit
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +32,24 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 # both locale files) - only auto-title over these, never a name the user
 # (or a prior auto-title) already gave the session.
 _DEFAULT_TITLES = {"New chat", "新对话"}
+
+
+def _paused_reply(message: str) -> str:
+    is_zh = bool(re.search(r"[\u4e00-\u9fff]", message or ""))
+    return (
+        "操作已暂停，请检查确认卡片；确认前不会执行。"
+        if is_zh
+        else "The action is paused. Review the confirmation card; it will not run before approval."
+    )
+
+
+async def _visible_actions(user_id: str, session_id: str, interrupts: tuple) -> list[dict]:
+    """Combine official pending interrupts with resolved card history."""
+    completed = await hitl_audit.list_completed(user_id, session_id)
+    pending = pending_actions_from_interrupts(interrupts, session_id)
+    pending_ids = {action["id"] for action in pending}
+    return [action for action in completed if action["id"] not in pending_ids] + pending
+
 
 @router.post("/draft-reply")
 async def draft(body: dict, user_id: str = Depends(get_user_id)):
@@ -97,10 +122,7 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
     raw_messages = (state.values or {}).get("messages", [])
 
     results = []
-    for msg in raw_messages:
-        visible = visible_message_parts(msg)
-        if not visible:
-            continue
+    for visible in visible_conversation_parts(raw_messages):
         msg_type, content, msg_id = visible
 
         if msg_type == "human":
@@ -120,6 +142,21 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
                 "timestamp": "",
             })
 
+    # An interrupted tool call has no persisted assistant text yet. Recreate
+    # the safe pause reply with an id derived from the interrupt so its card has
+    # a stable place in history across refreshes and thread switches.
+    latest_user_text = next(
+        (message["text"] for message in reversed(results) if message["sender"] == "user"),
+        "",
+    )
+    for interrupt in state.interrupts:
+        results.append({
+            "id": f"hitl_{interrupt.id}",
+            "sender": "bot",
+            "senderName": "Dora",
+            "text": _paused_reply(latest_user_text),
+            "timestamp": "",
+        })
     preview = session.get("preview") or ""
     if not preview and results:
         preview = await chat_sessions.update_session_preview(
@@ -133,75 +170,98 @@ async def list_actions(session_id: str, user_id: str = Depends(get_user_id)):
     session = await chat_sessions.get_session(user_id, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    actions = await pending_actions.list_session_actions(user_id, session_id)
-    return {"actions": [pending_actions.public_action(action) for action in actions]}
+    graph = build_supervisor(user_id, session_id)
+    state = await graph.aget_state({"configurable": {"thread_id": session_id}})
+    return {"actions": await _visible_actions(user_id, session_id, state.interrupts)}
+
+
+async def _decide_action(
+    action_id: str,
+    decision_id: str,
+    session_id: str,
+    user_id: str,
+):
+    session = await chat_sessions.get_session(user_id, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    config = {"configurable": {"thread_id": session_id}}
+    graph = build_supervisor(user_id, session_id)
+
+    async with session_turn_lock(session_id):
+        state = await graph.aget_state(config)
+        pending = next((item for item in state.interrupts if item.id == action_id), None)
+        if not pending:
+            raise HTTPException(status_code=409, detail="This HITL interrupt is no longer pending")
+        try:
+            resume_value = resume_value_for(pending, decision_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        before_messages = visible_conversation_parts((state.values or {}).get("messages", []))
+        before_ai_ids = {
+            message_id
+            for kind, _content, message_id in before_messages
+            if kind == "ai" and message_id
+        }
+        await graph.ainvoke(Command(resume={pending.id: resume_value}), config=config)
+        resumed_state = await graph.aget_state(config)
+        messages = visible_conversation_parts((resumed_state.values or {}).get("messages", []))
+        final_reply = next(
+            (
+                (content, message_id)
+                for kind, content, message_id in reversed(messages)
+                if kind == "ai" and (not message_id or message_id not in before_ai_ids)
+            ),
+            None,
+        )
+        final_text = final_reply[0] if final_reply else ""
+        status = "completed" if decision_id == "approve" else "cancelled"
+        action = interrupt_to_action(
+            pending,
+            session_id,
+            status=status,
+            anchor_message_id=final_reply[1] if final_reply else None,
+        )
+        action["resolved"] = status == "completed"
+        try:
+            await hitl_audit.record_resolution(user_id, session_id, action, status)
+        except Exception:
+            # The graph has already resumed, so an audit-display failure must
+            # not turn a successfully executed action into an API error.
+            logger.exception("failed to persist resolved HITL card %s", action_id)
+        preview = session.get("preview") or ""
+        if final_text:
+            preview = await chat_sessions.update_session_preview(user_id, session_id, final_text)
+        return {
+            "status": status,
+            "message": final_text,
+            "preview": preview,
+            "action": action,
+            "pending_actions": await _visible_actions(
+                user_id, session_id, resumed_state.interrupts
+            ),
+        }
+
+
+@router.post("/actions/{action_id}/decisions/{decision_id}")
+async def decide_action(
+    action_id: str,
+    decision_id: str,
+    session_id: str,
+    user_id: str = Depends(get_user_id),
+):
+    """Resume an official LangChain HITL interrupt with a human decision."""
+    return await _decide_action(action_id, decision_id, session_id, user_id)
 
 
 @router.post("/actions/{action_id}/confirm")
-async def confirm_action(action_id: UUID, user_id: str = Depends(get_user_id)):
-    """Execute an approved action exactly once.
-
-    Agent tools cannot call this endpoint and never receive the user's bearer
-    token. Only the authenticated UI exposes it after a deliberate click.
-    """
-    action_id_str = str(action_id)
-    action = await pending_actions.claim_action(user_id, action_id_str)
-    if not action:
-        existing = await pending_actions.get_action(user_id, action_id_str)
-        if not existing:
-            raise HTTPException(status_code=404, detail="Action not found")
-        raise HTTPException(status_code=409, detail=f"Action is already {existing['status']}")
-
-    payload = action["payload"]
-    try:
-        if action["action_type"] == "send_email":
-            html_body = payload["body"].replace("\r\n", "\n").replace("\n", "<br>")
-            await graph_post(
-                user_id,
-                "/me/sendMail",
-                {
-                    "message": {
-                        "subject": payload["subject"],
-                        "body": {"contentType": "HTML", "content": html_body},
-                        "toRecipients": [{"emailAddress": {"address": payload["to"]}}],
-                    },
-                    "saveToSentItems": True,
-                },
-            )
-            message = f"Email sent to {payload['to']}."
-        elif action["action_type"] == "delete_email":
-            await graph_post(
-                user_id,
-                f"/me/messages/{quote(payload['email_id'])}/move",
-                {"destinationId": "deleteditems"},
-            )
-            message = "Email moved to Deleted Items."
-        else:
-            raise RuntimeError("Unsupported pending action type")
-    except Exception as exc:
-        await pending_actions.fail_action(user_id, action_id_str, str(exc))
-        raise
-
-    completed = await pending_actions.complete_action(user_id, action_id_str)
-    preview = await chat_sessions.update_session_preview(user_id, action["session_id"], message)
-    return {
-        "status": "completed",
-        "message": message,
-        "preview": preview,
-        "action": pending_actions.public_action(completed),
-    }
+async def confirm_action(action_id: str, session_id: str, user_id: str = Depends(get_user_id)):
+    return await _decide_action(action_id, "approve", session_id, user_id)
 
 
 @router.post("/actions/{action_id}/cancel")
-async def cancel_action(action_id: UUID, user_id: str = Depends(get_user_id)):
-    action_id_str = str(action_id)
-    action = await pending_actions.cancel_action(user_id, action_id_str)
-    if not action:
-        existing = await pending_actions.get_action(user_id, action_id_str)
-        if not existing:
-            raise HTTPException(status_code=404, detail="Action not found")
-        raise HTTPException(status_code=409, detail=f"Action is already {existing['status']}")
-    return {"status": "cancelled", "action": pending_actions.public_action(action)}
+async def cancel_action(action_id: str, session_id: str, user_id: str = Depends(get_user_id)):
+    return await _decide_action(action_id, "reject", session_id, user_id)
 
 
 @router.post("/chat")
@@ -219,127 +279,42 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     route = decide_route(message)
     routed_agent = route.agent_name
     routed_message = route.message
+
     async def locked_event_generator():
-        config = {"configurable": {"thread_id": session_id}}
+        config = {
+            "configurable": {
+                "thread_id": session_id,
+                "entry_agent": routed_agent,
+            }
+        }
         assistant_chunks: list[str] = []
-        requires_email_approval = routed_agent == "mail_agent" and is_email_send_request(routed_message)
-        existing_action_ids: set[str] = set()
-        if requires_email_approval:
-            try:
-                existing_action_ids = {
-                    action["id"]
-                    for action in await pending_actions.list_session_actions(user_id, session_id)
-                }
-            except Exception:
-                logger.exception("failed to snapshot email actions before agent run")
+        graph = build_supervisor(user_id, session_id)
+        run_input = {"messages": [{"role": "user", "content": routed_message}]}
         try:
-            if routed_agent:
-                # Deterministic routing for an explicit "/agent_name ..." tag
-                # or a recognized send-email request. The supervisor's routing
-                # is prompt-following and can be skipped by the model, so call
-                # the target sub-agent directly. Reads the shared
-                # conversation straight off the supervisor's own checkpoint
-                # so the sub-agent still has full context, then writes the
-                # new turn back into that same checkpoint (as_node=routed_agent)
-                # so a later untagged message still sees it.
-                supervisor_graph = build_supervisor(user_id, session_id)
-                state = await supervisor_graph.aget_state(config)
-                history = (state.values or {}).get("messages", [])
-                agent = build_agent(user_id, routed_agent, session_id)
-                new_user_msg = {"role": "user", "content": routed_message}
+            async for event in graph.astream_events(run_input, config=config, version="v2"):
+                event_type = event.get("event")
+                metadata = event.get("metadata", {})
+                node = metadata.get("langgraph_node")
+                checkpoint_ns = metadata.get("langgraph_checkpoint_ns", "")
+                is_supervisor_turn = is_supervisor_stream_namespace(checkpoint_ns)
 
-                final_output = None
-                async for event in agent.astream_events(
-                    {"messages": history + [new_user_msg]},
-                    version="v2",
-                ):
-                    if event.get("event") == "on_chat_model_stream" and event.get("metadata", {}).get("langgraph_node") == "agent":
-                        chunk = event["data"].get("chunk")
-                        if chunk and getattr(chunk, "content", None):
-                            if isinstance(chunk.content, str) and not requires_email_approval:
-                                assistant_chunks.append(chunk.content)
-                                yield f"data: {json.dumps({'chunk': chunk.content})}\n\n"
-                    elif event.get("event") == "on_chain_end" and not event.get("parent_ids"):
-                        final_output = event["data"]["output"]
-
-                if final_output:
-                    new_messages = final_output["messages"][len(history):]
-                    if requires_email_approval:
-                        current_actions = await pending_actions.list_session_actions(user_id, session_id)
-                        created_action = next(
-                            (action for action in current_actions if action["id"] not in existing_action_ids),
-                            None,
-                        )
-                        if not created_action:
-                            recipient_match = EMAIL_ADDRESS_RE.search(routed_message)
-                            recipient = recipient_match.group(0).lower() if recipient_match else ""
-                            created_action = next(
-                                (
-                                    action
-                                    for action in current_actions
-                                    if action["status"] == "pending"
-                                    and str(action.get("payload", {}).get("to", "")).lower() == recipient
-                                ),
-                                None,
-                            )
-                        is_zh = bool(re.search(r"[\u4e00-\u9fff]", routed_message))
-                        safe_reply = (
-                            "邮件已准备好，请检查下方确认卡片并确认发送。"
-                            if created_action and is_zh
-                            else "The email is ready. Review the confirmation card below before sending."
-                            if created_action
-                            else "未能创建邮件确认卡，邮件没有发送。请重试。"
-                            if is_zh
-                            else "The confirmation card could not be created. The email was not sent. Please try again."
-                        )
-                        assistant_chunks = [safe_reply]
-                        yield f"data: {json.dumps({'chunk': safe_reply})}\n\n"
-                        anchor_message_id = None
-                        for index in range(len(new_messages) - 1, -1, -1):
-                            if getattr(new_messages[index], "type", None) == "ai":
-                                new_messages[index] = new_messages[index].model_copy(
-                                    update={"content": safe_reply}
-                                )
-                                anchor_message_id = getattr(new_messages[index], "id", None)
-                                break
-                        if created_action and anchor_message_id:
-                            await pending_actions.set_action_anchor(
-                                user_id,
-                                created_action["id"],
-                                str(anchor_message_id),
-                            )
-                    await supervisor_graph.aupdate_state(config, {"messages": new_messages}, as_node=routed_agent)
-            else:
-                graph = build_supervisor(user_id, session_id)
-                async for event in graph.astream_events(
-                    {"messages": [{"role": "user", "content": message}]},
-                    config=config,
-                    version="v2",
-                ):
-                    event_type = event.get("event")
-                    metadata = event.get("metadata", {})
-                    node = metadata.get("langgraph_node")
-                    # create_react_agent always names its LLM node "agent", so the
-                    # supervisor's own turn and every sub-agent's turn (mail_agent,
-                    # calendar_agent, memos_agent) all report node == "agent" -
-                    # checkpoint_ns additionally carries "<node_name>:<run_id>" for
-                    # whichever graph is actually running, so it's what tells the
-                    # supervisor's own turn apart from a sub-agent's turn (both of
-                    # which would otherwise stream and show up as one doubled reply).
-                    checkpoint_ns = metadata.get("langgraph_checkpoint_ns", "")
-                    is_supervisor_turn = checkpoint_ns.startswith("supervisor:")
-
-                    if event_type == "on_chat_model_stream" and node == "agent" and is_supervisor_turn:
-                        chunk = event["data"].get("chunk")
-                        if chunk and hasattr(chunk, "content") and chunk.content:
-                            if isinstance(chunk.content, str):
-                                assistant_chunks.append(chunk.content)
-                            yield f"data: {json.dumps({'chunk': chunk.content})}\n\n"
-                        elif chunk and isinstance(chunk, dict) and chunk.get("content"):
-                            chunk_content = chunk["content"]
-                            if isinstance(chunk_content, str):
-                                assistant_chunks.append(chunk_content)
-                            yield f"data: {json.dumps({'chunk': chunk_content})}\n\n"
+                if event_type == "on_chat_model_stream" and node == "agent" and is_supervisor_turn:
+                    chunk = event["data"].get("chunk")
+                    chunk_content = getattr(chunk, "content", None)
+                    if chunk_content is None and isinstance(chunk, dict):
+                        chunk_content = chunk.get("content")
+                    if isinstance(chunk_content, str) and chunk_content:
+                        assistant_chunks.append(chunk_content)
+                        yield f"data: {json.dumps({'chunk': chunk_content})}\n\n"
+                elif event_type == "on_tool_start":
+                    tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
+                    tool_input = event.get("data", {}).get("input") or {}
+                    yield f"data: {json.dumps({'tool_call': {'name': tool_name, 'input': tool_input, 'status': 'running'}})}\n\n"
+                elif event_type == "on_tool_end":
+                    tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
+                    tool_output = event.get("data", {}).get("output")
+                    output_str = str(tool_output)[:500] if tool_output is not None else ""
+                    yield f"data: {json.dumps({'tool_call': {'name': tool_name, 'output': output_str, 'status': 'completed'}})}\n\n"
         except Exception as e:
             logger.exception("agent chat stream failed")
             err_type = str(type(e).__name__)
@@ -350,6 +325,14 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 user_err = err_msg
             yield f"data: {json.dumps({'error': user_err})}\n\n"
 
+        state = await graph.aget_state(config)
+        pending_actions = pending_actions_from_interrupts(state.interrupts, session_id)
+        public_actions = await _visible_actions(user_id, session_id, state.interrupts)
+        if pending_actions and not assistant_chunks:
+            safe_reply = _paused_reply(routed_message)
+            assistant_chunks.append(safe_reply)
+            yield f"data: {json.dumps({'chunk': safe_reply})}\n\n"
+
         if assistant_chunks:
             try:
                 preview = await chat_sessions.update_session_preview(
@@ -359,12 +342,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
             except Exception:
                 logger.exception("failed to update chat session preview")
 
-        try:
-            actions = await pending_actions.list_session_actions(user_id, session_id)
-            public_actions = [pending_actions.public_action(action) for action in actions]
-            yield f"data: {json.dumps({'pending_actions': public_actions})}\n\n"
-        except Exception:
-            logger.exception("failed to load pending actions for chat stream")
+        yield f"data: {json.dumps({'pending_actions': public_actions})}\n\n"
 
         if session["title"] in _DEFAULT_TITLES:
             try:

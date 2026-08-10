@@ -8,7 +8,21 @@ from qdrant_client import AsyncQdrantClient, models
 logger = logging.getLogger(__name__)
 
 COLLECTION = "memos"
-_DENSE_SIZE = 1536
+
+
+def _embedding_base_url() -> str | None:
+    return os.environ.get("EMBEDDING_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
+
+
+def _embedding_model() -> str:
+    configured = os.environ.get("EMBEDDING_MODEL")
+    if configured:
+        return configured
+    base_url = (_embedding_base_url() or "").lower()
+    return "embedding-3" if "bigmodel.cn" in base_url else "text-embedding-3-large"
+
+
+_DENSE_SIZE = int(os.environ.get("EMBEDDING_DIMENSIONS", "1536"))
 
 _client: AsyncQdrantClient | None = None
 _dense_embedder: OpenAIEmbeddings | None = None
@@ -33,9 +47,10 @@ def _get_dense() -> OpenAIEmbeddings:
     global _dense_embedder
     if _dense_embedder is None:
         _dense_embedder = OpenAIEmbeddings(
-            model="text-embedding-3-large",
+            model=_embedding_model(),
             dimensions=_DENSE_SIZE,
-            base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            base_url=_embedding_base_url(),
+            api_key=os.environ.get("EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY"),
             request_timeout=60.0,
             max_retries=3,
         )

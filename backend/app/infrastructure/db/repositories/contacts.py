@@ -98,6 +98,12 @@ _CONTACT_COLS = "id, user_id, outlook_contact_id, name, email, phone, company, j
 
 
 async def list_contacts(user_id: str, query: str | None = None, tag: str | None = None) -> list[dict]:
+    # Clean query: strip question words or pronouns if user searched "他最近在干啥" or "查一下张明"
+    cleaned_query = (query or "").strip()
+    # Remove leading common intent prefixes
+    import re
+    cleaned_query = re.sub(r"^(查一下|帮我找|搜索|查询|who is|search for|about)\s*", "", cleaned_query, flags=re.IGNORECASE).strip()
+
     async with _db_pool().connection() as conn:
         if tag:
             sql = """
@@ -107,21 +113,36 @@ async def list_contacts(user_id: str, query: str | None = None, tag: str | None 
                 WHERE c.user_id = %s AND t.tag_name = %s
             """
             params = [user_id, tag]
-            if query:
-                sql += " AND (c.name ILIKE %s OR c.email ILIKE %s OR c.company ILIKE %s OR c.job_title ILIKE %s)"
-                q_pat = f"%{query}%"
-                params.extend([q_pat, q_pat, q_pat, q_pat])
+            if cleaned_query and cleaned_query not in ("他", "她", "它", "他们", "he", "she", "they", "him", "her"):
+                q_pat = f"%{cleaned_query}%"
+                sql += """
+                    AND (
+                        c.name ILIKE %s OR c.email ILIKE %s OR c.company ILIKE %s OR c.job_title ILIKE %s OR c.location ILIKE %s OR c.ai_summary ILIKE %s
+                        OR c.id IN (SELECT contact_id FROM contact_profiles WHERE user_id = %s AND (fact_key ILIKE %s OR fact_value ILIKE %s))
+                        OR c.id IN (SELECT contact_id FROM contact_tags WHERE user_id = %s AND tag_name ILIKE %s)
+                    )
+                """
+                params.extend([q_pat, q_pat, q_pat, q_pat, q_pat, q_pat, user_id, q_pat, q_pat, user_id, q_pat])
             sql += " ORDER BY c.updated_at DESC"
             cur = await conn.execute(sql, tuple(params))
         else:
-            sql = f"SELECT {_CONTACT_COLS} FROM contacts WHERE user_id = %s"
-            params = [user_id]
-            if query:
-                sql += " AND (name ILIKE %s OR email ILIKE %s OR company ILIKE %s OR job_title ILIKE %s)"
-                q_pat = f"%{query}%"
-                params.extend([q_pat, q_pat, q_pat, q_pat])
-            sql += " ORDER BY updated_at DESC"
-            cur = await conn.execute(sql, tuple(params))
+            if cleaned_query and cleaned_query not in ("他", "她", "它", "他们", "he", "she", "they", "him", "her"):
+                q_pat = f"%{cleaned_query}%"
+                sql = f"""
+                    SELECT DISTINCT {_CONTACT_COLS} FROM contacts c
+                    WHERE c.user_id = %s
+                    AND (
+                        c.name ILIKE %s OR c.email ILIKE %s OR c.company ILIKE %s OR c.job_title ILIKE %s OR c.location ILIKE %s OR c.ai_summary ILIKE %s
+                        OR c.id IN (SELECT contact_id FROM contact_profiles WHERE user_id = %s AND (fact_key ILIKE %s OR fact_value ILIKE %s))
+                        OR c.id IN (SELECT contact_id FROM contact_tags WHERE user_id = %s AND tag_name ILIKE %s)
+                    )
+                    ORDER BY c.updated_at DESC
+                """
+                params = [user_id, q_pat, q_pat, q_pat, q_pat, q_pat, q_pat, user_id, q_pat, q_pat, user_id, q_pat]
+                cur = await conn.execute(sql, tuple(params))
+            else:
+                sql = f"SELECT {_CONTACT_COLS} FROM contacts WHERE user_id = %s ORDER BY updated_at DESC"
+                cur = await conn.execute(sql, (user_id,))
 
         rows = await cur.fetchall()
 
