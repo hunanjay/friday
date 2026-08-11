@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Github, Globe, Info, MicrosoftIcon, Moon, Sun } from '../components/common/Icons';
+import { Github, Globe, Info, Mail, MicrosoftIcon, Moon, Sun } from '../components/common/Icons';
+import BindMailAccountModal from '../components/BindMailAccountModal';
 import { supabase } from '../supabaseClient';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTheme } from '../hooks/useTheme';
@@ -9,7 +10,8 @@ import { useTranslation } from 'react-i18next';
 export default function LoginPage() {
   const [error, setError] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const { user } = useWorkspace();
+  const [showBindMail, setShowBindMail] = useState(false);
+  const { user, authToken } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -19,6 +21,19 @@ export default function LoginPage() {
       navigate('/dashboard');
     }
   }, [user, navigate]);
+
+  const handleOtherMail = () => {
+    // Mail binding needs an authenticated Supabase session. If the user isn't
+    // signed in yet, guide them to the Microsoft flow first (the Supabase
+    // email/password provider can be enabled later by the maintainer).
+    if (!user || !authToken) {
+      setError(i18n.language === 'zh'
+        ? '请先完成账号登录，再绑定其他邮箱。'
+        : 'Please sign in first, then bind your mail account.');
+      return;
+    }
+    setShowBindMail(true);
+  };
 
   const handleAzureLogin = async () => {
     setError('');
@@ -133,9 +148,29 @@ export default function LoginPage() {
               <span>{isSigningIn ? t('login.buttonLoading') : t('login.button')}</span>
               <span className="login-button-arrow" aria-hidden="true">→</span>
             </button>
+
+            <div className="login-divider">
+              <span>{i18n.language === 'zh' ? '或' : 'or'}</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleOtherMail}
+              className="login-other-mail-button"
+            >
+              <Mail size={18} />
+              <span>{i18n.language === 'zh' ? '绑定其他邮箱（163 / QQ / Gmail 等）' : 'Bind another mailbox (163 / QQ / Gmail...)'}</span>
+            </button>
           </div>
         </div>
       </section>
+
+      <BindMailAccountModal
+        isOpen={showBindMail}
+        onClose={() => setShowBindMail(false)}
+        authToken={authToken}
+        isZh={i18n.language === 'zh'}
+      />
     </main>
   );
 }

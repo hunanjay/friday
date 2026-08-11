@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Github, Search, X, Moon, Sun, LogOut } from '../components/common/Icons';
+import BindMailAccountModal from '../components/BindMailAccountModal';
+import { Github, Search, X, Moon, Sun, LogOut, Mail } from '../components/common/Icons';
 import LanguageSwitcher from '../components/common/LanguageSwitcher';
 
 function RepoSection({ label, repos, checked, onToggle }) {
@@ -63,11 +64,15 @@ export default function SettingsPage() {
     theme,
     toggleTheme,
     handleLogout,
+    authToken,
     githubStatus,
     githubRepos,
     handleConnectGithub,
     handleDisconnectGithub,
     handleSaveGithubRepos,
+    mailAccounts,
+    handleUnbindMailAccount,
+    handleVerifyMailAccount,
     showToast,
   } = useWorkspace();
 
@@ -76,6 +81,8 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showBindMail, setShowBindMail] = useState(false);
+  const [verifyingMailId, setVerifyingMailId] = useState(null);
   const selectedCommit = location.state?.commit;
 
   // Sync selection state from context when ready
@@ -353,8 +360,110 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+
+          {/* Mail Accounts Card */}
+          <div className="settings-card main-github-card" style={{ marginTop: '16px' }}>
+            <div className="github-card-header">
+              <div className="github-card-title">
+                <h2>{isZh ? '邮箱账号' : 'Mail Accounts'}</h2>
+              </div>
+              <button
+                type="button"
+                className="settings-btn btn-primary"
+                onClick={() => setShowBindMail(true)}
+                style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+              >
+                {isZh ? '+ 绑定邮箱' : '+ Bind Mail'}
+              </button>
+            </div>
+
+            <div style={{ padding: '16px 20px' }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+                {isZh
+                  ? '支持 163 / QQ / Gmail / iCloud / Outlook（IMAP+SMTP）及自定义服务器。凭据加密存储，仅用于邮件收发。'
+                  : '163 / QQ / Gmail / iCloud / Outlook (IMAP+SMTP) and custom servers. Credentials are encrypted at rest.'}
+              </p>
+
+              {mailAccounts.length === 0 ? (
+                <div className="github-disconnected-prompt" style={{ padding: '20px' }}>
+                  <Mail size={40} className="disconnected-icon" />
+                  <h3>{isZh ? '还没有绑定邮箱' : 'No mail accounts bound'}</h3>
+                  <p>
+                    {isZh
+                      ? '点击右上角"绑定邮箱"，选择 163/QQ 等提供商并填入授权码即可连接。'
+                      : 'Click "Bind Mail" and pick a provider (163/QQ...) with its auth code.'}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {mailAccounts.map(acc => (
+                    <div
+                      key={acc.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '12px 16px', borderRadius: '8px',
+                        border: '1px solid var(--border-light)', background: 'var(--bg-app)',
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.92rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {acc.email_address}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {acc.provider} · {acc.status}
+                          {acc.last_verified_at ? ` · ${isZh ? '已验证' : 'verified'} ${new Date(acc.last_verified_at).toLocaleDateString()}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="settings-btn"
+                        onClick={async () => {
+                          setVerifyingMailId(acc.id);
+                          try {
+                            await handleVerifyMailAccount(acc.id);
+                            showToast(isZh ? '连接正常' : 'Connection OK');
+                          } catch {
+                            showToast(isZh ? '连接验证失败' : 'Verification failed');
+                          } finally {
+                            setVerifyingMailId(null);
+                          }
+                        }}
+                        disabled={verifyingMailId === acc.id}
+                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                      >
+                        {verifyingMailId === acc.id ? '...' : (isZh ? '测试连接' : 'Verify')}
+                      </button>
+                      <button
+                        type="button"
+                        className="settings-btn btn-danger"
+                        onClick={async () => {
+                          if (!confirm(isZh ? `解绑 ${acc.email_address}？` : `Unbind ${acc.email_address}?`)) return;
+                          try {
+                            await handleUnbindMailAccount(acc.id);
+                            showToast(isZh ? '已解绑' : 'Unbound');
+                          } catch {
+                            showToast(isZh ? '解绑失败' : 'Failed to unbind');
+                          }
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                      >
+                        {isZh ? '解绑' : 'Unbind'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
+      <BindMailAccountModal
+        isOpen={showBindMail}
+        onClose={() => setShowBindMail(false)}
+        authToken={authToken}
+        onBound={() => showToast(i18n.language === 'zh' ? '邮箱绑定成功' : 'Mail account bound')}
+        isZh={isZh}
+      />
       {selectedCommit && (
         <div className="settings-commit-detail-overlay" onClick={closeCommitDetails}>
           <section className="settings-commit-detail" role="dialog" aria-modal="true" aria-labelledby="commit-detail-title" onClick={event => event.stopPropagation()}>

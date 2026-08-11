@@ -132,6 +132,10 @@ export function WorkspaceProvider({ children }) {
   // get revoked, so a one-shot check on load is enough.
   const [githubStatus, setGithubStatus] = useState(null);
 
+  // All bound IMAP/SMTP mail accounts (sanitized views, never contain
+  // credentials). Fetched on login; mutated by bind/unbind/verify handlers.
+  const [mailAccounts, setMailAccounts] = useState([]);
+
   // Surfaced globally (top marquee in MainLayout) instead of separate
   // per-page loading banners.
   const [isSyncingInbox, setIsSyncingInbox] = useState(false);
@@ -201,25 +205,31 @@ export function WorkspaceProvider({ children }) {
   }, [handleLogin]);
 
   // Periodically confirm the backend can still use the stored Microsoft
-  // token (it silently refreshes on our behalf); if refresh itself failed
-  // (e.g. the user revoked access), the MS session is unrecoverable and we
-  // force a fresh sign-in rather than let every sync action fail quietly.
+  // token (it silently refreshes on our behalf). If the Microsoft connection
+  // is unrecoverable, we DO NOT sign the user out - mail providers are now
+  // decoupled from the Friday account (see #11). We only flag the Microsoft
+  // mailbox as disconnected so the UI can show "Microsoft 邮箱已断开".
+  const [msDisconnected, setMsDisconnected] = useState(false);
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken) {
+      setMsDisconnected(false);
+      return;
+    }
     const checkStatus = () => {
       fetch(`${API_URL}/api/graph/status`, {
         headers: { Authorization: `Bearer ${authToken}` },
       })
         .then(res => res.json())
         .then(data => {
-          if (data.expired) handleLogout();
+          if (data.expired) setMsDisconnected(true);
+          else if (data.connected) setMsDisconnected(false);
         })
         .catch(() => {});
     };
     checkStatus();
     const interval = setInterval(checkStatus, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [authToken, handleLogout]);
+  }, [authToken]);
 
   useEffect(() => {
     if (!authToken) {
@@ -239,13 +249,26 @@ export function WorkspaceProvider({ children }) {
       setInboxUnread(null);
       return;
     }
-    fetch(`${API_URL}/api/graph/mail/folders/inbox`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => data && setInboxUnread(data.unread))
+    // Authoritative unread count summed across Microsoft + every bound IMAP
+    // account. Unbound channels return 404 and contribute 0.
+    const unreadPromises = [
+      fetch(`${API_URL}/api/graph/mail/folders/inbox`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).then(res => (res.ok ? res.json() : null)),
+      ...(mailAccounts || []).map(acc =>
+        fetch(`${API_URL}/api/mail-accounts/${acc.id}/mail/folders/inbox`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        }).then(res => (res.ok ? res.json() : null))
+      ),
+    ];
+    Promise.all(unreadPromises)
+      .then(results => {
+        const total = results.reduce((sum, r) => sum + (r?.unread || 0), 0);
+        setInboxUnread(total);
+      })
       .catch(() => {});
-  }, [authToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken, mailAccounts]);
 
   useEffect(() => {
     if (!authToken) {
@@ -271,6 +294,51 @@ export function WorkspaceProvider({ children }) {
       .then(res => (res.ok ? res.json() : null))
       .then(data => data && setGithubStatus(data))
       .catch(() => {});
+  }, [authToken]);
+
+  // Bound IMAP/SMTP mail accounts: one-shot fetch on login (credentials are
+  // stored encrypted server-side; the API never returns them).
+  useEffect(() => {
+    if (!authToken) {
+      setMailAccounts([]);
+      return;
+    }
+    fetch(`${API_URL}/api/mail-accounts`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : { accounts: [] }))
+      .then(data => setMailAccounts(data.accounts || []))
+      .catch(() => {});
+  }, [authToken]);
+
+  const handleBindMailAccount = useCallback(async (body) => {
+    const res = await fetch(`${API_URL}/api/mail-accounts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Failed to bind mail account');
+    setMailAccounts(prev => [...prev, data.account]);
+    return data.account;
+  }, [authToken]);
+
+  const handleUnbindMailAccount = useCallback(async (accountId) => {
+    const res = await fetch(`${API_URL}/api/mail-accounts/${accountId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!res.ok) throw new Error('Failed to unbind mail account');
+    setMailAccounts(prev => prev.filter(a => a.id !== accountId));
+  }, [authToken]);
+
+  const handleVerifyMailAccount = useCallback(async (accountId) => {
+    const res = await fetch(`${API_URL}/api/mail-accounts/${accountId}/verify`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!res.ok) throw new Error('Verification failed');
+    return res.json();
   }, [authToken]);
 
   // Prefetched as soon as GitHub is known to be connected, not lazily when
@@ -451,6 +519,11 @@ export function WorkspaceProvider({ children }) {
         toast,
         showToast,
         authToken,
+        mailAccounts,
+        handleBindMailAccount,
+        handleUnbindMailAccount,
+        handleVerifyMailAccount,
+        msDisconnected,
         githubStatus,
         handleConnectGithub,
         handleDisconnectGithub,

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft } from '../components/common/Icons';
+import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
 import EmailAttachments from '../components/common/EmailAttachments';
 import ApprovalCard from '../components/common/ApprovalCard';
@@ -11,14 +11,28 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 const THREAD_PREFETCH_DELAY_MS = 300;
 const THREAD_CACHE_MAX_ENTRIES = 10;
 
+// Mail channels: 'microsoft' (Graph) plus one entry per bound IMAP account
+// (its mail_accounts id). Both providers return the same Graph-shaped
+// message objects, so the UI only differs in the API base URL.
+const MICROSOFT = 'microsoft';
+const mailApiBase = (channel) =>
+  channel === MICROSOFT
+    ? `${API_URL}/api/graph/mail`
+    : `${API_URL}/api/mail-accounts/${channel}/mail`;
+
 // Shared shape for both the inbox sync and search responses, since both are
 // arrays of raw Graph message objects.
 // NOTE: `body` (full HTML) is intentionally omitted here - large HTML bodies
 // are fetched on demand (per selected email) and held in component-local
 // bodyCache state, not persisted to localStorage.
 function normalizeMessage(msg, parentFolderId) {
+  // IMAP ids look like "imap:{accountId}:{mailbox}:{uid}" - derive the channel
+  const channel = msg.provider === 'imap' && msg.id?.startsWith('imap:')
+    ? msg.id.split(':')[1]
+    : MICROSOFT;
   return {
     id: msg.id,
+    provider: channel,
     subject: msg.subject,
     bodyPreview: msg.bodyPreview,
     sender: msg.sender,
@@ -49,7 +63,9 @@ export default function EmailPage() {
     handleSyncSentEmails,
     handleAppendSentEmails,
     handleLogout,
-    setIsSidebarCollapsed
+    setIsSidebarCollapsed,
+    mailAccounts,
+    msDisconnected
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
@@ -96,38 +112,58 @@ export default function EmailPage() {
   useEffect(() => {
     authTokenRef.current = authToken;
   }, [authToken]);
+  // All mail channels: Microsoft plus one per bound IMAP account.
+  const mailChannels = useMemo(
+    () => [MICROSOFT, ...(mailAccounts || []).map(a => a.id)],
+    [mailAccounts]
+  );
+  const emptyCursor = () => Object.fromEntries(mailChannels.map(c => [c, null]));
+
+  const fetchChannelPage = useCallback(async (channel, folder, cursor) => {
+    const url = cursor
+      ? `${mailApiBase(channel)}/${folder}?cursor=${encodeURIComponent(cursor)}`
+      : `${mailApiBase(channel)}/${folder}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${authTokenRef.current}` } });
+    if (res.status === 401) {
+      handleLogout();
+      return null;
+    }
+    if (!res.ok) return { value: [], next_cursor: null };
+    return res.json();
+  }, [handleLogout]);
+
   useEffect(() => {
     if (!hasAuthToken) return;
     setIsSyncingInbox(true);
-    fetch(`${API_URL}/api/graph/mail/inbox`, {
-      headers: { Authorization: `Bearer ${authTokenRef.current}` },
-    })
-      .then(res => {
-        if (res.status === 401) {
-          handleLogout();
-          return null;
-        }
-        return res.json();
-      })
-      .then(data => {
-        if (!data) return;
-        handleSyncInboxEmails((data.value || []).map(msg => normalizeMessage(msg, 'inbox')));
-        setInboxCursor(data.next_cursor || null);
+    Promise.all(mailChannels.map(c => fetchChannelPage(c, 'inbox')))
+      .then(pages => {
+        if (!pages.some(Boolean)) return;
+        handleSyncInboxEmails(
+          pages.flatMap(page => page
+            ? (page.value || []).map(msg => normalizeMessage(msg, 'inbox'))
+            : [])
+        );
+        setInboxCursor(Object.fromEntries(
+          mailChannels.map((c, i) => [c, pages[i]?.next_cursor || null])
+        ));
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsSyncingInbox(false));
-  }, [hasAuthToken, t, showToast, setIsSyncingInbox, handleSyncInboxEmails, handleLogout]);
+  }, [hasAuthToken, t, showToast, setIsSyncingInbox, handleSyncInboxEmails, handleLogout, mailChannels, fetchChannelPage]);
 
   const handleLoadMoreInbox = () => {
-    if (!inboxCursor || isLoadingMoreInbox) return;
+    const active = mailChannels.filter(c => inboxCursor?.[c]);
+    if (active.length === 0 || isLoadingMoreInbox) return;
     setIsLoadingMoreInbox(true);
-    fetch(`${API_URL}/api/graph/mail/inbox?cursor=${encodeURIComponent(inboxCursor)}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
-      .then(data => {
-        handleAppendInboxEmails((data.value || []).map(msg => normalizeMessage(msg, 'inbox')));
-        setInboxCursor(data.next_cursor || null);
+    Promise.all(active.map(c => fetchChannelPage(c, 'inbox', inboxCursor[c])))
+      .then(pages => {
+        if (!pages.some(Boolean)) return;
+        handleAppendInboxEmails(
+          pages.flatMap(page => page ? (page.value || []).map(msg => normalizeMessage(msg, 'inbox')) : [])
+        );
+        const next = emptyCursor();
+        active.forEach((c, i) => { next[c] = pages[i]?.next_cursor || null; });
+        setInboxCursor(next);
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsLoadingMoreInbox(false));
@@ -137,33 +173,36 @@ export default function EmailPage() {
   useEffect(() => {
     if (!authToken || activeFolder !== 'sent' || hasFetchedSent) return;
     setIsSyncingSent(true);
-    fetch(`${API_URL}/api/graph/mail/sent`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => {
-        if (res.status === 401) { handleLogout(); return null; }
-        return res.json();
-      })
-      .then(data => {
-        if (!data) return;
-        handleSyncSentEmails((data.value || []).map(msg => normalizeMessage(msg, 'sent')));
-        setSentCursor(data.next_cursor || null);
+    Promise.all(mailChannels.map(c => fetchChannelPage(c, 'sent')))
+      .then(pages => {
+        if (!pages.some(Boolean)) return;
+        handleSyncSentEmails(
+          pages.flatMap(page => page
+            ? (page.value || []).map(msg => normalizeMessage(msg, 'sent'))
+            : [])
+        );
+        setSentCursor(Object.fromEntries(
+          mailChannels.map((c, i) => [c, pages[i]?.next_cursor || null])
+        ));
         setHasFetchedSent(true);
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsSyncingSent(false));
-  }, [authToken, activeFolder, hasFetchedSent, handleSyncSentEmails, handleLogout, showToast, t]);
+  }, [authToken, activeFolder, hasFetchedSent, handleSyncSentEmails, handleLogout, showToast, t, mailChannels, fetchChannelPage]);
 
   const handleLoadMoreSent = () => {
-    if (!sentCursor || isLoadingMoreSent) return;
+    const active = mailChannels.filter(c => sentCursor?.[c]);
+    if (active.length === 0 || isLoadingMoreSent) return;
     setIsLoadingMoreSent(true);
-    fetch(`${API_URL}/api/graph/mail/sent?cursor=${encodeURIComponent(sentCursor)}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
-      .then(data => {
-        handleAppendSentEmails((data.value || []).map(msg => normalizeMessage(msg, 'sent')));
-        setSentCursor(data.next_cursor || null);
+    Promise.all(active.map(c => fetchChannelPage(c, 'sent', sentCursor[c])))
+      .then(pages => {
+        if (!pages.some(Boolean)) return;
+        handleAppendSentEmails(
+          pages.flatMap(page => page ? (page.value || []).map(msg => normalizeMessage(msg, 'sent')) : [])
+        );
+        const next = emptyCursor();
+        active.forEach((c, i) => { next[c] = pages[i]?.next_cursor || null; });
+        setSentCursor(next);
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsLoadingMoreSent(false));
@@ -175,9 +214,11 @@ export default function EmailPage() {
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
   const [composeAttachments, setComposeAttachments] = useState([]);
+  // Which mailbox sends: 'microsoft' or a bound mail_accounts id.
+  const [composeChannel, setComposeChannel] = useState(MICROSOFT);
   const [isSending, setIsSending] = useState(false);
-  // Set by handleUseDraftAsReply - when present, submit hits Graph's
-  // {id}/reply endpoint (keeps threading) instead of a fresh /send.
+  // Set by handleUseDraftAsReply - when present, submit hits the {id}/reply
+  // endpoint (keeps threading) instead of a fresh /send.
   const [replyToEmailId, setReplyToEmailId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
@@ -278,14 +319,19 @@ export default function EmailPage() {
     const controller = new AbortController();
     setIsSearching(true);
     const timer = setTimeout(() => {
-      fetch(
-        `${API_URL}/api/graph/mail/search?query=${encodeURIComponent(searchQuery)}&folder=${searchGraphFolder}&top=25`,
-        { headers: { Authorization: `Bearer ${authToken}` }, signal: controller.signal }
-      )
-        .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
-        .then(data => {
-          setSearchResults((data.value || []).map(msg => normalizeMessage(msg, activeFolder)));
-          setSearchCursor(data.next_cursor || null);
+      Promise.all(mailChannels.map(c =>
+        fetch(
+          `${mailApiBase(c)}/search?query=${encodeURIComponent(searchQuery)}&folder=${searchGraphFolder}&top=25`,
+          { headers: { Authorization: `Bearer ${authToken}` }, signal: controller.signal }
+        ).then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
+      ))
+        .then(pages => {
+          setSearchResults(
+            pages.flatMap(page => (page.value || []).map(msg => normalizeMessage(msg, activeFolder)))
+          );
+          setSearchCursor(Object.fromEntries(
+            mailChannels.map((c, i) => [c, pages[i]?.next_cursor || null])
+          ));
         })
         .catch(() => {})
         .finally(() => setIsSearching(false));
@@ -294,30 +340,34 @@ export default function EmailPage() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [searchQuery, activeFolder, authToken, searchGraphFolder]);
+  }, [searchQuery, activeFolder, authToken, searchGraphFolder, mailChannels]);
 
   const handleLoadMoreSearch = () => {
-    if (!searchCursor || isLoadingMoreSearch) return;
+    const active = mailChannels.filter(c => searchCursor?.[c]);
+    if (active.length === 0 || isLoadingMoreSearch) return;
     setIsLoadingMoreSearch(true);
     // Graph's $skip pagination is offset-based, so a shifting result set can
     // return an email we already have; capture the query this page belongs to
     // and drop the response if the user has since retyped (avoids mixing old
     // and new results), then dedupe by id on append.
     const forQuery = searchQuery;
-    fetch(`${API_URL}/api/graph/mail/search?cursor=${encodeURIComponent(searchCursor)}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
-      .then(data => {
+    Promise.all(active.map(c =>
+      fetch(`${mailApiBase(c)}/search?cursor=${encodeURIComponent(searchCursor[c])}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
+    ))
+      .then(pages => {
         if (forQuery !== searchQuery) return;
         setSearchResults(prev => {
           const seen = new Set(prev.map(e => e.id));
-          const next = (data.value || [])
+          const next = pages.flatMap(page => (page.value || [])
             .map(msg => normalizeMessage(msg, activeFolder))
-            .filter(e => !seen.has(e.id));
+            .filter(e => !seen.has(e.id)));
           return [...prev, ...next];
         });
-        setSearchCursor(data.next_cursor || null);
+        const next = emptyCursor();
+        active.forEach((c, i) => { next[c] = pages[i]?.next_cursor || null; });
+        setSearchCursor(next);
       })
       .catch(() => {})
       .finally(() => setIsLoadingMoreSearch(false));
@@ -326,12 +376,13 @@ export default function EmailPage() {
   const isSearchMode = Boolean(searchQuery.trim());
   // In search mode keep flat results; in folder mode use the threaded groups.
   const filteredEmails = isSearchMode ? searchResults : threadedEmails;
+  const hasMore = (c) => mailChannels.some(ch => Boolean(c?.[ch]));
   const canLoadMore = isSearchMode
-    ? Boolean(searchCursor)
+    ? hasMore(searchCursor)
     : activeFolder === 'inbox'
-      ? Boolean(inboxCursor)
+      ? hasMore(inboxCursor)
       : activeFolder === 'sent'
-        ? Boolean(sentCursor)
+        ? hasMore(sentCursor)
         : false;
   const isLoadingMore = isSearchMode
     ? isLoadingMoreSearch
@@ -382,13 +433,14 @@ export default function EmailPage() {
         formData.append('attachments', file);
       });
 
+      const sendBase = mailApiBase(composeChannel);
       const res = replyToEmailId
-        ? await fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(replyToEmailId)}/reply`, {
+        ? await fetch(`${sendBase}/${encodeURIComponent(replyToEmailId)}/reply`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${authToken}` },
             body: formData,
           })
-        : await fetch(`${API_URL}/api/graph/mail/send`, {
+        : await fetch(`${sendBase}/send`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${authToken}` },
             body: formData,
@@ -427,7 +479,11 @@ export default function EmailPage() {
       || emails.find(e => e.id === id);
     if (target && !target.isRead && target.parentFolderId === 'inbox') adjustInboxUnread(-1);
     handleDeleteEmail(id);
-    showToast(t('email.movedToTrash'));
+    // IMAP accounts have no trash - deletion is permanent.
+    const isImap = target?.provider && target.provider !== MICROSOFT;
+    showToast(isImap
+      ? (i18n.language === 'zh' ? '邮件已永久删除（IMAP 无回收站）' : 'Email permanently deleted (no trash on IMAP)')
+      : t('email.movedToTrash'));
 
     // Remove from the currently displayed thread; if thread becomes empty, deselect.
     setThreadMessages(prev => {
@@ -436,23 +492,25 @@ export default function EmailPage() {
       return next;
     });
 
-    fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(id)}`, {
+    fetch(`${mailApiBase(target?.provider || MICROSOFT)}/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${authToken}` },
     }).catch(() => {});
   };
 
   const getThreadResource = (threadRow) => {
+    const channel = threadRow.provider || MICROSOFT;
+    const base = mailApiBase(channel);
     if (threadRow.conversationId) {
       return {
-        key: `conversation:${threadRow.conversationId}`,
-        url: `${API_URL}/api/graph/mail/conversation/${encodeURIComponent(threadRow.conversationId)}`,
+        key: `conversation:${channel}:${threadRow.conversationId}`,
+        url: `${base}/conversation/${encodeURIComponent(threadRow.conversationId)}`,
         isConversation: true,
       };
     }
     return {
-      key: `message:${threadRow.id}`,
-      url: `${API_URL}/api/graph/mail/${encodeURIComponent(threadRow.id)}`,
+      key: `message:${channel}:${threadRow.id}`,
+      url: `${base}/${encodeURIComponent(threadRow.id)}`,
       isConversation: false,
     };
   };
@@ -554,10 +612,11 @@ export default function EmailPage() {
     }
 
     const readIds = new Set(unreadInboxIds);
+    const channelById = new Map(emails.map(email => [email.id, email.provider || MICROSOFT]));
     unreadInboxIds.forEach(id => {
       handleMarkEmailRead(id, true);
       adjustInboxUnread(-1);
-      fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(id)}/read`, {
+      fetch(`${mailApiBase(channelById.get(id) || MICROSOFT)}/${encodeURIComponent(id)}/read`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ is_read: true }),
@@ -668,11 +727,20 @@ export default function EmailPage() {
     setComposeSubject(`Re: ${selectedEmail.subject}`);
     setComposeBody(aiDraft);
     setReplyToEmailId(selectedEmail.id);
+    setComposeChannel(selectedEmail.provider || MICROSOFT);
     setIsComposing(true);
   };
 
   return (
     <div className={`email-tab-container ${selectedConvKey ? 'has-selected-thread' : ''}`}>
+      {msDisconnected && (
+        <div className="email-disconnected-banner">
+          <Info size={15} />
+          {i18n.language === 'zh'
+            ? 'Microsoft 邮箱连接已失效，其他邮箱不受影响。可在设置中重新连接。'
+            : 'Microsoft mailbox connection expired. Other mailboxes are unaffected - reconnect in Settings.'}
+        </div>
+      )}
       {/* Email Sidebar */}
       <div className="email-sidebar">
         <button className="compose-btn" onClick={() => { setReplyToEmailId(null); setIsComposing(true); }}>
@@ -965,6 +1033,7 @@ export default function EmailPage() {
                           {msg.hasAttachments && (
                             <EmailAttachments
                               messageId={msg.id}
+                              provider={msg.provider || MICROSOFT}
                               hasAttachments={msg.hasAttachments}
                               authToken={authToken}
                               initialAttachments={msg.attachments}
@@ -1079,6 +1148,20 @@ export default function EmailPage() {
               </button>
             </div>
             <form onSubmit={handleComposeSubmit} className="compose-form">
+              <div className="compose-input-group">
+                <label htmlFor="compose-provider">{i18n.language === 'zh' ? '发送账户' : 'Send from'}:</label>
+                <select
+                  id="compose-provider"
+                  value={composeChannel}
+                  onChange={(e) => setComposeChannel(e.target.value)}
+                  style={{ flex: 1, padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-light)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                >
+                  <option value={MICROSOFT}>{i18n.language === 'zh' ? '微软邮箱 (Outlook)' : 'Microsoft (Outlook)'}</option>
+                  {(mailAccounts || []).map(acc => (
+                    <option key={acc.id} value={acc.id}>{acc.email_address}</option>
+                  ))}
+                </select>
+              </div>
               <div className="compose-input-group">
                 <label htmlFor="compose-to">{t('email.to')}:</label>
                 <input
