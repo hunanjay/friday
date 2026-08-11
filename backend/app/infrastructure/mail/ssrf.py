@@ -51,6 +51,6 @@ def assert_public_host(host: str) -> None:
 
 def validate_override_hosts(imap_host: str | None, smtp_host: str | None) -> None:
     """绑定/更新账号前对自定义服务器地址做 SSRF 校验。"""
-    for label, host in (("IMAP", imap_host), ("SMTP", smtp_host)):
+    for _label, host in (("IMAP", imap_host), ("SMTP", smtp_host)):
         if host:
             assert_public_host(host.strip())
