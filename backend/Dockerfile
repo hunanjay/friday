@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ARG HF_ENDPOINT=https://hf-mirror.com
+
 WORKDIR /app
 
 COPY requirements.txt .
@@ -7,7 +9,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn -r requirements.txt
 
 # FastEmbed normally downloads BM25 on first use. Bake it into the image so a
-# memo request never depends on runtime access to Hugging Face.
+# memo request never depends on runtime access to Hugging Face. The endpoint is
+# a build argument because the production host cannot reach huggingface.co;
+# callers can override it with --build-arg HF_ENDPOINT=...
 ENV FASTEMBED_CACHE_DIR=/opt/fastembed-cache \
     FASTEMBED_LOCAL_FILES_ONLY=true
 RUN mkdir -p "$FASTEMBED_CACHE_DIR" && \
