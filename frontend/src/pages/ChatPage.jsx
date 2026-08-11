@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github } from '../components/common/Icons';
+import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 import ApprovalCard from '../components/common/ApprovalCard';
 import {
@@ -32,6 +32,7 @@ export default function ChatPage() {
   const { t, i18n } = useTranslation();
 
   const [activeThreadId, setActiveThreadId] = useState(null);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   // State updates are asynchronous; this ref closes the small window where a
@@ -513,14 +514,34 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="chat-tab-container">
+    <div className={`chat-tab-container ${activeThreadId ? 'has-active-thread' : ''} ${showMobileSidebar ? 'show-mobile-sidebar' : ''}`}>
       {/* Chat Sidebar */}
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
           <h3>{t('chat.sidebarTitle')}</h3>
-          <button type="button" className="new-session-btn" title={t('chat.newSession')} onClick={handleNewSession}>
-            <Plus size={18} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              className="new-session-btn"
+              title={t('chat.newSession')}
+              onClick={() => {
+                handleNewSession();
+                setShowMobileSidebar(false);
+              }}
+            >
+              <Plus size={18} />
+            </button>
+            {showMobileSidebar && (
+              <button
+                type="button"
+                className="mobile-sidebar-close-btn"
+                onClick={() => setShowMobileSidebar(false)}
+                title={i18n.language === 'zh' ? '关闭' : 'Close'}
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="chat-threads-list">
@@ -534,6 +555,7 @@ export default function ChatPage() {
                 className={`chat-thread-item ${isSelected ? 'selected' : ''}`}
                 onClick={() => {
                   setActiveThreadId(thread.id);
+                  setShowMobileSidebar(false);
                 }}
               >
                 <div className="thread-avatar-container">
@@ -568,6 +590,15 @@ export default function ChatPage() {
         {activeThread ? (
           <>
             <div className="chat-header">
+              <button
+                type="button"
+                className="mobile-chat-back-btn"
+                onClick={() => setShowMobileSidebar(true)}
+                title={i18n.language === 'zh' ? '会话列表' : 'Chats'}
+              >
+                <ChevronLeft size={18} />
+                <span>{i18n.language === 'zh' ? '会话' : 'Chats'}</span>
+              </button>
               <div className="chat-header-info">
                 <h3 className="active-thread-name">{activeThread.title}</h3>
                 <span className="active-thread-desc">{t('chat.aiAssistantDesc')}</span>

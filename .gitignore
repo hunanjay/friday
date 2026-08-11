@@ -225,3 +225,6 @@ __marimo__/
 # Uploaded files
 uploads/
 backend/uploads/
+
+# Personal local artifacts
+/resume.html

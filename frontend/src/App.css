@@ -3975,65 +3975,938 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
-/* Responsive Overrides */
-@media (max-width: 900px) {
+/* ==========================================================================
+   MOBILE & SMALL SCREEN DESIGN SYSTEM
+   ========================================================================== */
+
+/* Hidden by default on Desktop (> 768px) */
+.mobile-top-header,
+.mobile-bottom-nav,
+.mobile-settings-overlay,
+.mobile-email-back-btn,
+.mobile-contacts-back-btn,
+.mobile-chat-back-btn,
+.mobile-sidebar-close-btn,
+.cell-dots-indicator {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Mobile Viewport Rules (max-width: 768px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  /* 1. App Shell Layout */
   .app-workspace {
     flex-direction: column;
-  }
-  .app-sidebar {
+    height: 100vh;
+    height: 100dvh;
     width: 100%;
-    height: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--border-light);
-    flex-direction: row;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .app-sidebar {
+    display: none !important;
+  }
+
+  .app-main-content {
+    flex: 1;
+    height: calc(100dvh - var(--mobile-header-height, 56px) - var(--mobile-nav-height, 60px) - var(--sab, 0px));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    position: relative;
+  }
+
+  /* 2. Mobile Top Header */
+  .mobile-top-header {
+    display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    height: var(--mobile-header-height, 56px);
+    padding: 0 14px;
+    background-color: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-light);
+    flex-shrink: 0;
     z-index: 100;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
   }
-  .sidebar-brand {
-    margin-bottom: 0;
+
+  .mobile-header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
   }
-  .sidebar-nav {
-    flex-direction: row;
-    flex-grow: 0;
-    gap: 2px;
+
+  .mobile-brand-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-sm);
   }
-  .sidebar-footer {
-    display: none; /* Hide bottom panel to keep header clean */
-  }
-  .app-main-content {
-    flex-grow: 1;
-    height: calc(100vh - 65px);
-  }
-  .email-tab-container, .calendar-tab-container, .chat-tab-container {
+
+  .mobile-header-title-group {
+    display: flex;
     flex-direction: column;
+    min-width: 0;
   }
-  .email-sidebar, .calendar-sidebar, .chat-sidebar {
+
+  .mobile-header-appname {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-primary);
+    line-height: 1.1;
+  }
+
+  .mobile-header-current-page {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .mobile-header-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    color: var(--text-secondary);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .mobile-header-icon-btn:active {
+    transform: scale(0.92);
+    background-color: var(--bg-hover);
+  }
+
+  .mobile-user-avatar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-hover) 100%);
+    color: #FFFFFF;
+    font-size: 0.9rem;
+    font-weight: 700;
+    border: 2px solid var(--bg-card);
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast);
+  }
+
+  .mobile-user-avatar-btn:active {
+    transform: scale(0.92);
+  }
+
+  /* 3. Mobile Bottom Navigation Bar */
+  .mobile-bottom-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    height: calc(var(--mobile-nav-height, 60px) + var(--sab, 0px));
+    padding-bottom: var(--sab, 0px);
+    background-color: var(--bg-sidebar);
+    border-top: 1px solid var(--border-light);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 150;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.03);
+  }
+
+  .mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 6px 2px;
+    transition: all var(--transition-fast);
+    position: relative;
+    user-select: none;
+  }
+
+  .mobile-nav-item.active {
+    color: var(--accent-primary);
+  }
+
+  .mobile-nav-item.active .mobile-nav-icon-wrapper {
+    transform: translateY(-2px);
+    color: var(--accent-primary);
+  }
+
+  .mobile-nav-item.active .mobile-nav-label {
+    font-weight: 600;
+    color: var(--accent-primary);
+  }
+
+  .mobile-nav-icon-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 24px;
+    transition: transform var(--transition-fast);
+  }
+
+  .mobile-nav-fluent-icon {
+    width: 22px;
+    height: 22px;
+    display: block;
+  }
+
+  .mobile-nav-badge {
+    position: absolute;
+    top: -4px;
+    right: -8px;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background-color: var(--accent-primary);
+    color: #FFFFFF;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    border: 1.5px solid var(--bg-sidebar);
+  }
+
+  .mobile-nav-label {
+    font-size: 10.5px;
+    margin-top: 2px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    max-width: 100%;
+    line-height: 1.1;
+  }
+
+  /* 4. Mobile Profile & Settings Modal Sheet */
+  .mobile-settings-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .mobile-settings-sheet {
+    background-color: var(--bg-card);
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+    border-top: 1px solid var(--border-light);
+    padding: 12px 18px calc(24px + var(--sab, 0px));
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+    animation: slideUpSheet 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes slideUpSheet {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .mobile-sheet-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background-color: var(--border-medium);
+    margin: 0 auto 16px;
+  }
+
+  .mobile-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 12px;
+  }
+
+  .mobile-sheet-user-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .mobile-sheet-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-hover) 100%);
+    color: #FFFFFF;
+    font-size: 1.2rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-sheet-user-text h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 2px 0;
+  }
+
+  .mobile-sheet-user-text p {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  .mobile-sheet-close-btn {
+    padding: 6px;
+    border-radius: 50%;
+    color: var(--text-muted);
+  }
+
+  .mobile-sheet-menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mobile-sheet-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    background-color: var(--bg-hover);
+    transition: background-color var(--transition-fast);
+    width: 100%;
+    text-align: left;
+  }
+
+  .mobile-sheet-menu-item:active {
+    background-color: var(--border-light);
+  }
+
+  .mobile-sheet-menu-item.logout-item {
+    color: var(--color-urgent);
+    background-color: var(--color-urgent-bg);
+  }
+
+  .mobile-sheet-language-row {
+    padding: 6px 0;
+  }
+
+  .mobile-sheet-divider {
+    height: 1px;
+    background-color: var(--border-light);
+    margin: 8px 0;
+  }
+
+  /* 5. Global Toast Notification Mobile */
+  .global-toast-notification {
+    bottom: calc(var(--mobile-nav-height, 60px) + var(--sab, 0px) + 16px) !important;
+    right: 16px !important;
+    left: 16px !important;
+    max-width: calc(100% - 32px);
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* 6. Email Page Mobile (Master-Detail) */
+  .email-tab-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .email-sidebar {
     width: 100% !important;
     height: auto !important;
     border-right: none !important;
     border-bottom: 1px solid var(--border-light) !important;
-    padding: 12px !important;
+    padding: 10px 12px !important;
     flex-direction: row !important;
-    overflow-x: auto;
+    align-items: center !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    background-color: var(--bg-card) !important;
+    flex-shrink: 0 !important;
   }
-  .email-folders, .upcoming-events, .chat-threads-list {
+
+  .email-folders {
+    display: flex !important;
     flex-direction: row !important;
-    flex-grow: 1;
+    gap: 6px !important;
+    flex: 1 !important;
+    overflow-x: auto !important;
   }
-  .mini-today-card, .upcoming-events h4, .chat-sidebar-header {
-    display: none;
+
+  .folder-item {
+    padding: 6px 12px !important;
+    font-size: 0.82rem !important;
+    white-space: nowrap !important;
+    border-radius: 20px !important;
   }
+
+  .compose-btn {
+    padding: 6px 14px !important;
+    font-size: 0.82rem !important;
+    border-radius: 20px !important;
+    flex-shrink: 0 !important;
+  }
+
   .email-list-panel {
     width: 100% !important;
-    height: 30%;
+    height: 100% !important;
+    flex: 1 !important;
     border-right: none !important;
-    border-bottom: 1px solid var(--border-light) !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
-  .email-reader-panel, .calendar-grid-panel, .chat-main-panel {
-    flex-grow: 1;
-    height: 70%;
+
+  .email-reader-panel {
+    display: none !important;
+  }
+
+  /* When an email is selected on mobile, full-screen the reader */
+  .email-tab-container.has-selected-thread .email-sidebar {
+    display: none !important;
+  }
+
+  .email-tab-container.has-selected-thread .email-list-panel {
+    display: none !important;
+  }
+
+  .email-tab-container.has-selected-thread .email-reader-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    flex: 1 !important;
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 10 !important;
+    background-color: var(--bg-card) !important;
+  }
+
+  .mobile-email-back-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    padding: 6px 10px !important;
+    border-radius: 8px !important;
+    background-color: var(--bg-hover) !important;
+    color: var(--accent-primary) !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    border: 1px solid var(--border-light) !important;
+    margin-right: 8px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .email-detail-column {
+    padding: 16px 14px !important;
+  }
+
+  .email-detail-header {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    padding-bottom: 14px !important;
+  }
+
+  .email-detail-subject-full {
+    font-size: 1.15rem !important;
+  }
+
+  .dora-ai-sidebar-panel {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border-light) !important;
+    position: fixed !important;
+    bottom: calc(var(--mobile-nav-height, 60px) + var(--sab, 0px)) !important;
+    left: 0 !important;
+    right: 0 !important;
+    max-height: 70vh !important;
+    overflow-y: auto !important;
+    background-color: var(--bg-card) !important;
+    box-shadow: var(--shadow-lg) !important;
+    z-index: 60 !important;
+  }
+
+  .compose-modal {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .compose-form {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .compose-body-group {
+    flex: 1 !important;
+  }
+
+  .compose-body-group textarea {
+    height: 100% !important;
+    min-height: 180px !important;
+  }
+
+  /* 7. Contacts Page Mobile (Master-Detail) */
+  .contacts-page-container {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    position: relative !important;
+  }
+
+  .contacts-list-panel {
+    width: 100% !important;
+    height: 100% !important;
+    border-right: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .contacts-detail-panel {
+    display: none !important;
+  }
+
+  .contacts-page-container.has-selected-contact .contacts-list-panel {
+    display: none !important;
+  }
+
+  .contacts-page-container.has-selected-contact .contacts-detail-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    padding: 16px 12px !important;
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 10 !important;
+    background-color: var(--bg-app) !important;
+    overflow-y: auto !important;
+  }
+
+  .mobile-contacts-back-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    padding: 6px 10px !important;
+    border-radius: 8px !important;
+    background-color: var(--bg-card) !important;
+    color: var(--accent-primary) !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    border: 1px solid var(--border-light) !important;
+    flex-shrink: 0 !important;
+    margin-right: 4px !important;
+  }
+
+  .contact-detail-header {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    padding-bottom: 16px !important;
+  }
+
+  .contact-detail-meta h2 {
+    font-size: 1.25rem !important;
+  }
+
+  .contact-info-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .create-contact-modal {
+    width: 95% !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+    padding: 20px 16px !important;
+  }
+
+  /* 8. Chat Page Mobile (Master-Detail) */
+  .chat-tab-container {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    position: relative !important;
+  }
+
+  .chat-sidebar {
+    display: none !important;
+  }
+
+  .chat-main-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    flex: 1 !important;
+  }
+
+  .chat-tab-container.show-mobile-sidebar .chat-sidebar,
+  .chat-tab-container:not(.has-active-thread) .chat-sidebar {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 25 !important;
+    background-color: var(--bg-card) !important;
+  }
+
+  .chat-tab-container.show-mobile-sidebar .chat-main-panel {
+    display: none !important;
+  }
+
+  .mobile-chat-back-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    padding: 6px 10px !important;
+    border-radius: 8px !important;
+    background-color: var(--bg-hover) !important;
+    color: var(--accent-primary) !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    border: 1px solid var(--border-light) !important;
+    margin-right: 8px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .mobile-sidebar-close-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 6px !important;
+    border-radius: 6px !important;
+    color: var(--text-muted) !important;
+  }
+
+  .chat-header {
+    padding: 10px 14px !important;
+  }
+
+  .active-thread-name {
+    font-size: 1rem !important;
+  }
+
+  .chat-messages-area {
+    padding: 14px 12px !important;
+  }
+
+  .message-bubble {
+    max-width: 88% !important;
+    padding: 10px 14px !important;
+    font-size: 0.9rem !important;
+  }
+
+  .chat-input-area {
+    padding: 8px 12px !important;
+    background-color: var(--bg-sidebar) !important;
+    border-top: 1px solid var(--border-light) !important;
+  }
+
+  .agent-slash-menu {
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-height: 220px !important;
+  }
+
+  .approval-card {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+
+  /* 9. Calendar Page Mobile */
+  .calendar-tab-container {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .calendar-grid-panel {
+    width: 100% !important;
+    height: auto !important;
+    padding: 12px 8px !important;
+    order: 1 !important;
+  }
+
+  .calendar-sidebar {
+    width: 100% !important;
+    height: auto !important;
+    border-right: none !important;
+    border-top: 1px solid var(--border-light) !important;
+    padding: 16px 12px !important;
+    order: 2 !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .calendar-header-bar {
+    padding: 4px 6px 10px !important;
+  }
+
+  .calendar-month-year h2 {
+    font-size: 1.15rem !important;
+  }
+
+  .grid-header-cell {
+    padding: 6px 2px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .grid-cell {
+    min-height: 52px !important;
+    padding: 4px 2px !important;
+  }
+
+  .cell-day-num {
+    font-size: 0.78rem !important;
+  }
+
+  .cell-events-container {
+    display: none !important;
+  }
+
+  .cell-dots-indicator {
+    display: flex !important;
+    gap: 3px;
+    justify-content: center;
+    align-items: center;
+    margin-top: 3px;
+    flex-wrap: wrap;
+  }
+
+  .cell-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--accent-primary);
+    display: inline-block;
+  }
+
+  .cell-dot.category-work { background-color: var(--color-work); }
+  .cell-dot.category-personal { background-color: var(--color-personal); }
+  .cell-dot.category-urgent { background-color: var(--color-urgent); }
+  .cell-dot.category-study { background-color: var(--color-study); }
+
+  .cell-dot-more {
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--text-muted);
+    line-height: 1;
+  }
+
+  .calendar-modal {
+    width: 94% !important;
+    max-height: 88vh !important;
+    overflow-y: auto !important;
+    padding: 20px 16px !important;
+  }
+
+  .modal-form .form-row {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .form-group.half {
+    width: 100% !important;
+  }
+
+  /* 10. Memos Page Mobile */
+  .memos-tab-container {
+    padding: 16px 12px calc(24px + var(--sab, 0px)) !important;
+    height: 100% !important;
+    overflow-y: auto !important;
+  }
+
+  .memos-control-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .memos-filter-tabs {
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 4px !important;
+    width: 100% !important;
+  }
+
+  .memo-filter-btn {
+    white-space: nowrap !important;
+    padding: 6px 12px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .memos-actions-wrapper {
+    width: 100% !important;
+    display: flex !important;
+    gap: 8px !important;
+  }
+
+  .memos-search {
+    flex: 1 !important;
+    width: auto !important;
+  }
+
+  .new-memo-btn {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    padding: 8px 12px !important;
+  }
+
+  .memos-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  .memo-card-actions {
+    opacity: 1 !important;
+  }
+
+  .memo-modal {
+    width: 94% !important;
+    max-height: 88vh !important;
+    overflow-y: auto !important;
+    padding: 20px 16px !important;
+  }
+
+  .memo-lightbox-content {
+    width: 96% !important;
+    max-height: 90vh !important;
+  }
+
+  /* 11. Settings Page Mobile */
+  .settings-page-container {
+    padding: 16px 12px calc(24px + var(--sab, 0px)) !important;
+  }
+
+  .settings-layout-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  .settings-card {
+    padding: 16px !important;
+    border-radius: 12px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .settings-card h2 {
+    font-size: 1.05rem !important;
+  }
+
+  /* 12. Login Page Mobile */
+  .login-split-container {
+    flex-direction: column !important;
+    height: 100dvh !important;
+    overflow-y: auto !important;
+  }
+
+  .login-hero-side {
+    padding: 28px 16px 20px !important;
+    flex: none !important;
+  }
+
+  .hero-headline {
+    font-size: 1.5rem !important;
+  }
+
+  .hero-subheadline {
+    font-size: 0.88rem !important;
+    margin-bottom: 16px !important;
+  }
+
+  .hero-features-grid {
+    display: none !important;
+  }
+
+  .login-auth-side {
+    padding: 24px 16px calc(32px + var(--sab, 0px)) !important;
+    flex: 1 !important;
+  }
+
+  .login-form-card {
+    padding: 20px 16px !important;
+  }
+}
+
+/* Extra small devices (max-width: 480px) */
+@media (max-width: 480px) {
+  .mobile-header-current-page {
+    font-size: 0.88rem;
+    max-width: 140px;
+  }
+
+  .mobile-nav-label {
+    font-size: 9.5px;
+  }
+
+  .mobile-nav-icon-wrapper {
+    width: 24px;
+    height: 22px;
+  }
+
+  .category-selector {
+    grid-template-columns: 1fr 1fr !important;
   }
 }
 
