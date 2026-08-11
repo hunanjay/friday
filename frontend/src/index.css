@@ -54,6 +54,14 @@
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Safe Area Insets for Mobile */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --mobile-header-height: 56px;
+  --mobile-nav-height: 60px;
 }
 
 /* Dark Mode Tokens Override */
@@ -111,10 +119,12 @@ body {
   background-color: var(--bg-app);
   color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
   transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
@@ -127,8 +137,8 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -155,6 +165,7 @@ a {
   color: var(--accent-primary);
   text-decoration: none;
   transition: color var(--transition-fast);
+  touch-action: manipulation;
 }
 
 a:hover {
@@ -174,6 +185,13 @@ input, select, textarea {
   transition: all var(--transition-fast);
 }
 
+/* Prevent iOS Safari 16px auto-zoom */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
 input::placeholder, textarea::placeholder {
   color: var(--text-muted);
 }
@@ -183,6 +201,7 @@ button {
   cursor: pointer;
   border: none;
   background: none;
+  touch-action: manipulation;
   transition: all var(--transition-fast);
 }
 

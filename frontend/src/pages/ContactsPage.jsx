@@ -20,6 +20,7 @@ import {
   Heart,
   Briefcase as BusinessIcon,
   Zap,
+  ChevronLeft,
 } from '../components/common/Icons';
 import ChatLogPasteModal from '../components/ChatLogPasteModal';
 
@@ -97,9 +98,10 @@ export default function ContactsPage() {
         const list = Array.isArray(data) ? data : [];
         setContacts(list);
         setSelectedContact(current => {
-          if (!current) return list[0] || null;
+          const isDesktop = typeof window !== 'undefined' && window.innerWidth > 768;
+          if (!current) return isDesktop ? (list[0] || null) : null;
           const updated = list.find(c => c.id === current.id);
-          return updated || list[0] || null;
+          return updated || (isDesktop ? (list[0] || null) : null);
         });
       }
     } catch (err) {
@@ -273,7 +275,7 @@ export default function ContactsPage() {
   }, {});
 
   return (
-    <div className="contacts-page-container">
+    <div className={`contacts-page-container ${selectedContact ? 'has-selected-contact' : ''}`}>
       {/* Left Sidebar Panel */}
       <div className="contacts-list-panel">
         <div className="contacts-header-bar">
@@ -461,6 +463,15 @@ export default function ContactsPage() {
         {selectedContact ? (
           <div className="contact-detail-card">
             <header className="contact-detail-header">
+              <button
+                type="button"
+                className="mobile-contacts-back-btn"
+                onClick={() => setSelectedContact(null)}
+                title={isZh ? '返回联系人列表' : 'Back to contacts'}
+              >
+                <ChevronLeft size={18} />
+                <span>{isZh ? '返回' : 'Back'}</span>
+              </button>
               <div className="contact-detail-avatar-large">{(selectedContact.name?.[0] || 'C').toUpperCase()}</div>
               <div className="contact-detail-meta">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

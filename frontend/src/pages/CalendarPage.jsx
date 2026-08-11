@@ -314,6 +314,17 @@ export default function CalendarPage() {
                 onClick={() => handleCellClick(cell.dateStr)}
               >
                 <span className="cell-day-num">{cell.dayNum}</span>
+                {cellEvents.length > 0 && (
+                  <div className="cell-dots-indicator" aria-hidden="true">
+                    {cellEvents.slice(0, 3).map((ev) => (
+                      <span
+                        key={ev.id}
+                        className={`cell-dot category-${getCleanCategory(ev.categories)}`}
+                      />
+                    ))}
+                    {cellEvents.length > 3 && <span className="cell-dot-more">+{cellEvents.length - 3}</span>}
+                  </div>
+                )}
                 <div className="cell-events-container">
                   {cellEvents.map(event => {
                     const sTime = event.start.dateTime.split('T')[1].substring(0, 5);

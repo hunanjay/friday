@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Mail, Send, Trash, Search, Plus, X, Sparkles } from '../components/common/Icons';
+import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
 import EmailAttachments from '../components/common/EmailAttachments';
 import ApprovalCard from '../components/common/ApprovalCard';
@@ -672,7 +672,7 @@ export default function EmailPage() {
   };
 
   return (
-    <div className="email-tab-container">
+    <div className={`email-tab-container ${selectedConvKey ? 'has-selected-thread' : ''}`}>
       {/* Email Sidebar */}
       <div className="email-sidebar">
         <button className="compose-btn" onClick={() => { setReplyToEmailId(null); setIsComposing(true); }}>
@@ -883,6 +883,15 @@ export default function EmailPage() {
             <div className="email-detail-column">
               {/* Fixed top action bar – always visible regardless of scroll */}
               <div className="email-detail-header">
+                <button
+                  type="button"
+                  className="mobile-email-back-btn"
+                  onClick={() => setSelectedConvKey(null)}
+                  title={i18n.language === 'zh' ? '返回邮件列表' : 'Back to list'}
+                >
+                  <ChevronLeft size={18} />
+                  <span>{i18n.language === 'zh' ? '返回' : 'Back'}</span>
+                </button>
                 <div className="email-detail-meta">
                   <h2 className="email-detail-subject-full" title={threadMessages[0]?.subject}>
                     {threadMessages[0]?.subject}

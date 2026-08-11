@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -23,10 +24,21 @@ def _embedding_model() -> str:
 
 
 _DENSE_SIZE = int(os.environ.get("EMBEDDING_DIMENSIONS", "1536"))
+_SPARSE_MODEL = os.environ.get("SPARSE_EMBEDDING_MODEL", "Qdrant/bm25")
+_SPARSE_CACHE_DIR = os.environ.get("FASTEMBED_CACHE_DIR") or None
+_SPARSE_TIMEOUT_SECONDS = float(os.environ.get("SPARSE_EMBEDDING_TIMEOUT_SECONDS", "5"))
+_SPARSE_ENABLED = os.environ.get("ENABLE_SPARSE_EMBEDDING", "true").lower() in {"1", "true", "yes", "on"}
+_SPARSE_LOCAL_FILES_ONLY = os.environ.get("FASTEMBED_LOCAL_FILES_ONLY", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 _client: AsyncQdrantClient | None = None
 _dense_embedder: OpenAIEmbeddings | None = None
 _sparse_embedder: SparseTextEmbedding | None = None
+_sparse_unavailable = False
 
 
 def _get_client() -> AsyncQdrantClient | None:
@@ -60,7 +72,11 @@ def _get_dense() -> OpenAIEmbeddings:
 def _get_sparse() -> SparseTextEmbedding:
     global _sparse_embedder
     if _sparse_embedder is None:
-        _sparse_embedder = SparseTextEmbedding(model_name="Qdrant/bm25")
+        _sparse_embedder = SparseTextEmbedding(
+            model_name=_SPARSE_MODEL,
+            cache_dir=_SPARSE_CACHE_DIR,
+            local_files_only=_SPARSE_LOCAL_FILES_ONLY,
+        )
     return _sparse_embedder
 
 
@@ -79,6 +95,32 @@ def _memo_text(title: str, content: str, attachments: list | None = None) -> str
 def _sparse_vector(text: str) -> models.SparseVector:
     embedding = next(iter(_get_sparse().embed([text])))
     return models.SparseVector(indices=embedding.indices.tolist(), values=embedding.values.tolist())
+
+
+async def _try_sparse_vector(text: str) -> models.SparseVector | None:
+    """Build a sparse vector without letting model I/O block user requests.
+
+    FastEmbed downloads a missing model during initialisation. Production images
+    preload the model and run in local-only mode, but this fallback keeps memo
+    writes and searches usable if the cache is ever missing or corrupt.
+    """
+    global _sparse_unavailable
+
+    if not _SPARSE_ENABLED or _sparse_unavailable:
+        return None
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_sparse_vector, text),
+            timeout=_SPARSE_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        _sparse_unavailable = True
+        logger.warning(
+            "Sparse embedding unavailable; using dense-only vectors for this process",
+            exc_info=True,
+        )
+        return None
 
 
 async def init_collection():
@@ -110,12 +152,16 @@ async def upsert_memo(
         raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
     text = _memo_text(title, content, attachments)
     dense_vec = await _get_dense().aembed_query(text)
+    vectors: dict[str, list[float] | models.SparseVector] = {"dense": dense_vec}
+    sparse_vec = await _try_sparse_vector(text)
+    if sparse_vec is not None:
+        vectors["bm25"] = sparse_vec
     await client.upsert(
         collection_name=COLLECTION,
         points=[
             models.PointStruct(
                 id=memo_id,
-                vector={"dense": dense_vec, "bm25": _sparse_vector(text)},
+                vector=vectors,
                 payload={
                     "user_id": user_id,
                     "title": title,
@@ -145,22 +191,24 @@ async def search_memos(user_id: str, query: str, limit: int = 5) -> list[dict]:
         dense_vec = await _get_dense().aembed_query(query)
         user_filter = models.Filter(must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))])
 
-        points = []
-        # 1. Try Hybrid Fusion Query (RRF)
-        try:
-            result = await client.query_points(
-                collection_name=COLLECTION,
-                prefetch=[
-                    models.Prefetch(query=dense_vec, using="dense", limit=20, filter=user_filter),
-                    models.Prefetch(query=_sparse_vector(query), using="bm25", limit=20, filter=user_filter),
-                ],
-                query=models.FusionQuery(fusion=models.Fusion.RRF),
-                limit=limit,
-            )
-            points = result.points
-        except Exception as err:
-            logger.warning("Qdrant RRF query_points failed, falling back to dense search: %s", err)
-            # 2. Fallback to standard dense search
+        points = None
+        sparse_vec = await _try_sparse_vector(query)
+        if sparse_vec is not None:
+            try:
+                result = await client.query_points(
+                    collection_name=COLLECTION,
+                    prefetch=[
+                        models.Prefetch(query=dense_vec, using="dense", limit=20, filter=user_filter),
+                        models.Prefetch(query=sparse_vec, using="bm25", limit=20, filter=user_filter),
+                    ],
+                    query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    limit=limit,
+                )
+                points = result.points
+            except Exception as err:
+                logger.warning("Qdrant RRF query_points failed, falling back to dense search: %s", err)
+
+        if points is None:
             points = await client.search(
                 collection_name=COLLECTION,
                 query_vector=("dense", dense_vec),

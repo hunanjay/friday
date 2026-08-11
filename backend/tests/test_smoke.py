@@ -731,6 +731,23 @@ check(
     'return "embedding-3" if "bigmodel.cn" in base_url' in qdrant_source
     and 'EMBEDDING_DIMENSIONS", "1536"' in qdrant_source,
 )
+check(
+    "sparse embedding runs off the event loop with a timeout",
+    "asyncio.to_thread(_sparse_vector" in qdrant_source and "asyncio.wait_for(" in qdrant_source,
+)
+check(
+    "memo indexing falls back to dense-only vectors",
+    'vectors: dict[str, list[float] | models.SparseVector] = {"dense": dense_vec}' in qdrant_source
+    and 'vectors["bm25"] = sparse_vec' in qdrant_source,
+)
+
+dockerfile_source = (backend_dir / "Dockerfile").read_text()
+check(
+    "backend image preloads Qdrant/bm25 for local-only runtime use",
+    "Qdrant/bm25" in dockerfile_source
+    and "FASTEMBED_CACHE_DIR" in dockerfile_source
+    and "FASTEMBED_LOCAL_FILES_ONLY=true" in dockerfile_source,
+)
 
 
 # ---------------------------------------------------------------------------
