@@ -62,23 +62,29 @@ async def _verify_imap_smtp(provider: str, account: str, username: str, auth_cod
             detail="IMAP 连接验证失败：账号/授权码错误，或服务器配置不正确",
         )
 
-    # SMTP 验证：仅认证（login），不发送任何邮件
+    # SMTP 验证：仅认证（login），不发送任何邮件。
+    # 注意：aiosmtplib 没有顶层 login() - 先 connect 再 client.login()。
     if settings["smtp_host"]:
+        smtp_client = aiosmtplib.SMTP(
+            hostname=settings["smtp_host"],
+            port=settings["smtp_port"],
+            use_tls=settings["smtp_security"] == "ssl",
+            start_tls=settings["smtp_security"] == "starttls",
+            timeout=15,
+        )
         try:
-            await aiosmtplib.login(
-                hostname=settings["smtp_host"],
-                port=settings["smtp_port"],
-                username=username or account,
-                password=auth_code,
-                use_tls=settings["smtp_security"] == "ssl",
-                start_tls=settings["smtp_security"] == "starttls",
-                timeout=15,
-            )
+            await smtp_client.connect()
+            await smtp_client.login(username or account, auth_code)
         except Exception:
             raise HTTPException(
                 status_code=400,
                 detail="SMTP 连接验证失败：账号/授权码错误，或服务器配置不正确（发送功能将不可用）",
             )
+        finally:
+            try:
+                smtp_client.close()
+            except Exception:
+                pass
 
 
 @router.post("/mail-accounts")
