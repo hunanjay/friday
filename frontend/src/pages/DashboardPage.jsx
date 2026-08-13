@@ -487,7 +487,7 @@ export default function DashboardPage() {
     }))
       .then(pages => {
         if (!active) return;
-        const normalized = pages.flatMap(page => (page.value || []).map(msg => ({
+        const normalized = pages.flatMap((page, i) => (page.value || []).map(msg => ({
           id: msg.id,
           subject: msg.subject,
           bodyPreview: msg.bodyPreview,
@@ -499,6 +499,9 @@ export default function DashboardPage() {
           parentFolderId: 'inbox',
           conversationId: msg.conversationId || null,
           hasAttachments: Boolean(msg.hasAttachments),
+          // Needed so EmailPage can route thread/read/delete to the right
+          // provider; defaults to microsoft for Graph-shaped messages.
+          provider: msg.provider || (channels[i] === MICROSOFT ? 'microsoft' : 'imap'),
         })));
         handleSyncInboxEmails(normalized);
       })
