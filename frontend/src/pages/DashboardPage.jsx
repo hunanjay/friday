@@ -499,9 +499,12 @@ export default function DashboardPage() {
           parentFolderId: 'inbox',
           conversationId: msg.conversationId || null,
           hasAttachments: Boolean(msg.hasAttachments),
-          // Needed so EmailPage can route thread/read/delete to the right
-          // provider; defaults to microsoft for Graph-shaped messages.
-          provider: msg.provider || (channels[i] === MICROSOFT ? 'microsoft' : 'imap'),
+          // Same channel semantics as EmailPage.normalizeMessage: IMAP ids are
+          // "imap:{accountId}:{mailbox}:{uid}", so provider carries the
+          // mail_accounts id (not the literal "imap") for URL routing.
+          provider: msg.provider === 'imap' && msg.id?.startsWith('imap:')
+            ? msg.id.split(':')[1]
+            : MICROSOFT,
         })));
         handleSyncInboxEmails(normalized);
       })
