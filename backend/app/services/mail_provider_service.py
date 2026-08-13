@@ -162,7 +162,11 @@ def _search_sync(settings: dict, mailbox_alias: str, query: str, unread_only: bo
 
 
 def _thread_sync(settings: dict, thread_key: str):
-    """扫描 INBOX + Sent 全部头部，收集属于该线程键的邮件（时间升序）。"""
+    """扫描 INBOX + Sent，收集属于该线程键的邮件（时间升序）。
+
+    两遍拉取：先 BODY.PEEK[HEADER] 匹配线程键（便宜），再对匹配的
+    UID 拉完整 BODY.PEEK[]——否则正文永远为空。
+    """
     client = connect(
         settings["imap_host"], settings["imap_port"], settings["imap_security"],
         settings["username"], settings["credential"], timeout=30,
@@ -179,16 +183,31 @@ def _thread_sync(settings: dict, thread_key: str):
             if not uids:
                 continue
             headers = client.fetch(uids, ["BODY.PEEK[HEADER]", "FLAGS"])
+            matched = []
+            flags_by_uid = {}
             for uid in uids:
                 data = headers.get(uid, {})
                 raw = data.get(b"BODY[HEADER]") or data.get("BODY[HEADER]")
                 if not raw:
                     continue
-                flags = data.get(b"FLAGS") or data.get("FLAGS") or ()
+                flags_by_uid[uid] = data.get(b"FLAGS") or data.get("FLAGS") or ()
+                # header-only 转换：body 为空不影响 conversationId 匹配
+                message = to_graph_message(raw, account_id, actual, uid, set(), full=False)
+                if message["conversationId"] == thread_key:
+                    matched.append(uid)
+            if not matched:
+                continue
+            # 第二遍：对匹配的 UID 拉完整正文
+            full_map = client.fetch(matched, ["BODY.PEEK[]", "FLAGS"])
+            for uid in matched:
+                data = full_map.get(uid, {})
+                raw = data.get(b"BODY[]") or data.get("BODY[]")
+                if not raw:
+                    continue
+                flags = data.get(b"FLAGS") or flags_by_uid.get(uid) or ()
                 message = to_graph_message(raw, account_id, actual, uid, set(), full=True)
                 message["isRead"] = b"\\Seen" in flags
-                if message["conversationId"] == thread_key:
-                    results.append(message)
+                results.append(message)
     finally:
         try:
             client.logout()

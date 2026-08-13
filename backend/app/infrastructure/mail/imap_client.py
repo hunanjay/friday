@@ -9,8 +9,9 @@ import imapclient
 
 _MAILBOX_ALIASES = {
     "INBOX": "INBOX",
-    "Sent": ("Sent", "已发送", "Sent Items"),
-    "Trash": ("Trash", "已删除", "Deleted Items", "Deleted"),
+    # QQ 邮箱的已发送叫 "Sent Messages"，163 叫 "已发送" - 全部兜底
+    "Sent": ("Sent", "已发送", "已发送文件夹", "Sent Items", "Sent Messages"),
+    "Trash": ("Trash", "已删除", "Deleted Items", "Deleted", "Deleted Messages", "已删除文件夹"),
     "Drafts": ("Drafts", "草稿箱", "Draft"),
     "Junk": ("Junk", "垃圾邮件", "Spam"),
     "Archive": ("Archive", "归档", "All Mail"),
