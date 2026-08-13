@@ -295,10 +295,18 @@ def _download_sync(settings: dict, mailbox: str, uid: int, attachment_id: str):
             raise HTTPException(status_code=404, detail="邮件不存在或已被删除")
         import email
         msg = email.message_from_bytes(raw)
-        parts = [p for p in msg.walk() if p.get_filename() and p.get_content_maintype() != "multipart"]
-        try:
-            part = parts[int(attachment_id)]
-        except (ValueError, IndexError):
+        # 附件 id 是 converter 里 msg.walk() 的全局序号（含正文 part），
+        # 这里必须用同一个序号定位，不能对过滤后的列表取索引。
+        part = None
+        for idx, candidate in enumerate(msg.walk()):
+            if candidate.get_content_maintype() == "multipart":
+                continue
+            if not candidate.get_filename():
+                continue
+            if str(idx) == attachment_id:
+                part = candidate
+                break
+        if part is None:
             raise HTTPException(status_code=404, detail="附件不存在")
         payload = part.get_payload(decode=True) or b""
         return {
