@@ -506,7 +506,8 @@ export default function DashboardPage() {
       .finally(() => { if (active) setIsEmailsLoading(false); });
 
     return () => { active = false; };
-  }, [authToken, handleSyncInboxEmails, retryKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken, handleSyncInboxEmails, retryKey, mailAccounts]);
 
   // ── Fetch Calendar ───────────────────────────────────────────────────────
   useEffect(() => {
