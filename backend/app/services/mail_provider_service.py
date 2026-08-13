@@ -8,7 +8,6 @@ resolve_provider_settings 合并预设/覆盖 → 建连 → 操作 → logout�
 IMAP 是同步库，全部包 run_in_threadpool；SMTP 用 aiosmtplib 异步。
 """
 
-import imapclient
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
@@ -248,9 +247,9 @@ def _mark_read_sync(settings: dict, mailbox: str, uid: int, is_read: bool):
     try:
         select_mailbox(client, mailbox)
         if is_read:
-            client.add_flags([uid], [imapclient.IMAPClient.SEEN])
+            client.add_flags([uid], [r'\Seen'])
         else:
-            client.remove_flags([uid], [imapclient.IMAPClient.SEEN])
+            client.remove_flags([uid], [r'\Seen'])
         return {"status": "ok"}
     finally:
         try:
@@ -339,7 +338,7 @@ def _append_sent_sync(settings: dict, raw_message: bytes):
     )
     try:
         sent_folder = select_mailbox(client, "Sent")
-        client.append(sent_folder, raw_message, flags=[imapclient.IMAPClient.SEEN])
+        client.append(sent_folder, raw_message, flags=[r'\Seen'])
     finally:
         try:
             client.logout()
@@ -486,6 +485,7 @@ class MailProviderService:
             await send_mail(
                 settings["smtp_host"], settings["smtp_port"], settings["smtp_security"],
                 settings["username"], settings["credential"], raw,
+                sender=settings["email_address"], recipients=[to],
             )
         except Exception as exc:
             raise HTTPException(
@@ -529,9 +529,11 @@ class MailProviderService:
             in_reply_to=original_msg_id,
         )
         try:
+            reply_to = (original.get("Reply-To") or original.get("From") or "").strip()
             await send_mail(
                 settings["smtp_host"], settings["smtp_port"], settings["smtp_security"],
                 settings["username"], settings["credential"], raw_reply,
+                sender=settings["email_address"], recipients=[reply_to],
             )
         except Exception as exc:
             raise HTTPException(

@@ -63,8 +63,14 @@ async def send_mail(
     username: str,
     password: str,
     raw_message: bytes,
+    sender: str,
+    recipients: list[str],
 ) -> None:
-    """通过 SMTP 发送。失败抛异常（由调用方转 HTTP 错误）。"""
+    """通过 SMTP 发送。失败抛异常（由调用方转 HTTP 错误）。
+
+    注意：aiosmtplib 发送原始 bytes 消息时必须显式提供 sender 和
+    recipients（无法从原始消息解析，否则抛 ValueError）。
+    """
     use_tls = security == "ssl"
     start_tls = security == "starttls"
     await aiosmtplib.send(
@@ -75,4 +81,6 @@ async def send_mail(
         password=password,
         use_tls=use_tls,
         start_tls=start_tls,
+        sender=sender,
+        recipients=recipients,
     )
