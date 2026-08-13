@@ -132,10 +132,13 @@ export default function EmailPage() {
     return res.json();
   }, [handleLogout]);
 
-  useEffect(() => {
-    if (!hasAuthToken) return;
+  // Re-sync the inbox across all channels. Exposed so the compose flow can
+  // refresh after a send - otherwise newly received mail only appears after a
+  // manual page reload.
+  const syncInbox = useCallback(() => {
+    if (!hasAuthToken) return Promise.resolve();
     setIsSyncingInbox(true);
-    Promise.all(mailChannels.map(c => fetchChannelPage(c, 'inbox')))
+    return Promise.all(mailChannels.map(c => fetchChannelPage(c, 'inbox')))
       .then(pages => {
         if (!pages.some(Boolean)) return;
         handleSyncInboxEmails(
@@ -149,7 +152,12 @@ export default function EmailPage() {
       })
       .catch(() => showToast(t('email.syncFailed')))
       .finally(() => setIsSyncingInbox(false));
-  }, [hasAuthToken, t, showToast, setIsSyncingInbox, handleSyncInboxEmails, handleLogout, mailChannels, fetchChannelPage]);
+  }, [hasAuthToken, mailChannels, fetchChannelPage, handleSyncInboxEmails, showToast, t, setIsSyncingInbox]);
+
+  useEffect(() => {
+    if (!hasAuthToken) return;
+    syncInbox();
+  }, [hasAuthToken, syncInbox]);
 
   const handleLoadMoreInbox = () => {
     const active = mailChannels.filter(c => inboxCursor?.[c]);
@@ -458,6 +466,9 @@ export default function EmailPage() {
       // Refresh the sent list so the real Graph message (with its true ID)
       // appears immediately, rather than an optimistic local stub.
       setHasFetchedSent(false);
+      // Refresh the inbox too - a sent email may bounce back or the recipient
+      // may reply instantly; without this the inbox only updates on reload.
+      syncInbox();
       setIsComposing(false);
       setReplyToEmailId(null);
       setComposeTo('');
