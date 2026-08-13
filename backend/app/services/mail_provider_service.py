@@ -309,10 +309,13 @@ def _download_sync(settings: dict, mailbox: str, uid: int, attachment_id: str):
         if part is None:
             raise HTTPException(status_code=404, detail="附件不存在")
         payload = part.get_payload(decode=True) or b""
+        # HTTP 头只允许 latin-1：中文文件名必须用 RFC 5987 filename*=
+        from urllib.parse import quote
+        filename = part.get_filename() or "attachment"
         return {
             "content": payload,
             "content_type": part.get_content_type() or "application/octet-stream",
-            "content_disposition": part.get_filename() and f'attachment; filename="{part.get_filename()}"',
+            "content_disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
         }
     finally:
         try:
