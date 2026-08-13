@@ -6,11 +6,18 @@ const PREFETCH_MAX_BYTES = 1024 * 1024;
 const attachmentRequests = new Map();
 const attachmentDownloadRequests = new Map();
 
-const loadAttachments = (messageId, authToken) => {
+// 附件接口按 provider 路由：微软走 /api/graph/mail/{id}/attachments，
+// IMAP 账号走 /api/mail/{id}/attachments（email_id 自带 account_id）。
+const attachmentBase = (messageId, provider) =>
+  provider === 'imap'
+    ? `${API_URL}/api/mail/${encodeURIComponent(messageId)}/attachments`
+    : `${API_URL}/api/graph/mail/${encodeURIComponent(messageId)}/attachments`;
+
+const loadAttachments = (messageId, provider, authToken) => {
   const existingRequest = attachmentRequests.get(messageId);
   if (existingRequest) return existingRequest;
 
-  const request = fetch(`${API_URL}/api/graph/mail/${encodeURIComponent(messageId)}/attachments`, {
+  const request = fetch(`${attachmentBase(messageId, provider)}`, {
     headers: { Authorization: `Bearer ${authToken}` },
   })
     .then(res => {
@@ -23,13 +30,13 @@ const loadAttachments = (messageId, authToken) => {
   return request;
 };
 
-const loadAttachmentBlob = (messageId, attachmentId, authToken) => {
+const loadAttachmentBlob = (messageId, attachmentId, provider, authToken) => {
   const requestKey = `${messageId}:${attachmentId}`;
   const existingRequest = attachmentDownloadRequests.get(requestKey);
   if (existingRequest) return existingRequest;
 
   const request = fetch(
-    `${API_URL}/api/graph/mail/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/download`,
+    `${attachmentBase(messageId, provider)}/${encodeURIComponent(attachmentId)}/download`,
     { headers: { Authorization: `Bearer ${authToken}` } }
   )
     .then(res => {
@@ -42,7 +49,7 @@ const loadAttachmentBlob = (messageId, attachmentId, authToken) => {
   return request;
 };
 
-const EmailAttachments = ({ messageId, hasAttachments, authToken, initialAttachments }) => {
+const EmailAttachments = ({ messageId, hasAttachments, authToken, initialAttachments, provider }) => {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const prefetchedBlobsRef = useRef(new Map());
@@ -62,7 +69,7 @@ const EmailAttachments = ({ messageId, hasAttachments, authToken, initialAttachm
       setLoading(false);
     } else {
       setLoading(true);
-      loadAttachments(messageId, authToken)
+      loadAttachments(messageId, provider, authToken)
         .then(data => applyAttachments(data.value || []))
         .catch(console.error)
         .finally(() => {
@@ -73,7 +80,7 @@ const EmailAttachments = ({ messageId, hasAttachments, authToken, initialAttachm
     return () => {
       active = false;
     };
-  }, [messageId, hasAttachments, authToken, initialAttachments]);
+  }, [messageId, hasAttachments, authToken, initialAttachments, provider]);
 
   if (!hasAttachments) return null;
 
@@ -83,7 +90,7 @@ const EmailAttachments = ({ messageId, hasAttachments, authToken, initialAttachm
       || prefetchedBlobsRef.current.has(attachment.id)
     ) return;
 
-    loadAttachmentBlob(messageId, attachment.id, authToken)
+    loadAttachmentBlob(messageId, attachment.id, provider, authToken)
       .then(blob => prefetchedBlobsRef.current.set(attachment.id, blob))
       .catch(() => {
         // Prefetch is opportunistic; clicking retries if it failed.
@@ -93,7 +100,7 @@ const EmailAttachments = ({ messageId, hasAttachments, authToken, initialAttachm
   const handleDownload = async (attachment) => {
     try {
       const blob = prefetchedBlobsRef.current.get(attachment.id)
-        || await loadAttachmentBlob(messageId, attachment.id, authToken);
+        || await loadAttachmentBlob(messageId, attachment.id, provider, authToken);
       prefetchedBlobsRef.current.set(attachment.id, blob);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');

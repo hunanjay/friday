@@ -435,7 +435,7 @@ export default function EmailPage() {
 
       const sendBase = mailApiBase(composeChannel);
       const res = replyToEmailId
-        ? await fetch(`${sendBase}/${encodeURIComponent(replyToEmailId)}/reply`, {
+        ? await fetch(`${API_URL}/api/mail/${encodeURIComponent(replyToEmailId)}/reply`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${authToken}` },
             body: formData,
@@ -492,7 +492,7 @@ export default function EmailPage() {
       return next;
     });
 
-    fetch(`${mailApiBase(target?.provider || MICROSOFT)}/${encodeURIComponent(id)}`, {
+    fetch(`${API_URL}/api/mail/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${authToken}` },
     }).catch(() => {});
@@ -500,17 +500,18 @@ export default function EmailPage() {
 
   const getThreadResource = (threadRow) => {
     const channel = threadRow.provider || MICROSOFT;
-    const base = mailApiBase(channel);
     if (threadRow.conversationId) {
       return {
         key: `conversation:${channel}:${threadRow.conversationId}`,
-        url: `${base}/conversation/${encodeURIComponent(threadRow.conversationId)}`,
+        url: `${mailApiBase(channel)}/conversation/${encodeURIComponent(threadRow.conversationId)}`,
         isConversation: true,
       };
     }
+    // Single message: email id already carries the account (imap:{account}:{mailbox}:{uid}),
+    // so it routes through /api/mail/{email_id} - no account prefix needed.
     return {
       key: `message:${channel}:${threadRow.id}`,
-      url: `${base}/${encodeURIComponent(threadRow.id)}`,
+      url: `${API_URL}/api/mail/${encodeURIComponent(threadRow.id)}`,
       isConversation: false,
     };
   };
@@ -612,11 +613,10 @@ export default function EmailPage() {
     }
 
     const readIds = new Set(unreadInboxIds);
-    const channelById = new Map(emails.map(email => [email.id, email.provider || MICROSOFT]));
     unreadInboxIds.forEach(id => {
       handleMarkEmailRead(id, true);
       adjustInboxUnread(-1);
-      fetch(`${mailApiBase(channelById.get(id) || MICROSOFT)}/${encodeURIComponent(id)}/read`, {
+      fetch(`${API_URL}/api/mail/${encodeURIComponent(id)}/read`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ is_read: true }),
