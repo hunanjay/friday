@@ -332,6 +332,16 @@ export function WorkspaceProvider({ children }) {
     setMailAccounts(prev => prev.filter(a => a.id !== accountId));
   }, [authToken]);
 
+  // Re-fetch the account list. BindMailAccountModal performs its own POST, so
+  // after a successful bind we refresh here instead of duplicating the call.
+  const handleRefreshMailAccounts = useCallback(async () => {
+    const res = await fetch(`${API_URL}/api/mail-accounts`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    const data = await res.json().catch(() => ({ accounts: [] }));
+    setMailAccounts(data.accounts || []);
+  }, [authToken]);
+
   const handleVerifyMailAccount = useCallback(async (accountId) => {
     const res = await fetch(`${API_URL}/api/mail-accounts/${accountId}/verify`, {
       method: 'POST',
@@ -523,6 +533,7 @@ export function WorkspaceProvider({ children }) {
         handleBindMailAccount,
         handleUnbindMailAccount,
         handleVerifyMailAccount,
+        handleRefreshMailAccounts,
         msDisconnected,
         githubStatus,
         handleConnectGithub,

@@ -73,6 +73,7 @@ export default function SettingsPage() {
     mailAccounts,
     handleUnbindMailAccount,
     handleVerifyMailAccount,
+    handleRefreshMailAccounts,
     showToast,
   } = useWorkspace();
 
@@ -461,7 +462,10 @@ export default function SettingsPage() {
         isOpen={showBindMail}
         onClose={() => setShowBindMail(false)}
         authToken={authToken}
-        onBound={() => showToast(i18n.language === 'zh' ? '邮箱绑定成功' : 'Mail account bound')}
+        onBound={() => {
+          showToast(i18n.language === 'zh' ? '邮箱绑定成功' : 'Mail account bound');
+          handleRefreshMailAccounts();
+        }}
         isZh={isZh}
       />
       {selectedCommit && (
