@@ -137,8 +137,15 @@ def to_graph_message(raw: bytes, account_id: str, mailbox: str, uid: int, seen_i
         seen_ids.add(msg_id)
 
     html, plain = _body_parts(msg)
-    preview_src = html or plain or ""
-    preview = " ".join(preview_src.split())[:_PREVIEW_CHARS]
+    if html:
+        # HTML 需要剥成纯文本做预览，直接截原始 HTML 会显示标签源码
+        extractor = _TextExtractor()
+        extractor.feed(html)
+        preview = extractor.text()[:_PREVIEW_CHARS]
+    elif plain:
+        preview = " ".join(plain.split())[:_PREVIEW_CHARS]
+    else:
+        preview = ""
 
     attachments = _get_attachments(msg)
 
