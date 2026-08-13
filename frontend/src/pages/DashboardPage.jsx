@@ -487,7 +487,7 @@ export default function DashboardPage() {
     }))
       .then(pages => {
         if (!active) return;
-        const normalized = pages.flatMap((page, i) => (page.value || []).map(msg => ({
+        const normalized = pages.flatMap(page => (page.value || []).map(msg => ({
           id: msg.id,
           subject: msg.subject,
           bodyPreview: msg.bodyPreview,
