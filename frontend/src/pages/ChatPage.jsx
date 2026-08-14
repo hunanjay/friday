@@ -90,7 +90,7 @@ export default function ChatPage() {
     const q = mentionQuery;
     setIsLoadingContacts(true);
     const timer = setTimeout(() => {
-      fetch(`${API_URL}/api/graph/contacts?query=${encodeURIComponent(q)}`, {
+      fetch(`${API_URL}/api/contacts?query=${encodeURIComponent(q)}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       })
         .then((res) => (res.ok ? res.json() : []))
