@@ -10,7 +10,7 @@ from langgraph.graph import START
 from langgraph_supervisor import create_handoff_tool, create_supervisor
 
 from app.agents.checkpointer import get_checkpointer
-from app.agents.context import RequireMemosToolMiddleware, ScopedContextMiddleware
+from app.agents.context import RequireMemosToolMiddleware, ScopedContextMiddleware, verify_memo_claims
 from app.agents.hitl import make_hitl_middleware
 from app.agents.routing import AGENT_NAMES
 from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
@@ -167,6 +167,12 @@ def build_agent(
                 "When recording a casual memory fact, use record_contact_fact. "
                 "Every contact fact returned by search_contacts carries a 'source:' marker — cite it when you state the fact, "
                 "and never invent a contact fact that the tool did not return. "
+                "When the user asks you to send something they already wrote down - their "
+                "日报/daily report, notes, a summary - call search_memos FIRST and build the "
+                "email body from what it returns. Never send a placeholder body such as "
+                "'please find the report attached': you cannot attach anything, so the "
+                "report text itself must be in the body. If search_memos finds nothing, say "
+                "so and ask, instead of inventing content. "
                 "For emails: listing, searching, and reading messages, "
                 "show subjects as the provided internal Friday links; in user-visible email lists, "
                 "show the linked subject, sender, preview, and date when available, but never expose "
@@ -287,6 +293,7 @@ def build_supervisor(
         model=model,
         tools=handoff_tools,
         pre_model_hook=_trim_history,
+        post_model_hook=verify_memo_claims,
         prompt=(
             f"You are {assistant_name}, the user's assistant. Mention your name only "
             f"when the user asks who you are. Never reply with your name by itself - "

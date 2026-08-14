@@ -97,6 +97,11 @@ check(
     "memo complaint is not mistaken for a write request",
     decide_route("好像没有记录诶").uses_supervisor,
 )
+memo_add = decide_route("帮我加到memos中")
+check(
+    "'加到memos' phrasing routes directly to memos agent",
+    memo_add.agent_name == "memos_agent" and memo_add.source == "memo_write",
+)
 
 unknown = decide_route("/unknown_agent do something")
 check("unknown slash command remains a supervisor request", unknown.uses_supervisor and unknown.message.startswith("/unknown_agent"))
@@ -559,16 +564,38 @@ def _returned_tool_names(builder_name: str) -> set[str]:
     returns = [node for node in builder.body if isinstance(node, ast.Return)]
     if not returns or not isinstance(returns[-1].value, ast.List):
         return set()
-    return {
-        element.id
-        for element in returns[-1].value.elts
-        if isinstance(element, ast.Name)
-    }
+    names = set()
+    for element in returns[-1].value.elts:
+        if isinstance(element, ast.Name):
+            names.add(element.id)
+        # Shared tools are returned as factory calls, e.g.
+        # _make_search_memos_tool(user_id) -> the "search_memos" tool.
+        elif isinstance(element, ast.Call) and isinstance(element.func, ast.Name):
+            factory = element.func.id
+            if factory.startswith("_make_") and factory.endswith("_tool"):
+                names.add(factory[len("_make_"):-len("_tool")])
+    return names
 
 
 check(
     "mail agent exposes search_contacts",
     "search_contacts" in _returned_tool_names("make_mail_tools"),
+)
+# "Send him my daily report" is a mail task whose content lives in memos, and
+# the email-send routing bypass means mail_agent handles that turn alone.
+check(
+    "mail agent can read memos so it can quote what the user wrote down",
+    "search_memos" in _returned_tool_names("make_mail_tools"),
+)
+check(
+    "memos agent still exposes its own read and write tools",
+    {"list_memos", "search_memos", "create_memo"} <= _returned_tool_names("make_memos_tools"),
+)
+from app.agents.context import _AGENT_TOOLS  # noqa: E402
+
+check(
+    "mail agent context treats memo lookups as relevant mail history",
+    "search_memos" in _AGENT_TOOLS["mail_agent"],
 )
 check(
     "calendar agent exposes deterministic single-day lookup",
@@ -626,10 +653,18 @@ from app.agents.context import make_agent_context_hook, memo_tool_choice  # noqa
 mail_context = make_agent_context_hook("mail_agent")(
     {
         "messages": [
+            # Old, off-domain: dropped.
             HumanMessage(content="安排明天的日历会议"),
             AIMessage(content="日历已安排"),
+            HumanMessage(content="讲个笑话"),
+            AIMessage(content="这是一个笑话"),
+            # Old but on-domain: kept by keyword/tool relevance.
             HumanMessage(content="帮我看邮箱"),
             AIMessage(content="邮箱中有两封未读邮件"),
+            # Immediately prior, off-domain: kept because the user is most
+            # likely referring to it - "send that to him" needs this text.
+            HumanMessage(content="生成 8 月 4 日的日报"),
+            AIMessage(name="github_agent", content="日报正文：完成了路由改造"),
             HumanMessage(content="最新一封是什么？"),
             AIMessage(content="", tool_calls=[{"name": "list_inbox", "args": {}, "id": "call-1"}]),
             ToolMessage(content="subject=Launch update", tool_call_id="call-1", name="list_inbox"),
@@ -637,16 +672,27 @@ mail_context = make_agent_context_hook("mail_agent")(
     }
 )["llm_input_messages"]
 mail_context_text = "\n".join(getattr(message, "content", "") for message in mail_context if isinstance(getattr(message, "content", ""), str))
-check("mail context excludes unrelated calendar history", "日历已安排" not in mail_context_text)
+check("mail context excludes distant unrelated calendar history", "日历已安排" not in mail_context_text)
+check("mail context excludes distant unrelated chit-chat", "这是一个笑话" not in mail_context_text)
 check("mail context keeps relevant prior turn and task brief", "邮箱中有两封未读邮件" in mail_context_text and "最新一封是什么" in mail_context_text)
+# The report the user asks to email is produced by another agent, so domain
+# keywords alone classify it as irrelevant to mail - recency is what saves it.
+check(
+    "mail context keeps the immediately preceding turn even across domains",
+    "日报正文：完成了路由改造" in mail_context_text,
+)
 check("mail context keeps active tool chain intact", any(isinstance(message, ToolMessage) and message.name == "list_inbox" for message in mail_context))
 check(
     "memo save request forces create_memo",
     memo_tool_choice([{"role": "user", "content": "帮我记录下来吧"}]) == "create_memo",
 )
 check(
-    "memo read request still requires one tool",
-    memo_tool_choice([{"role": "user", "content": "查一下我的涨工资记录"}]) == "required",
+    "memo read request leaves the tool choice open",
+    memo_tool_choice([{"role": "user", "content": "查一下我的涨工资记录"}]) == "auto",
+)
+check(
+    "a mis-routed off-domain question can be answered without inventing a memo call",
+    memo_tool_choice([{"role": "user", "content": "你觉得考一个雅思对我有用吗？"}]) == "auto",
 )
 check(
     "memo agent stops calling tools after one result",
@@ -923,6 +969,60 @@ check("valid dimension 'private' passes",  _validate_dimension("private"))
 check("valid dimension 'dynamic' passes",  _validate_dimension("dynamic"))
 check("invalid dimension 'unknown' fails", not _validate_dimension("unknown"))
 check("empty string dimension fails",      not _validate_dimension(""))
+
+
+# ---------------------------------------------------------------------------
+# 14. Supervisor-level memo-save-claim verification (post_model_hook)
+# ---------------------------------------------------------------------------
+
+section("14. supervisor memo-claim verification")
+
+from app.agents.context import _MEMO_SAVE_CLAIM_RE, verify_memo_claims  # noqa: E402
+
+check(
+    "claim regex matches a hallucinated Chinese save confirmation",
+    bool(_MEMO_SAVE_CLAIM_RE.search("已将您的信息成功添加到memos中")),
+)
+check(
+    "claim regex matches an English save confirmation",
+    bool(_MEMO_SAVE_CLAIM_RE.search("I've saved that to your memos.")),
+)
+check(
+    "claim regex ignores unrelated replies",
+    not _MEMO_SAVE_CLAIM_RE.search("今天天气不错，有什么我可以帮您的吗？"),
+)
+check(
+    "claim regex ignores memo mentions without a save claim",
+    not _MEMO_SAVE_CLAIM_RE.search("你想让我查一下你的memos吗？"),
+)
+
+_hallucinated_reply = AIMessage(content="已将您的信息成功添加到memos中。", id="ai-1")
+_forced = verify_memo_claims({"messages": [_hallucinated_reply]})
+check(
+    "false claim with no tool call is rewritten into a forced handoff",
+    bool(_forced.get("messages"))
+    and _forced["messages"][0].tool_calls
+    and _forced["messages"][0].tool_calls[0]["name"] == "transfer_to_memos_agent",
+)
+check(
+    "forced handoff message keeps the original message id so it replaces, not appends",
+    _forced["messages"][0].id == "ai-1",
+)
+
+_real_handoff = AIMessage(
+    content="",
+    tool_calls=[{"name": "transfer_to_memos_agent", "args": {}, "id": "call-1"}],
+)
+check(
+    "a real handoff call is left untouched",
+    verify_memo_claims({"messages": [_real_handoff]}) == {},
+)
+
+_unrelated_reply = AIMessage(content="不客气！")
+check(
+    "an unrelated plain-text reply is left untouched",
+    verify_memo_claims({"messages": [_unrelated_reply]}) == {},
+)
 
 
 # ---------------------------------------------------------------------------

@@ -34,7 +34,8 @@ _MEMO_WRITE_RE = re.compile(
     r"(?:"
     r"(?:帮我|请|给我|替我|把.{0,80})?"
     r"(?:记录下来|记下来|记录一下|记一下|保存下来|保存一下|存下来|记到备忘录|保存到备忘录|记住)|"
-    r"(?:save|record|write|note)\s+(?:this|that|it|down|to\s+(?:my\s+)?(?:memo|notes?))"
+    r"(?:加|添加|加入)(?:到|入)?\s*(?:memos?|备忘录)|"
+    r"(?:save|record|write|note|add)\s+(?:this|that|it|down|to\s+(?:my\s+)?(?:memo|notes?))"
     r")",
     re.IGNORECASE | re.DOTALL,
 )

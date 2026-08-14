@@ -340,6 +340,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
     return [
         list_inbox,
         search_contacts,
+        _make_search_memos_tool(user_id),
         record_contact_fact,
         extract_contact_memory,
         search_emails,
@@ -601,16 +602,15 @@ async def _rewrite_search_query(user_query: str) -> str:
     return user_query
 
 
-def make_memos_tools(user_id: str) -> list:
-    @tool
-    async def list_memos(top: int = 20) -> str:
-        """List the user's most recently updated/pinned memos (not a search -
-        no relevance ranking). Use this for open-ended requests like "show me
-        my memos" where there's no specific question to search for yet."""
-        memos = (await memos_db.list_memos(user_id))[:max(1, min(top, 50))]
-        if not memos:
-            return "The user has no memos yet."
-        return "\n".join(_format_memo_row(m) for m in memos)
+def _make_search_memos_tool(user_id: str):
+    """Read-only memo search, shared by memos_agent and mail_agent.
+
+    mail_agent needs it to quote something the user already wrote down - "send
+    him my daily report" is a mail task whose *content* lives in memos.  Without
+    it the agent has no way to fetch that text and composes a hollow body
+    instead.  This mirrors search_contacts, which mail_agent already borrows
+    from the contacts domain for the same reason.
+    """
 
     @tool
     async def search_memos(query: str, limit: int = 5) -> str:
@@ -651,7 +651,26 @@ def make_memos_tools(user_id: str) -> list:
             logging.exception("Postgres DB fallback failed in search_memos")
             return "No memos matched that search."
 
-    return [list_memos, _make_create_memo_tool(user_id), search_memos, _make_search_contacts_tool(user_id)]
+    return search_memos
+
+
+def make_memos_tools(user_id: str) -> list:
+    @tool
+    async def list_memos(top: int = 20) -> str:
+        """List the user's most recently updated/pinned memos (not a search -
+        no relevance ranking). Use this for open-ended requests like "show me
+        my memos" where there's no specific question to search for yet."""
+        memos = (await memos_db.list_memos(user_id))[:max(1, min(top, 50))]
+        if not memos:
+            return "The user has no memos yet."
+        return "\n".join(_format_memo_row(m) for m in memos)
+
+    return [
+        list_memos,
+        _make_create_memo_tool(user_id),
+        _make_search_memos_tool(user_id),
+        _make_search_contacts_tool(user_id),
+    ]
 
 
 _GITHUB_NOT_CONNECTED = (
