@@ -406,6 +406,13 @@ export default function ChatPage() {
                 } else if (data.chunk) {
                   botText += data.chunk;
                   setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
+                } else if (data.final_message) {
+                  // Streamed chunks are only a typing effect. The backend sends
+                  // the authoritative reply from the same projection the history
+                  // endpoint replays, so replace rather than append - otherwise a
+                  // refresh would show different text than the live view did.
+                  botText = data.final_message;
+                  setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
                 } else if (data.title) {
                   handleUpdateSessionTitle(sessionId, data.title);
                 } else if (data.preview) {
@@ -439,6 +446,9 @@ export default function ChatPage() {
             const data = JSON.parse(dataStr);
             if (data.chunk) {
               botText += data.chunk;
+              setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
+            } else if (data.final_message) {
+              botText = data.final_message;
               setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
             } else if (data.title) {
               handleUpdateSessionTitle(sessionId, data.title);

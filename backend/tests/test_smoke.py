@@ -462,6 +462,10 @@ check(
         "supervisor:run-id|calendar_agent:child-id|agent:model-run-id"
     ),
 )
+check(
+    "a directly routed agent's own model stream is not mistaken for the supervisor's",
+    not is_supervisor_stream_namespace("memos_agent:run-id|agent:model-run-id"),
+)
 handoff_turn = [
     {"role": "user", "content": "移除这个事件", "id": "user-delete"},
     {
@@ -522,6 +526,41 @@ check(
     "history keeps a directly routed agent reply",
     visible_conversation_parts(direct_turn)[-1]
     == ("ai", "请使用确认卡片。", "direct-answer"),
+)
+
+# WYSIWYG invariant: the text the stream renders at the end of a turn is the
+# same text a later refresh replays, because both come from this projection.
+from app.agents.message_visibility import final_reply_text  # noqa: E402
+
+for label, turn in (
+    ("handoff turn", handoff_turn),
+    ("duplicate-input turn", duplicate_old_turn),
+    ("directly routed turn", direct_turn),
+):
+    check(
+        f"streamed final message equals the replayed history bubble ({label})",
+        final_reply_text(turn) == visible_conversation_parts(turn)[-1][1],
+    )
+
+check(
+    "a turn with no assistant reply yet yields no final message",
+    final_reply_text([{"role": "user", "content": "在吗", "id": "user-only"}]) == "",
+)
+check(
+    "an interrupted turn whose only AI message is a tool call yields no final message",
+    final_reply_text(
+        [
+            {"role": "user", "content": "删除周三的会议", "id": "user-hitl"},
+            {
+                "role": "assistant",
+                "name": "calendar_agent",
+                "content": "",
+                "tool_calls": [{"name": "request_delete_event_on_day", "args": {}}],
+                "id": "pending-tool-call",
+            },
+        ]
+    )
+    == "",
 )
 
 
@@ -1022,6 +1061,32 @@ _unrelated_reply = AIMessage(content="不客气！")
 check(
     "an unrelated plain-text reply is left untouched",
     verify_memo_claims({"messages": [_unrelated_reply]}) == {},
+)
+
+
+# ---------------------------------------------------------------------------
+# 15. Assistant identity prompt and final-message safety
+# ---------------------------------------------------------------------------
+
+section("15. assistant identity prompt")
+
+supervisor_source = (backend_dir / "app/agents/supervisor.py").read_text()
+agent_api_source = (backend_dir / "app/api/agent.py").read_text()
+
+# "answer as <name>" was read by the model as "reply with the literal string
+# <name>", so every greeting came back as a one-word reply of the bot's name.
+check(
+    "prompt no longer tells the model to 'answer as <assistant_name>'",
+    "answer as {assistant_name}" not in supervisor_source,
+)
+check(
+    "both the domain-agent and supervisor prompts forbid a name-only reply",
+    supervisor_source.count("Never reply with your name by itself") == 2,
+)
+check(
+    "an empty final_message is never streamed, so it cannot blank the bubble",
+    "if final_text:" in agent_api_source
+    and "'final_message': final_text" in agent_api_source,
 )
 
 

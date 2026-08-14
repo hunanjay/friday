@@ -16,6 +16,7 @@ from app.agents.hitl import (
     resume_value_for,
 )
 from app.agents.message_visibility import (
+    final_reply_text,
     is_supervisor_stream_namespace,
     visible_conversation_parts,
     visible_message_parts,
@@ -378,8 +379,8 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     route = decide_route(message)
     routed_agent = route.agent_name
     routed_message = route.message
-
     assistant_name = await user_settings.get_assistant_name(user_id)
+
     async def locked_event_generator():
         config = {
             "configurable": {
@@ -410,7 +411,6 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                     if chunk_content is None and isinstance(chunk, dict):
                         chunk_content = chunk.get("content")
                     if isinstance(chunk_content, str) and chunk_content:
-                        assistant_chunks.append(chunk_content)
                         yield f"data: {json.dumps({'chunk': chunk_content})}\n\n"
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
@@ -434,15 +434,29 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
         state = await graph.aget_state(config)
         pending_actions = pending_actions_from_interrupts(state.interrupts, session_id)
         public_actions = await _visible_actions(user_id, session_id, state.interrupts)
-        if pending_actions and not assistant_chunks:
-            safe_reply = _paused_reply(routed_message)
-            assistant_chunks.append(safe_reply)
-            yield f"data: {json.dumps({'chunk': safe_reply})}\n\n"
 
-        if assistant_chunks:
+        # What the user ends up seeing never comes from the streamed chunks:
+        # those are a typing effect that can lag, duplicate, or stream a leg of
+        # the graph that never becomes the answer.  The rendered reply is always
+        # this projection - the same one GET /sessions/{id}/messages replays -
+        # so the live view and a later refresh cannot show different text.
+        # A paused turn has no final answer yet, so it keeps the same placeholder
+        # that endpoint reconstructs for each pending interrupt.
+        final_text = (
+            _paused_reply(routed_message)
+            if pending_actions
+            else final_reply_text((state.values or {}).get("messages", []))
+        )
+        # Empty means "no authoritative answer to show", never "clear the
+        # bubble": overwriting with "" would wipe text the user already watched
+        # stream in and leave nothing behind.
+        if final_text:
+            yield f"data: {json.dumps({'final_message': final_text})}\n\n"
+
+        if final_text:
             try:
                 preview = await chat_sessions.update_session_preview(
-                    user_id, session_id, "".join(assistant_chunks)
+                    user_id, session_id, final_text
                 )
                 yield f"data: {json.dumps({'preview': preview})}\n\n"
             except Exception:
