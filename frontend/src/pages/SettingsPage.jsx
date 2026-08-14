@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail } from '../components/common/Icons';
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle } from '../components/common/Icons';
 
 function RepoSection({ label, repos, checked, onToggle }) {
   if (repos.length === 0) return null;
@@ -123,7 +123,14 @@ export default function SettingsPage() {
   };
 
   const handleSelectAvatar = async (url) => {
-    if (url === avatarUrl || isSavingAvatar) return;
+    if (isSavingAvatar) return;
+    // Still confirm on click even when this is already the active avatar -
+    // a silent no-op is indistinguishable from a broken button, especially
+    // with only one preset where every click is "already selected".
+    if (url === avatarUrl) {
+      showToast(isZh ? '这已经是当前头像' : 'This is already your current avatar');
+      return;
+    }
     setIsSavingAvatar(true);
     try {
       await handleUpdateAvatar(url);
@@ -291,22 +298,46 @@ export default function SettingsPage() {
                   <div className="settings-field-label">{isZh ? '助手头像' : 'Assistant Avatar'}</div>
                   <div className="settings-field-hint">{isZh ? '选择聊天和邮件中显示的头像。' : 'Choose the avatar shown in chat and email.'}</div>
                 </div>
-                <div className="avatar-preset-grid">
-                  {avatarPresets.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      className={`avatar-preset-tile ${avatarUrl === preset.url ? 'selected' : ''}`}
-                      disabled={isSavingAvatar}
-                      onClick={() => handleSelectAvatar(preset.url)}
-                      title={preset.id}
-                    >
-                      <img src={preset.url} alt={preset.id} />
-                    </button>
-                  ))}
-                  {avatarPresets.length === 0 && (
-                    <p className="settings-field-hint">{isZh ? '暂无可选头像' : 'No presets available'}</p>
-                  )}
+                <div>
+                  {/* A ground truth for "what's selected right now", independent of the
+                      grid below - with only one preset, every tile can look identical
+                      to "already selected", and a 2px border is easy to miss. */}
+                  <div className="avatar-current-preview">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt={assistantName} className="avatar-current-preview-img" />
+                    ) : (
+                      <div className="avatar-current-preview-placeholder">{assistantName?.[0]?.toUpperCase() || 'A'}</div>
+                    )}
+                    <div className="avatar-current-preview-text">
+                      <span className="avatar-current-preview-label">{isZh ? '当前头像' : 'Current avatar'}</span>
+                      <span className="avatar-current-preview-name">{assistantName}</span>
+                    </div>
+                  </div>
+                  <div className="avatar-preset-grid">
+                    {avatarPresets.map((preset) => {
+                      const isSelected = avatarUrl === preset.url;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`avatar-preset-tile ${isSelected ? 'selected' : ''}`}
+                          disabled={isSavingAvatar}
+                          onClick={() => handleSelectAvatar(preset.url)}
+                          title={isSelected ? (isZh ? `${preset.id}（当前）` : `${preset.id} (current)`) : preset.id}
+                        >
+                          <img src={preset.url} alt={preset.id} />
+                          {isSelected && (
+                            <span className="avatar-preset-tile-check" aria-hidden="true">
+                              <CheckCircle size={16} />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    {avatarPresets.length === 0 && (
+                      <p className="settings-field-hint">{isZh ? '暂无可选头像' : 'No presets available'}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -5538,16 +5538,71 @@
   border-color: var(--accent-primary);
 }
 
+.avatar-current-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+}
+
+.avatar-current-preview-img,
+.avatar-current-preview-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.avatar-current-preview-img {
+  object-fit: cover;
+}
+
+.avatar-current-preview-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--accent-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.avatar-current-preview-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.avatar-current-preview-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.avatar-current-preview-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .avatar-preset-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
+  gap: 12px;
+  margin-top: 10px;
 }
 
 .avatar-preset-tile {
-  width: 48px;
-  height: 48px;
+  position: relative;
+  width: 52px;
+  height: 52px;
   padding: 2px;
   border-radius: 50%;
   border: 2px solid transparent;
@@ -5566,15 +5621,32 @@
 
 .avatar-preset-tile:hover {
   border-color: var(--border-medium);
+  transform: scale(1.05);
 }
 
 .avatar-preset-tile.selected {
   border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+}
+
+.avatar-preset-tile-check {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  display: flex;
+  background-color: var(--accent-primary);
+  color: #fff;
+  border-radius: 50%;
+  border: 2px solid var(--bg-app);
 }
 
 .avatar-preset-tile:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.avatar-preset-tile:disabled:hover {
+  transform: none;
 }
 
 /* Theme Selector Cards */
