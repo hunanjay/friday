@@ -18,6 +18,8 @@ export default function MainLayout() {
     toast,
     isSyncingInbox,
     isSyncingEvents,
+    assistantName,
+    avatarUrl,
   } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
@@ -78,7 +80,7 @@ export default function MainLayout() {
       case 'memos': return t('common.memos');
       case 'contacts': return t('common.contacts') || (isZh ? '联系人' : 'Contacts');
       case 'settings': return isZh ? '偏好设置' : 'Settings';
-      default: return t('common.appName');
+      default: return assistantName;
     }
   };
 
@@ -94,12 +96,12 @@ export default function MainLayout() {
       <header className="mobile-top-header">
         <div className="mobile-header-brand">
           <img
-            src="/dora_assistant_avatar.png"
-            alt="Dora Logo"
+            src={avatarUrl || '/dora_assistant_avatar.png'}
+            alt={`${assistantName} Logo`}
             className="mobile-brand-avatar"
           />
           <div className="mobile-header-title-group">
-            <span className="mobile-header-appname">{t('common.appName')}</span>
+            <span className="mobile-header-appname">{assistantName}</span>
             <span className="mobile-header-current-page">{getPageTitle(activeTab)}</span>
           </div>
         </div>
@@ -130,12 +132,12 @@ export default function MainLayout() {
         <div className="sidebar-brand">
           {!isSidebarCollapsed && (
             <img
-              src="/dora_assistant_avatar.png"
-              alt="Dora Logo"
+              src={avatarUrl || '/dora_assistant_avatar.png'}
+              alt={`${assistantName} Logo`}
               style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }}
             />
           )}
-          {!isSidebarCollapsed && <h2>{t('common.appName')}</h2>}
+          {!isSidebarCollapsed && <h2>{assistantName}</h2>}
           <button 
             className="sidebar-collapse-btn" 
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}

@@ -5470,6 +5470,175 @@
   .settings-commit-detail-actions .settings-btn { justify-content: center; }
 }
 
+/* Profile Card */
+.profile-card {
+  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-hover) 100%);
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background-color: var(--accent-primary);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.profile-details h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.profile-details p {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+  word-break: break-all;
+}
+
+/* Setting Field */
+.setting-field label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.settings-field-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: -4px 0 0 0;
+}
+
+.settings-text-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-medium);
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.settings-text-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.avatar-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.avatar-preset-tile {
+  width: 48px;
+  height: 48px;
+  padding: 2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background-color: var(--bg-card);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.avatar-preset-tile img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-preset-tile:hover {
+  border-color: var(--border-medium);
+}
+
+.avatar-preset-tile.selected {
+  border-color: var(--accent-primary);
+}
+
+.avatar-preset-tile:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Theme Selector Cards */
+.theme-selector-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background-color: var(--bg-app);
+  border: 1.5px solid var(--border-light);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+}
+
+.theme-card:hover {
+  border-color: var(--border-medium);
+  color: var(--text-primary);
+}
+
+.theme-card.active {
+  background-color: var(--accent-light);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+/* GitHub Card */
+.main-github-card {
+  padding: 24px;
+}
+
+.github-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+}
+
+.github-card-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+}
+
+.github-card-title h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
 .github-status-indicator {
   display: inline-flex;
   align-items: center;
@@ -5809,6 +5978,11 @@
 .settings-btn:hover {
   background-color: var(--bg-card-hover);
   border-color: var(--text-secondary);
+}
+
+.settings-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .settings-btn.btn-primary {

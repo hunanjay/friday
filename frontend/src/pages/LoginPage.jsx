@@ -53,7 +53,7 @@ export default function LoginPage() {
     <main className="login-page">
       <section className="login-story" aria-labelledby="login-hero-title">
         <div className="login-brand-lockup">
-          <span>Dora</span>
+          <span>{t('common.appName')}</span>
         </div>
 
         <div className="login-story-copy">
@@ -72,7 +72,7 @@ export default function LoginPage() {
 
       <section className="login-access" aria-labelledby="login-title">
         <div className="login-mobile-brand" aria-hidden="true">
-          <span>Dora</span>
+          <span>{t('common.appName')}</span>
         </div>
 
         <div className="login-controls" aria-label={t('login.displayControls')}>

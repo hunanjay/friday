@@ -49,6 +49,11 @@ export default function SettingsPage() {
     handleUnbindMailAccount,
     handleVerifyMailAccount,
     handleRefreshMailAccounts,
+    assistantName,
+    handleUpdateAssistantName,
+    avatarUrl,
+    avatarPresets,
+    handleUpdateAvatar,
     showToast,
   } = useWorkspace();
 
@@ -63,7 +68,14 @@ export default function SettingsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showBindMail, setShowBindMail] = useState(false);
   const [verifyingMailId, setVerifyingMailId] = useState(null);
+  const [assistantNameDraft, setAssistantNameDraft] = useState(assistantName);
+  const [isSavingAssistantName, setIsSavingAssistantName] = useState(false);
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const selectedCommit = location.state?.commit;
+
+  useEffect(() => {
+    setAssistantNameDraft(assistantName);
+  }, [assistantName]);
 
   // Sync selection state from context when ready
   useEffect(() => {
@@ -93,6 +105,33 @@ export default function SettingsPage() {
       showToast(i18n.language === 'zh' ? '保存失败' : 'Failed to save repo selection');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveAssistantName = async () => {
+    const name = assistantNameDraft.trim();
+    if (!name || name === assistantName) return;
+    setIsSavingAssistantName(true);
+    try {
+      await handleUpdateAssistantName(name);
+      showToast(isZh ? '助手名称已更新' : 'Assistant name updated');
+    } catch {
+      showToast(isZh ? '更新失败' : 'Failed to update assistant name');
+    } finally {
+      setIsSavingAssistantName(false);
+    }
+  };
+
+  const handleSelectAvatar = async (url) => {
+    if (url === avatarUrl || isSavingAvatar) return;
+    setIsSavingAvatar(true);
+    try {
+      await handleUpdateAvatar(url);
+      showToast(isZh ? '头像已更新' : 'Avatar updated');
+    } catch {
+      showToast(isZh ? '更新失败' : 'Failed to update avatar');
+    } finally {
+      setIsSavingAvatar(false);
     }
   };
 
@@ -163,6 +202,7 @@ export default function SettingsPage() {
         <nav className="settings-section-nav">
           <a className="current" href="#profile">{isZh ? '账号' : 'Account'}</a>
           <a href="#general">{isZh ? '常规' : 'General'}</a>
+          <a href="#assistant">{isZh ? '助手' : 'Assistant'}</a>
           <a href="#github">GitHub</a>
           <a href="#mail">{isZh ? '邮箱账号' : 'Mail Accounts'}</a>
         </nav>
@@ -214,6 +254,59 @@ export default function SettingsPage() {
                 <div className="settings-segmented">
                   <button className={i18n.language === 'zh' ? 'on' : ''} onClick={() => changeLanguage('zh')}>中文</button>
                   <button className={i18n.language === 'en' ? 'on' : ''} onClick={() => changeLanguage('en')}>EN</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="settings-pane" id="assistant">
+            <div className="settings-pane-head"><h2>{isZh ? '助手' : 'Assistant'}</h2></div>
+            <div className="settings-panel">
+              <div className="settings-field-row">
+                <div>
+                  <div className="settings-field-label">{isZh ? '助手名称' : 'Assistant Name'}</div>
+                  <div className="settings-field-hint">{isZh ? '自定义 AI 助手在聊天和邮件中显示的名字。' : 'Customize the name your AI assistant uses in chat and email.'}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    className="settings-text-input"
+                    value={assistantNameDraft}
+                    maxLength={40}
+                    onChange={(e) => setAssistantNameDraft(e.target.value)}
+                    placeholder="Friday"
+                  />
+                  <button
+                    type="button"
+                    className="settings-btn"
+                    disabled={isSavingAssistantName || !assistantNameDraft.trim() || assistantNameDraft.trim() === assistantName}
+                    onClick={handleSaveAssistantName}
+                  >
+                    {isSavingAssistantName ? (isZh ? '保存中...' : 'Saving...') : (isZh ? '保存' : 'Save')}
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field-row">
+                <div>
+                  <div className="settings-field-label">{isZh ? '助手头像' : 'Assistant Avatar'}</div>
+                  <div className="settings-field-hint">{isZh ? '选择聊天和邮件中显示的头像。' : 'Choose the avatar shown in chat and email.'}</div>
+                </div>
+                <div className="avatar-preset-grid">
+                  {avatarPresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`avatar-preset-tile ${avatarUrl === preset.url ? 'selected' : ''}`}
+                      disabled={isSavingAvatar}
+                      onClick={() => handleSelectAvatar(preset.url)}
+                      title={preset.id}
+                    >
+                      <img src={preset.url} alt={preset.id} />
+                    </button>
+                  ))}
+                  {avatarPresets.length === 0 && (
+                    <p className="settings-field-hint">{isZh ? '暂无可选头像' : 'No presets available'}</p>
+                  )}
                 </div>
               </div>
             </div>

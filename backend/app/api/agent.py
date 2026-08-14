@@ -24,7 +24,7 @@ from app.agents.routing import AGENT_NAMES, decide_route
 from app.agents.supervisor import build_supervisor, generate_session_title
 from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
-from app.infrastructure.db.repositories import chat_sessions, hitl_audit
+from app.infrastructure.db.repositories import chat_sessions, hitl_audit, user_settings
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,8 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
     """Returns the conversation history for a session, read from the LangGraph
     checkpoint stored in Postgres.  Only HumanMessages and final AI text
     responses are returned - tool calls and tool results are filtered out so
-    the frontend only shows what the user typed and what Dora actually replied.
+    the frontend only shows what the user typed and what the assistant actually
+    replied.
 
     Shape: [{id, sender, text, timestamp}] - matches the message objects
     ChatPage already renders, so no frontend schema change is needed.
@@ -125,7 +126,8 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    supervisor = build_supervisor(user_id, session_id)
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    supervisor = build_supervisor(user_id, session_id, assistant_name)
     config = {"configurable": {"thread_id": session_id}}
     state = await supervisor.aget_state(config)
     raw_messages = (state.values or {}).get("messages", [])
@@ -152,7 +154,7 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
             results.append({
                 "id": str(msg_id) if msg_id else f"a_{len(results)}",
                 "sender": "bot",
-                "senderName": "Dora",
+                "senderName": assistant_name,
                 "text": content,
                 "timestamp": "",
             })
@@ -168,7 +170,7 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
         results.append({
             "id": f"hitl_{interrupt.id}",
             "sender": "bot",
-            "senderName": "Dora",
+            "senderName": assistant_name,
             "text": _paused_reply(latest_user_text),
             "timestamp": "",
         })
@@ -185,7 +187,8 @@ async def list_actions(session_id: str, user_id: str = Depends(get_user_id)):
     session = await chat_sessions.get_session(user_id, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    graph = build_supervisor(user_id, session_id)
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    graph = build_supervisor(user_id, session_id, assistant_name)
     state = await graph.aget_state({"configurable": {"thread_id": session_id}})
     return {"actions": await _visible_actions(user_id, session_id, state.interrupts)}
 
@@ -200,7 +203,8 @@ async def _decide_action(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     config = {"configurable": {"thread_id": session_id}}
-    graph = build_supervisor(user_id, session_id)
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    graph = build_supervisor(user_id, session_id, assistant_name)
 
     async with session_turn_lock(session_id):
         state = await graph.aget_state(config)
@@ -375,6 +379,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     routed_agent = route.agent_name
     routed_message = route.message
 
+    assistant_name = await user_settings.get_assistant_name(user_id)
     async def locked_event_generator():
         config = {
             "configurable": {
@@ -383,7 +388,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
             }
         }
         assistant_chunks: list[str] = []
-        graph = build_supervisor(user_id, session_id)
+        graph = build_supervisor(user_id, session_id, assistant_name)
         user_message = {"role": "user", "content": routed_message}
         if route.source == "slash_command":
             # Persist the explicit route for UI rendering. The model adapter

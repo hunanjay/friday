@@ -15,6 +15,7 @@ from app.agents.hitl import make_hitl_middleware
 from app.agents.routing import AGENT_NAMES
 from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
 from app.core.config import settings
+from app.infrastructure.db.repositories.user_settings import DEFAULT_ASSISTANT_NAME
 
 
 class _ProxyCompatChatOpenAI(ChatOpenAI):
@@ -125,10 +126,23 @@ def _trim_history(state: dict) -> dict:
     return {"llm_input_messages": trimmed}
 
 
-def build_agent(user_id: str, name: str, session_id: str | None = None):
+def build_agent(
+    user_id: str,
+    name: str,
+    session_id: str | None = None,
+    assistant_name: str = DEFAULT_ASSISTANT_NAME,
+):
     """Build one domain agent with scoped context and official HITL policy."""
     model = _get_model()
     today = _today_str()
+    name_line = (
+        # "answer as <name>" reads to some models as "reply with the literal
+        # string <name>", which turned every greeting into a one-word reply.
+        # State the identity, then say explicitly that it is not the answer.
+        f"You are {assistant_name}, the user's assistant. Mention your name only "
+        f"when the user asks who you are. Never reply with your name by itself - "
+        f"always respond to what the user actually said. "
+    )
 
     def middleware_for(tools: list) -> list:
         middleware = [ScopedContextMiddleware(name)]
@@ -145,6 +159,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             name="mail_agent",
             middleware=middleware_for(tools),
             system_prompt=(
+                name_line +
                 "You handle the user's email and Personal Contact Relationship Brain. "
                 "When asked about any person, contact, investor, colleague, or relationship (e.g. '张明是谁', '查一下张明', '谁喜欢喝普洱茶'), "
                 "ALWAYS call search_contacts(query) first to look up their identity, company, job title, tags, and memory facts. "
@@ -175,6 +190,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             name="calendar_agent",
             middleware=middleware_for(tools),
             system_prompt=(
+                name_line +
                 f"Today is {today}. You handle the user's calendar: listing, creating, and "
                 "deleting events, and accepting/declining event invitations. Resolve relative "
                 "dates with tools, never by calculating date ranges yourself. For a request about "
@@ -206,6 +222,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             name="memos_agent",
             middleware=middleware,
             system_prompt=(
+                name_line +
                 "You manage the user's memos. Tools: list_memos (browse all), "
                 "search_memos(query) (answer a question from memos), create_memo(title, "
                 "content, category) (save something new).\n"
@@ -225,6 +242,7 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
             name="github_agent",
             middleware=middleware_for(tools),
             system_prompt=(
+                name_line +
                 f"Today is {today}. You generate the user's daily work report (日报) from "
                 "GitHub commit activity on their project repo. On every turn, call "
                 "list_todays_commits before you reply - do not ask for permission first, "
@@ -239,13 +257,19 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
     raise ValueError(f"Unknown agent: {name}")
 
 
-def build_supervisor(user_id: str, session_id: str | None = None):
+def build_supervisor(
+    user_id: str,
+    session_id: str | None = None,
+    assistant_name: str = DEFAULT_ASSISTANT_NAME,
+):
     """Builds a fresh supervisor graph per request, its tools closed over
     this user's id so each sub-agent only ever touches this user's mailbox
     and calendar."""
     model = _get_model()
     today = _today_str()
-    agents = [build_agent(user_id, name, session_id) for name in AGENT_NAMES]
+    agents = [
+        build_agent(user_id, name, session_id, assistant_name) for name in AGENT_NAMES
+    ]
 
     # Custom handoff tools carrying task-specific descriptions (_ROUTING_HINTS)
     # instead of langgraph_supervisor's default "Ask agent 'X' for help" -
@@ -264,6 +288,9 @@ def build_supervisor(user_id: str, session_id: str | None = None):
         tools=handoff_tools,
         pre_model_hook=_trim_history,
         prompt=(
+            f"You are {assistant_name}, the user's assistant. Mention your name only "
+            f"when the user asks who you are. Never reply with your name by itself - "
+            f"always respond to what the user actually said. "
             f"Today is {today}. You are a supervisor coordinating four agents:\n"
             f"{agent_lines}\n"
             "Route each user request to the right agent(s) and relay their results back concisely.\n"

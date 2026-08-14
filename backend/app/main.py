@@ -9,7 +9,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 from app.agents import checkpointer
-from app.api import agent, auth, calendar, contact, github, github_auth, mail, mail_accounts, memos, todos
+from app.api import agent, auth, calendar, contact, github, github_auth, mail, mail_accounts, memos, settings as settings_api, todos
 from app.core.config import settings
 from app.infrastructure.db import pool as db_pool
 from app.infrastructure.db.repositories import (
@@ -18,6 +18,7 @@ from app.infrastructure.db.repositories import (
     hitl_audit,
     memos as memos_db,
     todos as todos_db,
+    user_settings as user_settings_db,
 )
 from app.infrastructure.github import client as github_client
 from app.infrastructure.graph import client as graph_client
@@ -34,6 +35,7 @@ async def lifespan(_app: FastAPI):
     await contacts_db.init_schema()
     await memos_db.init_schema()
     await todos_db.init_schema()
+    await user_settings_db.init_schema()
     await vector_store.init_collection()
 
     yield
@@ -72,6 +74,7 @@ app.include_router(contact.router)
 app.include_router(agent.router)
 app.include_router(memos.router)
 app.include_router(todos.router)
+app.include_router(settings_api.router)
 app.include_router(github_auth.router)
 app.include_router(github.router)
 app.include_router(mail_accounts.router)

@@ -222,7 +222,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
   const { theme } = useTheme();
-  const { authToken, emails, githubStatus, inboxUnread, memos, user, mailAccounts, handleSyncInboxEmails } = useWorkspace();
+  const { authToken, emails, githubStatus, inboxUnread, memos, user, mailAccounts, handleSyncInboxEmails, assistantName } = useWorkspace();
   const isZh = i18n.language === 'zh';
 
   // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────
@@ -597,7 +597,7 @@ export default function DashboardPage() {
     greeting: `早上好，${displayName(user) || '朋友'}`,
     date: new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()),
     summary: '今日概览',
-    askDora: '问问 Dora',
+    askDora: `问问 ${assistantName}`,
     unread: '未读邮件',
     meetings: '今日日程',
     notes: '便签',
@@ -631,7 +631,7 @@ export default function DashboardPage() {
     greeting: `Good morning, ${displayName(user) || 'there'}`,
     date: new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()),
     summary: 'Today\'s overview',
-    askDora: 'Ask Dora',
+    askDora: `Ask ${assistantName}`,
     unread: 'Unread mail',
     meetings: 'Events today',
     notes: 'Memos',

@@ -27,7 +27,9 @@ export default function ChatPage() {
     handleUpdateSessionPreview,
     handleDeleteSession,
     handleLogout,
-    authToken
+    authToken,
+    assistantName,
+    avatarUrl
   } = useWorkspace();
   const navigate = useNavigate();
 
@@ -323,7 +325,7 @@ export default function ChatPage() {
       id: botMsgId,
       threadId: sessionId,
       sender: 'bot',
-      senderName: 'Dora',
+      senderName: assistantName,
       text: '',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -535,6 +537,7 @@ export default function ChatPage() {
         onDecision={(decision) => handleActionDecision(action, decision)}
         onCancel={() => handleActionDecision(action, 'reject')}
         onConfirm={() => handleActionDecision(action, 'approve')}
+        assistantName={assistantName}
       />
     );
   };
@@ -586,7 +589,7 @@ export default function ChatPage() {
               >
                 <div className="thread-avatar-container">
                   <div className="claude-avatar">
-                    <img src="/dora_assistant_avatar.png" alt="Dora" />
+                    <img src={avatarUrl || '/dora_assistant_avatar.png'} alt={assistantName} />
                   </div>
                 </div>
                 <div className="thread-meta">
@@ -627,7 +630,7 @@ export default function ChatPage() {
               </button>
               <div className="chat-header-info">
                 <h3 className="active-thread-name">{activeThread.title}</h3>
-                <span className="active-thread-desc">{t('chat.aiAssistantDesc')}</span>
+                <span className="active-thread-desc">{t('chat.aiAssistantDesc', { name: assistantName })}</span>
               </div>
               <div className="chat-header-actions">
                 <span className="thread-status-badge">{t('chat.active')}</span>
@@ -654,7 +657,7 @@ export default function ChatPage() {
                     <div className={`message-row ${isUser ? 'user-row' : 'other-row'}`}>
                       {!isUser && (
                         <div className="message-avatar">
-                          {isBot ? <img src="/dora_assistant_avatar.png" alt="Dora" /> : msg.senderName[0]}
+                          {isBot ? <img src={avatarUrl || '/dora_assistant_avatar.png'} alt={assistantName} /> : msg.senderName[0]}
                         </div>
                       )}
                       <div className="message-bubble-wrapper">
@@ -818,7 +821,7 @@ export default function ChatPage() {
                   value={inputText}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  placeholder={t('chat.inputPlaceholderAI')}
+                  placeholder={t('chat.inputPlaceholderAI', { name: assistantName })}
                   rows="1"
                 />
                 <button
