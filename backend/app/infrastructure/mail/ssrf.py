@@ -11,6 +11,8 @@ IPv6 映射的 IPv4（::ffff:10.0.0.1）也会被正确拒绝。
 import ipaddress
 import socket
 
+from app.core.config import settings
+
 _BLOCKED_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
@@ -32,6 +34,8 @@ _BLOCKED_NETWORKS = [
 
 def assert_public_host(host: str) -> None:
     """校验 host 可解析且所有解析结果都是公网地址，否则抛 ValueError。"""
+    if settings.MAIL_SSRF_CHECK_DISABLED:
+        return
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:

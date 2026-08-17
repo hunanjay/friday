@@ -61,6 +61,17 @@ for bad in ["127.0.0.1", "localhost", "192.168.1.1", "10.0.0.5", "169.254.169.25
 
 check("allow public host", assert_public_host("imap.163.com") is None)
 
+# Dev-only escape hatch: MAIL_SSRF_CHECK_DISABLED=true skips the check entirely.
+# Settings fields read os.getenv() at class-definition time, so toggling this
+# via os.environ post-import has no effect - flip the singleton attribute instead.
+import app.infrastructure.mail.ssrf as ssrf_module  # noqa: E402
+
+ssrf_module.settings.MAIL_SSRF_CHECK_DISABLED = True
+try:
+    check("MAIL_SSRF_CHECK_DISABLED lets a blocked host through", assert_public_host("127.0.0.1") is None)
+finally:
+    ssrf_module.settings.MAIL_SSRF_CHECK_DISABLED = False
+
 # ---------------------------------------------------------------------------
 # 3. Provider presets + override merge
 # ---------------------------------------------------------------------------

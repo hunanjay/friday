@@ -11,6 +11,8 @@
 """
 
 
+import logging
+
 import aiosmtplib
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
@@ -22,6 +24,7 @@ from app.infrastructure.mail.providers import CUSTOM_PROVIDER, MAIL_PROVIDERS, r
 from app.infrastructure.mail.ssrf import assert_public_host
 from app.services.mail_provider_service import MailProviderService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["mail-accounts"])
 
 
@@ -57,6 +60,7 @@ async def _verify_imap_smtp(provider: str, account: str, username: str, auth_cod
             except Exception:
                 pass
     except Exception:
+        logger.exception("IMAP verification failed for %s@%s", account, settings["imap_host"])
         raise HTTPException(
             status_code=400,
             detail="IMAP 连接验证失败：账号/授权码错误，或服务器配置不正确",
@@ -76,6 +80,7 @@ async def _verify_imap_smtp(provider: str, account: str, username: str, auth_cod
             await smtp_client.connect()
             await smtp_client.login(username or account, auth_code)
         except Exception:
+            logger.exception("SMTP verification failed for %s@%s", account, settings["smtp_host"])
             raise HTTPException(
                 status_code=400,
                 detail="SMTP 连接验证失败：账号/授权码错误，或服务器配置不正确（发送功能将不可用）",

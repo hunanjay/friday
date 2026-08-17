@@ -120,7 +120,10 @@ def to_graph_message(raw: bytes, account_id: str, mailbox: str, uid: int, seen_i
     subject = _decode_header_value(msg.get("Subject"))
     sender = _get_recipient(msg.get("From", ""))
     date_str = msg.get("Date")
-    received_at = email.utils.parsedate_to_datetime(date_str) if date_str else None
+    try:
+        received_at = email.utils.parsedate_to_datetime(date_str) if date_str else None
+    except (ValueError, TypeError):
+        received_at = None
     if received_at is None:
         received_at = datetime.datetime.now(datetime.timezone.utc)
     received_iso = received_at.astimezone(datetime.timezone.utc).isoformat()
