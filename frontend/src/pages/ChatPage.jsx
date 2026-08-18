@@ -10,7 +10,7 @@ import {
   resolveLiveApprovalAnchor,
   resolvePersistedApprovalAnchor,
 } from '../components/common/approvalPlacement';
-import { parseAgentCommand } from '../utils/agentCommand';
+import { parseAgentCommand, parseAgentPrefix } from '../utils/agentCommand';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -36,6 +36,7 @@ export default function ChatPage() {
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [selectedAgent, setSelectedAgent] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   // State updates are asynchronous; this ref closes the small window where a
   // double click can invoke handleSend twice before the button re-renders.
@@ -114,7 +115,8 @@ export default function ChatPage() {
   }, [contactMenuIndex, showContactMenu]);
 
   const selectAgent = (agent) => {
-    setInputText(`/${agent.id} `);
+    setSelectedAgent(agent.id);
+    setInputText('');
     inputRef.current?.focus();
   };
 
@@ -123,6 +125,17 @@ export default function ChatPage() {
     setInputText((prev) => prev.replace(/@([^\s@]*)$/, text));
     setContactList([]);
     inputRef.current?.focus();
+  };
+
+  const handleInputChange = (event) => {
+    const value = event.target.value;
+    const prefixed = parseAgentPrefix(value);
+    if (prefixed) {
+      setSelectedAgent(prefixed.agentName);
+      setInputText(prefixed.message);
+      return;
+    }
+    setInputText(value);
   };
 
   // Fetch conversation history from the LangGraph checkpoint whenever the
@@ -286,9 +299,10 @@ export default function ChatPage() {
     isSendingRef.current = true;
 
     const sessionId = activeThreadId;
-    const sentText = inputText;
+    const sentText = selectedAgent ? `/${selectedAgent} ${inputText}` : inputText;
     const explicitAgent = parseAgentCommand(sentText);
     setInputText('');
+    setSelectedAgent(null);
     handleUpdateSessionPreview(sessionId, explicitAgent?.message || sentText);
 
     const userMsg = {
@@ -779,13 +793,30 @@ export default function ChatPage() {
                 </div>
               )}
               <div className="chat-input-wrapper">
+                {selectedAgent && (
+                  <span className="composer-agent-chip">
+                    {(() => {
+                      const Icon = AGENT_ICONS[selectedAgent];
+                      return <Icon size={14} />;
+                    })()}
+                    {t(`chat.agents.${selectedAgent}.label`)}
+                    <button
+                      type="button"
+                      className="composer-agent-chip-remove"
+                      aria-label={i18n.language === 'zh' ? '移除 Agent' : 'Remove agent'}
+                      onClick={() => setSelectedAgent(null)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
                 <button type="button" className="attachment-btn" title="Attach file" onClick={() => alert(t('chat.attachmentsSimulated'))}>
                   <Paperclip size={18} />
                 </button>
                 <textarea
                   ref={inputRef}
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   placeholder={t('chat.inputPlaceholderAI')}
                   rows="1"

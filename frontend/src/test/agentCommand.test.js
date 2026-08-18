@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseAgentCommand } from '../utils/agentCommand';
+import { parseAgentCommand, parseAgentPrefix } from '../utils/agentCommand';
 
 describe('agent slash command rendering', () => {
   it('extracts the canonical calendar agent and visible message', () => {
@@ -18,5 +18,12 @@ describe('agent slash command rendering', () => {
 
   it('leaves unknown commands as plain text', () => {
     expect(parseAgentCommand('/unknown-agent do something')).toBeNull();
+  });
+
+  it('extracts a prefix so the composer can render it as a chip', () => {
+    expect(parseAgentPrefix('/calendar-agent ')).toEqual({
+      agentName: 'calendar_agent',
+      message: '',
+    });
   });
 });

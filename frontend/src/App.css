@@ -2762,11 +2762,45 @@
 .chat-input-wrapper {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   background-color: var(--bg-app);
   border: 1px solid var(--border-light);
   border-radius: 12px;
   padding: 6px 12px;
   gap: 8px;
+}
+
+.composer-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.composer-agent-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.composer-agent-chip-remove:hover {
+  background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
 }
 
 .attachment-btn {
@@ -2781,6 +2815,8 @@
 }
 
 .chat-input-wrapper textarea {
+  flex: 1 1 160px;
+  min-width: 0;
   border: none;
   background-color: transparent;
   padding: 8px 4px;
