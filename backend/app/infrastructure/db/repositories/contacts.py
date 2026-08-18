@@ -69,8 +69,9 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ;
 ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ;
 ALTER TABLE contact_interactions ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ;
 
--- 6. 事实来源溯源: 这条事实是从哪封邮件/备忘录/会话/手动录入学到的
-ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'manual';
+-- 6. 事实来源溯源: 这条事实是从哪封邮件/备忘录/会话/手动录入学到的。
+-- 不设 DEFAULT: 迁移前写入的事实来源不可考, NULL 表示未知, 好过谎称 'manual'。
+ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS source_type TEXT;
 ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS source_id TEXT;
 """
 
@@ -353,7 +354,7 @@ async def get_contact_profiles(user_id: str, contact_id: str) -> list[dict]:
             "fact_value": r[4],
             "confidence": r[5],
             "created_at": r[6].isoformat() if r[6] else None,
-            "source_type": r[7],
+            "source_type": r[7] or "",
             "source_id": r[8] or "",
         }
         for r in rows

@@ -258,9 +258,10 @@ class TestProvenance(unittest.TestCase):
         self.assertEqual(doc["payload"]["source_type"], "chat_paste")
         self.assertEqual(doc["payload"]["source_id"], "interaction-9")
 
-    def test_fact_without_provenance_defaults_to_manual(self):
+    def test_fact_without_provenance_is_marked_unknown_not_manual(self):
+        """Pre-migration rows have no recorded source; claiming 'manual' would invent one."""
         doc = qdrant.contact_fact_doc("user-1", CONTACT["id"], "张明", {"id": "f", "fact_key": "k", "fact_value": "v"})
-        self.assertEqual(doc["payload"]["source_type"], "manual")
+        self.assertEqual(doc["payload"]["source_type"], "unknown")
 
     def test_rendered_fact_cites_the_interaction_it_came_from(self):
         from app.agents import tools

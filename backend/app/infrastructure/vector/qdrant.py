@@ -298,7 +298,7 @@ def contact_fact_doc(user_id: str, contact_id: str, contact_name: str, fact: dic
             "contact_id": contact_id,
             "contact_name": contact_name,
             "doc_type": "profile",
-            "source_type": fact.get("source_type") or "manual",
+            "source_type": fact.get("source_type") or "unknown",
             "source_id": fact.get("source_id") or "",
             "dimension": fact.get("dimension", ""),
             "category": fact.get("category", ""),
