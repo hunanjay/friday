@@ -119,6 +119,16 @@ class ContactBrainService:
             )
             contact_id = contact["id"]
 
+        # Insert the interaction row first: it holds the raw snippet, so it is the
+        # provenance every fact extracted from this text points back to.
+        interaction = await contacts_repo.add_contact_interaction(
+            user_id=user_id,
+            contact_id=contact_id,
+            source_type="chat_paste",
+            summary=interaction_summary,
+            raw_snippet=raw_text[:500],
+        )
+
         # Insert profiles (facts)
         added_profiles = []
         for p in profiles:
@@ -134,6 +144,8 @@ class ContactBrainService:
                     category=cat,
                     fact_key=key,
                     fact_value=val,
+                    source_type="chat_paste",
+                    source_id=interaction["id"],
                 )
                 added_profiles.append(prof)
 
@@ -141,15 +153,6 @@ class ContactBrainService:
         for t in tags:
             if isinstance(t, str) and t.strip():
                 await contacts_repo.add_contact_tag(user_id, contact_id, t.strip())
-
-        # Insert interaction timeline record
-        interaction = await contacts_repo.add_contact_interaction(
-            user_id=user_id,
-            contact_id=contact_id,
-            source_type="chat_paste",
-            summary=interaction_summary,
-            raw_snippet=raw_text[:500],
-        )
 
         full_contact = await contacts_repo.get_contact_by_id(user_id, contact_id)
         return {

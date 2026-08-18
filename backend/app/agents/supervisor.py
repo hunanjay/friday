@@ -150,6 +150,8 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
                 "ALWAYS call search_contacts(query) first to look up their identity, company, job title, tags, and memory facts. "
                 "Never claim you don't know or don't have access to personal information without calling search_contacts first. "
                 "When recording a casual memory fact, use record_contact_fact. "
+                "Every contact fact returned by search_contacts carries a 'source:' marker — cite it when you state the fact, "
+                "and never invent a contact fact that the tool did not return. "
                 "For emails: listing, searching, and reading messages, "
                 "sending new ones, and marking read/unread or deleting existing ones. "
                 "send_email and delete_email are blocked by official HITL middleware before "

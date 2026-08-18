@@ -35,6 +35,9 @@ jobs:
       - name: Run smoke tests
         run: python tests/test_smoke.py
 
+      - name: Contacts RAG unit tests
+        run: python -m unittest tests.test_contact_indexing tests.test_contact_eval_harness tests.test_qdrant_fallback
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest

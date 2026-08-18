@@ -138,6 +138,23 @@ async def delete_contact(
     return await ContactService.delete_contact(user_id=user_id, contact_id=contact_id)
 
 
+@router.post("/reindex")
+async def reindex_contacts(
+    full: bool = Query(default=False),
+    limit: int = Query(default=500, le=2000),
+    user_id: str = Depends(get_user_id),
+):
+    """Compensation task for contact vector indexing.
+
+    Default: index only rows whose write to Qdrant previously failed.
+    `full=true`: rebuild the caller's whole index from Postgres.
+    A non-zero `pending` in the response means rows remain — call again.
+    """
+    if full:
+        await contacts_repo.reset_index_state(user_id)
+    return await contacts_repo.reindex_pending(user_id=user_id, limit=limit)
+
+
 @router.post("/{contact_id}/facts")
 async def add_fact(
     contact_id: str,
@@ -152,6 +169,7 @@ async def add_fact(
         category=payload.category,
         fact_key=payload.fact_key,
         fact_value=payload.fact_value,
+        source_type="manual",
     )
 
 
