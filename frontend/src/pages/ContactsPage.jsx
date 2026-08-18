@@ -19,12 +19,80 @@ import {
   MapPin,
   Heart,
   Briefcase as BusinessIcon,
+  UserIcon,
   Zap,
   ChevronLeft,
 } from '../components/common/Icons';
 import ChatLogPasteModal from '../components/ChatLogPasteModal';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
+
+// Where a memory fact was learned from. Keep in sync with contact_profiles.source_type.
+const FACT_SOURCES = {
+  manual: { zh: '手动录入', en: 'Manual', color: '#64748b', bg: '#f1f5f9' },
+  chat: { zh: '对话记录', en: 'Chat', color: '#7c3aed', bg: '#ede9fe' },
+  chat_paste: { zh: '聊天记录提炼', en: 'Chat log', color: '#0891b2', bg: '#cffafe' },
+  email: { zh: '邮件', en: 'Email', color: '#c2410c', bg: '#ffedd5' },
+  memo: { zh: '备忘录', en: 'Memo', color: '#15803d', bg: '#dcfce7' },
+};
+
+export function SourceBadge({ sourceType, origin, isZh }) {
+  const meta = FACT_SOURCES[sourceType] || {
+    zh: sourceType || '未知来源',
+    en: sourceType || 'Unknown',
+    color: '#94a3b8',
+    bg: '#f1f5f9',
+  };
+  // Facts extracted from a pasted log point at the interaction row holding the
+  // original snippet, so the badge can name the exact record on hover.
+  const detail = origin
+    ? `${new Date(origin.event_date).toLocaleDateString()} · ${origin.summary || ''}`
+    : isZh ? '无关联原始记录' : 'No linked source record';
+
+  return (
+    <span
+      title={detail}
+      style={{
+        fontSize: '0.68rem',
+        fontWeight: 600,
+        color: meta.color,
+        background: meta.bg,
+        padding: '1px 6px',
+        borderRadius: 4,
+        whiteSpace: 'nowrap',
+        cursor: origin ? 'help' : 'default',
+      }}
+    >
+      {isZh ? meta.zh : meta.en}
+    </span>
+  );
+}
+
+export function FactGroup({ title, icon, color, facts, emptyText, originsById, isZh, onDelete }) {
+  return (
+    <div style={{ background: 'var(--bg-secondary, #f8fafc)', padding: 12, borderRadius: 8, border: '1px solid var(--border-light, #e2e8f0)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem', color, marginBottom: 8 }}>
+        {icon}
+        <span>{title}</span>
+      </div>
+      {facts?.length > 0 ? (
+        facts.map((p) => (
+          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.82rem', marginBottom: 6 }}>
+            <div>
+              <span style={{ fontWeight: 600 }}>{p.fact_key}:</span> <span>{p.fact_value}</span>{' '}
+              <SourceBadge sourceType={p.source_type} origin={originsById[p.source_id]} isZh={isZh} />
+            </div>
+            <button type="button" onClick={() => onDelete(p.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}>
+              <Trash size={12} />
+            </button>
+          </div>
+        ))
+      ) : (
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{emptyText}</span>
+      )}
+    </div>
+  );
+}
 
 export default function ContactsPage() {
   const { authToken, showToast } = useWorkspace();
@@ -271,6 +339,12 @@ export default function ContactsPage() {
     const dim = p.dimension || 'basic';
     if (!acc[dim]) acc[dim] = [];
     acc[dim].push(p);
+    return acc;
+  }, {});
+
+  // Interactions keyed by id: a fact's source_id points at the record it came from.
+  const originsById = (selectedContact?.timeline || []).reduce((acc, item) => {
+    acc[item.id] = item;
     return acc;
   }, {});
 
@@ -597,71 +671,50 @@ export default function ContactsPage() {
                     </h4>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      {/* Business Dimension */}
-                      <div style={{ background: 'var(--bg-secondary, #f8fafc)', padding: 12, borderRadius: 8, border: '1px solid var(--border-light, #e2e8f0)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem', color: '#2563eb', marginBottom: 8 }}>
-                          <BusinessIcon size={16} />
-                          <span>{isZh ? '商务事实 (Business)' : 'Business Facts'}</span>
-                        </div>
-                        {profilesByDimension.business?.length > 0 ? (
-                          profilesByDimension.business.map((p) => (
-                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.82rem', marginBottom: 6 }}>
-                              <div>
-                                <span style={{ fontWeight: 600 }}>{p.fact_key}:</span> <span>{p.fact_value}</span>
-                              </div>
-                              <button type="button" onClick={() => handleDeleteFact(p.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}>
-                                <Trash size={12} />
-                              </button>
-                            </div>
-                          ))
-                        ) : (
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{isZh ? '暂无商务事实' : 'No facts recorded'}</span>
-                        )}
-                      </div>
+                      <FactGroup
+                        title={isZh ? '商务事实 (Business)' : 'Business Facts'}
+                        icon={<BusinessIcon size={16} />}
+                        color="#2563eb"
+                        facts={profilesByDimension.business}
+                        emptyText={isZh ? '暂无商务事实' : 'No facts recorded'}
+                        originsById={originsById}
+                        isZh={isZh}
+                        onDelete={handleDeleteFact}
+                      />
 
-                      {/* Private Dimension */}
-                      <div style={{ background: 'var(--bg-secondary, #f8fafc)', padding: 12, borderRadius: 8, border: '1px solid var(--border-light, #e2e8f0)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem', color: '#ec4899', marginBottom: 8 }}>
-                          <Heart size={16} />
-                          <span>{isZh ? '私人喜好 (Private)' : 'Private Preferences'}</span>
-                        </div>
-                        {profilesByDimension.private?.length > 0 ? (
-                          profilesByDimension.private.map((p) => (
-                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.82rem', marginBottom: 6 }}>
-                              <div>
-                                <span style={{ fontWeight: 600 }}>{p.fact_key}:</span> <span>{p.fact_value}</span>
-                              </div>
-                              <button type="button" onClick={() => handleDeleteFact(p.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}>
-                                <Trash size={12} />
-                              </button>
-                            </div>
-                          ))
-                        ) : (
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{isZh ? '暂无私人喜好' : 'No facts recorded'}</span>
-                        )}
-                      </div>
+                      <FactGroup
+                        title={isZh ? '私人喜好 (Private)' : 'Private Preferences'}
+                        icon={<Heart size={16} />}
+                        color="#ec4899"
+                        facts={profilesByDimension.private}
+                        emptyText={isZh ? '暂无私人喜好' : 'No facts recorded'}
+                        originsById={originsById}
+                        isZh={isZh}
+                        onDelete={handleDeleteFact}
+                      />
 
-                      {/* Dynamic Dimension */}
-                      <div style={{ background: 'var(--bg-secondary, #f8fafc)', padding: 12, borderRadius: 8, border: '1px solid var(--border-light, #e2e8f0)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem', color: '#8b5cf6', marginBottom: 8 }}>
-                          <Zap size={16} />
-                          <span>{isZh ? '动态与约定 (Dynamic)' : 'Dynamic Status'}</span>
-                        </div>
-                        {profilesByDimension.dynamic?.length > 0 ? (
-                          profilesByDimension.dynamic.map((p) => (
-                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.82rem', marginBottom: 6 }}>
-                              <div>
-                                <span style={{ fontWeight: 600 }}>{p.fact_key}:</span> <span>{p.fact_value}</span>
-                              </div>
-                              <button type="button" onClick={() => handleDeleteFact(p.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}>
-                                <Trash size={12} />
-                              </button>
-                            </div>
-                          ))
-                        ) : (
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{isZh ? '暂无动态约定' : 'No facts recorded'}</span>
-                        )}
-                      </div>
+                      <FactGroup
+                        title={isZh ? '动态与约定 (Dynamic)' : 'Dynamic Status'}
+                        icon={<Zap size={16} />}
+                        color="#8b5cf6"
+                        facts={profilesByDimension.dynamic}
+                        emptyText={isZh ? '暂无动态约定' : 'No facts recorded'}
+                        originsById={originsById}
+                        isZh={isZh}
+                        onDelete={handleDeleteFact}
+                      />
+
+                      {/* 'basic' facts were written by the agent but had no panel to land in */}
+                      <FactGroup
+                        title={isZh ? '基础信息 (Basic)' : 'Basic Facts'}
+                        icon={<UserIcon size={16} />}
+                        color="#0891b2"
+                        facts={profilesByDimension.basic}
+                        emptyText={isZh ? '暂无基础事实' : 'No facts recorded'}
+                        originsById={originsById}
+                        isZh={isZh}
+                        onDelete={handleDeleteFact}
+                      />
 
                       {/* Tags Section */}
                       <div style={{ background: 'var(--bg-secondary, #f8fafc)', padding: 12, borderRadius: 8, border: '1px solid var(--border-light, #e2e8f0)' }}>
