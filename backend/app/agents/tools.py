@@ -371,15 +371,24 @@ def _graph_tz() -> str:
 
 def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
     async def list_event_range(start: str, end: str) -> tuple[list[dict] | None, str | None]:
-        path = f"/me/calendarView?startDateTime={start}&endDateTime={end}&$top=50&$orderby=start/dateTime"
+        path = (
+            f"/me/calendarView?startDateTime={start}&endDateTime={end}"
+            "&$top=50&$orderby=start/dateTime"
+            "&$select=id,subject,start,end,location,webLink"
+        )
         data, err = await _graph(
             graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_graph_tz()}"'})
         )
         return (data.get("value", []), None) if not err else (None, err)
 
+    def format_event_subject(event: dict) -> str:
+        subject = (event.get("subject") or "(no subject)").replace("[", r"\[").replace("]", r"\]")
+        return f"[{subject}]({event.get('webLink') or '#'})"
+
     def format_event_rows(events: list[dict]) -> str:
         return "\n".join(
-            f"- id={event['id']} subject={event.get('subject')!r} "
+            f"- internal_event_id={event['id']} "
+            f"subject={format_event_subject(event)} "
             f"start={(event.get('start') or {}).get('dateTime')} "
             f"end={(event.get('end') or {}).get('dateTime')} "
             f"location={(event.get('location') or {}).get('displayName', '')!r}"

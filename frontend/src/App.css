@@ -2798,10 +2798,12 @@
   margin-bottom: 7px;
   padding: 3px 7px;
   border-radius: 999px;
-  color: color-mix(in srgb, var(--accent-primary) 82%, var(--text-primary));
-  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  font-size: 0.72rem;
-  font-weight: 700;
+  color: color-mix(in srgb, var(--accent-primary) 78%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 32%, transparent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
   line-height: 1;
 }
 
@@ -2826,10 +2828,12 @@
   flex: 0 0 auto;
   padding: 5px 8px;
   border-radius: 999px;
-  color: var(--accent-primary);
-  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  font-size: 0.78rem;
-  font-weight: 700;
+  color: color-mix(in srgb, var(--accent-primary) 72%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 42%, transparent);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.015em;
 }
 
 .composer-agent-chip-remove {
