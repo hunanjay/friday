@@ -30,6 +30,12 @@ class Settings(BaseModel):
     GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
     GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
 
+    # Dev-only escape hatch: skip the SSRF host check when binding mail accounts.
+    # Some local proxies (Clash/Surge Fake-IP mode) resolve real domains into
+    # 198.18.0.0/15, which the checker correctly rejects as reserved - this lets
+    # you test the mail-binding flow through such a proxy. Never set in prod.
+    MAIL_SSRF_CHECK_DISABLED: bool = os.getenv("MAIL_SSRF_CHECK_DISABLED", "false").lower() == "true"
+
 
 @lru_cache()
 def get_settings() -> Settings:

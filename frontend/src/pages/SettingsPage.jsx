@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Github, Search, X, Moon, Sun, LogOut } from '../components/common/Icons';
-import LanguageSwitcher from '../components/common/LanguageSwitcher';
+import BindMailAccountModal from '../components/BindMailAccountModal';
+import { Github, Search, X, Moon, Sun, LogOut, Mail } from '../components/common/Icons';
 
 function RepoSection({ label, repos, checked, onToggle }) {
   if (repos.length === 0) return null;
@@ -14,39 +14,15 @@ function RepoSection({ label, repos, checked, onToggle }) {
         {repos.map(r => {
           const isChecked = checked.has(r.full_name);
           return (
-            <label key={r.full_name} className={`settings-repo-card ${isChecked ? 'is-selected' : ''}`}>
+            <label key={r.full_name} className={`settings-repo-chip ${isChecked ? 'is-selected' : ''}`}>
               <input
                 type="checkbox"
                 checked={isChecked}
                 onChange={() => onToggle(r.full_name)}
                 className="visually-hidden"
               />
-              <div className="settings-repo-card-header">
-                <span className="settings-repo-checkbox" aria-hidden="true" />
-                <span className="settings-repo-badge">
-                  {r.private ? (
-                    <span className="badge-private">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '3px' }}>
-                        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                      Private
-                    </span>
-                  ) : (
-                    <span className="badge-public">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '3px' }}>
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-                        <path d="M2 12h20" />
-                      </svg>
-                      Public
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="settings-repo-name" title={r.full_name}>
-                {r.full_name}
-              </div>
+              <span className="settings-repo-checkbox" aria-hidden="true" />
+              <span className="settings-repo-name" title={r.full_name}>{r.full_name}</span>
             </label>
           );
         })}
@@ -63,19 +39,30 @@ export default function SettingsPage() {
     theme,
     toggleTheme,
     handleLogout,
+    authToken,
     githubStatus,
     githubRepos,
     handleConnectGithub,
     handleDisconnectGithub,
     handleSaveGithubRepos,
+    mailAccounts,
+    handleUnbindMailAccount,
+    handleVerifyMailAccount,
+    handleRefreshMailAccounts,
     showToast,
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
+  const changeLanguage = (lang) => {
+    i18n.changeLanguage(lang);
+    localStorage.setItem('language', lang);
+  };
   const [checked, setChecked] = useState(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showBindMail, setShowBindMail] = useState(false);
+  const [verifyingMailId, setVerifyingMailId] = useState(null);
   const selectedCommit = location.state?.commit;
 
   // Sync selection state from context when ready
@@ -172,115 +159,122 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <div className="settings-layout-grid">
-        {/* Left Column: Preferences */}
-        <div className="settings-sidebar-column">
-          {/* User Profile Info */}
+      <div className="settings-shell">
+        <nav className="settings-section-nav">
+          <a className="current" href="#profile">{isZh ? '账号' : 'Account'}</a>
+          <a href="#general">{isZh ? '常规' : 'General'}</a>
+          <a href="#github">GitHub</a>
+          <a href="#mail">{isZh ? '邮箱账号' : 'Mail Accounts'}</a>
+        </nav>
+
+        <div className="settings-panes">
+
           {user && (
-            <div className="settings-card profile-card">
-              <div className="profile-header">
-                <div className="profile-avatar">
-                  {user.name ? user.name[0].toUpperCase() : 'U'}
-                </div>
-                <div className="profile-details">
-                  <h3>{user.name}</h3>
-                  <p>{user.email}</p>
+            <section className="settings-pane" id="profile">
+              <div className="settings-pane-head"><h2>{isZh ? '账号' : 'Account'}</h2></div>
+              <div className="settings-panel">
+                <div className="settings-row">
+                  <div className="settings-identity">{user.name ? user.name[0].toUpperCase() : 'U'}</div>
+                  <div className="settings-id">
+                    <div className="settings-id-primary">{user.name}</div>
+                    <div className="settings-id-meta">{user.email}</div>
+                  </div>
+                  <div className="settings-row-actions">
+                    <button className="settings-btn btn-danger" onClick={handleLogout}>
+                      <LogOut size={16} />
+                      <span>{t('common.signOut')}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-              <button className="settings-btn btn-danger" onClick={handleLogout} style={{ marginTop: '16px', width: '100%' }}>
-                <LogOut size={16} />
-                <span>{t('common.signOut')}</span>
-              </button>
-            </div>
+            </section>
           )}
 
-          {/* General Preferences card */}
-          <div className="settings-card">
-            <h2>{isZh ? '常规设置' : 'General Options'}</h2>
-            
-            <div className="setting-field">
-              <label>{isZh ? '外观主题' : 'Appearance Theme'}</label>
-              <div className="theme-selector-cards">
-                <button 
-                  className={`theme-card ${theme === 'light' ? 'active' : ''}`}
-                  onClick={() => theme !== 'light' && toggleTheme()}
-                >
-                  <Sun size={20} />
-                  <span>{t('common.themeLight')}</span>
-                </button>
-                <button 
-                  className={`theme-card ${theme === 'dark' ? 'active' : ''}`}
-                  onClick={() => theme !== 'dark' && toggleTheme()}
-                >
-                  <Moon size={20} />
-                  <span>{t('common.themeDark')}</span>
-                </button>
+          <section className="settings-pane" id="general">
+            <div className="settings-pane-head"><h2>{isZh ? '常规' : 'General'}</h2></div>
+            <div className="settings-panel">
+              <div className="settings-field-row">
+                <div>
+                  <div className="settings-field-label">{isZh ? '外观' : 'Appearance'}</div>
+                </div>
+                <div className="settings-segmented">
+                  <button className={theme === 'light' ? 'on' : ''} onClick={() => theme !== 'light' && toggleTheme()}>
+                    <Sun size={14} style={{ marginRight: 5, verticalAlign: -2 }} />{t('common.themeLight')}
+                  </button>
+                  <button className={theme === 'dark' ? 'on' : ''} onClick={() => theme !== 'dark' && toggleTheme()}>
+                    <Moon size={14} style={{ marginRight: 5, verticalAlign: -2 }} />{t('common.themeDark')}
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field-row">
+                <div>
+                  <div className="settings-field-label">{isZh ? '界面语言' : 'Language'}</div>
+                  <div className="settings-field-hint">{isZh ? '聊天与邮件正文不受影响' : "Doesn't affect chat or mail content"}</div>
+                </div>
+                <div className="settings-segmented">
+                  <button className={i18n.language === 'zh' ? 'on' : ''} onClick={() => changeLanguage('zh')}>中文</button>
+                  <button className={i18n.language === 'en' ? 'on' : ''} onClick={() => changeLanguage('en')}>EN</button>
+                </div>
               </div>
             </div>
+          </section>
 
-            <div className="setting-field" style={{ marginTop: '20px' }}>
-              <label>{isZh ? '界面语言' : 'Language'}</label>
-              <div style={{ marginTop: '8px' }}>
-                <LanguageSwitcher isSidebarCollapsed={false} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: GitHub Repository Selection (Takes more space) */}
-        <div className="settings-main-column">
-          <div className="settings-card main-github-card">
-            <div className="github-card-header">
-              <div className="github-card-title">
-                <Github size={24} />
-                <h2>GitHub {isZh ? '集成' : 'Integration'}</h2>
-              </div>
-              {githubStatus?.connected ? (
-                <div className="github-status-indicator connected">
-                  <span className="pulse-dot" />
-                  {isZh ? '已连接' : 'Connected'}
-                </div>
-              ) : (
-                <div className="github-status-indicator disconnected">
-                  {isZh ? '未连接' : 'Not Connected'}
-                </div>
+          <section className="settings-pane" id="github">
+            <div className="settings-pane-head">
+              <h2>GitHub</h2>
+              {githubStatus?.connected && (
+                <span className="settings-pane-count">{checked.size} / {githubRepos?.available?.length || 0} {isZh ? '仓库已选' : 'repos selected'}</span>
               )}
             </div>
-
-            {githubStatus?.connected ? (
-              <>
-                <div className="github-profile-horizontal">
-                  <div className="github-profile-left">
-                    {githubStatus.avatar_url ? (
-                      <img src={githubStatus.avatar_url} alt={githubStatus.login} className="settings-github-avatar" />
-                    ) : (
-                      <div className="settings-github-avatar-fallback">
-                        <Github size={20} />
-                      </div>
-                    )}
-                    <div className="github-profile-text">
-                      <span className="github-profile-fullname">{githubStatus.name || githubStatus.login}</span>
-                      <span className="github-profile-login">@{githubStatus.login}</span>
-                    </div>
+            <div className="settings-panel">
+              <div className="settings-row">
+                {githubStatus?.connected ? (
+                  githubStatus.avatar_url ? (
+                    <img src={githubStatus.avatar_url} alt={githubStatus.login} className="settings-github-avatar" />
+                  ) : (
+                    <div className="settings-github-avatar-fallback"><Github size={20} /></div>
+                  )
+                ) : (
+                  <div className="settings-identity"><Github size={18} /></div>
+                )}
+                <div className="settings-id">
+                  <div className="settings-id-primary">
+                    {githubStatus?.connected ? (githubStatus.name || githubStatus.login) : (isZh ? '未连接' : 'Not connected')}
                   </div>
-                  <div className="github-profile-right">
-                    <button type="button" className="settings-btn" onClick={handleConnectGithub} title="Reconnect GitHub">
-                      {isZh ? '重新连接' : 'Reconnect'}
-                    </button>
-                    <button type="button" className="settings-btn btn-danger-outline" onClick={handleDisconnect} disabled={isDisconnecting}>
-                      {isDisconnecting ? '...' : (isZh ? '断开连接' : 'Disconnect')}
-                    </button>
+                  <div className="settings-id-meta">
+                    {githubStatus?.connected ? `@${githubStatus.login}` : (isZh ? '连接后可导入 commit 生成日报' : 'Connect to import commits for status reports')}
+                    {githubStatus?.connected ? (
+                      <span className="github-status-indicator connected"><span className="pulse-dot" />{isZh ? '已连接' : 'Connected'}</span>
+                    ) : (
+                      <span className="github-status-indicator disconnected">{isZh ? '未连接' : 'Not Connected'}</span>
+                    )}
                   </div>
                 </div>
+                <div className="settings-row-actions">
+                  {githubStatus?.connected ? (
+                    <>
+                      <button type="button" className="settings-btn" onClick={handleConnectGithub} title="Reconnect GitHub">
+                        {isZh ? '重新连接' : 'Reconnect'}
+                      </button>
+                      <button type="button" className="settings-btn btn-danger-outline" onClick={handleDisconnect} disabled={isDisconnecting}>
+                        {isDisconnecting ? '...' : (isZh ? '断开连接' : 'Disconnect')}
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="settings-btn btn-primary" onClick={handleConnectGithub}>
+                      {isZh ? '连接 GitHub' : 'Connect GitHub'}
+                    </button>
+                  )}
+                </div>
+              </div>
 
+              {githubStatus?.connected && (
                 <div className="github-repositories-section">
                   <div className="repo-section-header">
-                    <div>
-                      <h3>{isZh ? '要汇报进度的仓库' : 'Repositories for Status Reports'}</h3>
-                      <p className="repo-section-desc">
-                        {isZh ? `选择哪些仓库的 commit 活动需要生成报告。已选择 ${checked.size} 个。` : `Choose which repositories to pull commit history from. Selected ${checked.size} repositories.`}
-                      </p>
-                    </div>
+                    <h3>{isZh ? '要汇报进度的仓库' : 'Repositories for Status Reports'}</h3>
+                    <p className="repo-section-desc">
+                      {isZh ? '选择哪些仓库的 commit 活动需要生成报告。' : 'Choose which repositories to pull commit history from.'}
+                    </p>
                   </div>
 
                   <div className="repo-filter-controls">
@@ -330,31 +324,121 @@ export default function SettingsPage() {
                       </>
                     )}
                   </div>
-
-                  <div className="repo-section-footer">
-                    <button type="button" className="settings-btn btn-primary" onClick={handleSave} disabled={isSaving}>
-                      {isSaving ? (isZh ? '正在保存...' : 'Saving...') : (isZh ? '保存仓库选择' : 'Save Repository Selection')}
-                    </button>
-                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="github-disconnected-prompt">
-                <Github size={48} className="disconnected-icon" />
-                <h3>{isZh ? '连接您的 GitHub 账号' : 'Connect Your GitHub Account'}</h3>
-                <p>
-                  {isZh 
-                    ? '连接 GitHub 账号以导入您在各个仓库的提交记录，并生成工作日报。' 
-                    : 'Connect your GitHub profile to import repository commit history and analyze daily progress reports.'}
-                </p>
-                <button type="button" className="settings-btn btn-primary" onClick={handleConnectGithub} style={{ marginTop: '16px' }}>
-                  {isZh ? '立即连接 GitHub' : 'Connect GitHub Now'}
+              )}
+
+              {githubStatus?.connected && (
+                <div className="settings-pane-foot">
+                  <span>{isZh ? '用于生成工作日报的 commit 数据来源' : 'Commit source for status report generation'}</span>
+                  <button type="button" className="settings-btn btn-primary" onClick={handleSave} disabled={isSaving} style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                    {isSaving ? (isZh ? '正在保存...' : 'Saving...') : (isZh ? '保存选择' : 'Save Selection')}
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="settings-pane" id="mail">
+            <div className="settings-pane-head">
+              <h2>{isZh ? '邮箱账号' : 'Mail Accounts'}</h2>
+              <span className="settings-pane-count">{mailAccounts.length} {isZh ? '已绑定' : 'bound'}</span>
+            </div>
+            <p className="settings-callout">
+              {isZh
+                ? '支持 163 / QQ / Gmail / iCloud / Outlook（IMAP+SMTP）及自定义服务器，凭据加密存储。'
+                : '163 / QQ / Gmail / iCloud / Outlook (IMAP+SMTP) and custom servers. Credentials are encrypted at rest.'}
+            </p>
+            <div className="settings-panel">
+              {mailAccounts.length === 0 ? (
+                <div className="github-disconnected-prompt">
+                  <Mail size={36} className="disconnected-icon" />
+                  <h3>{isZh ? '还没有绑定邮箱' : 'No mail accounts bound'}</h3>
+                  <p>
+                    {isZh
+                      ? '点击下方"绑定邮箱"，选择 163/QQ 等提供商并填入授权码即可连接。'
+                      : 'Click "Bind Mail" below and pick a provider (163/QQ...) with its auth code.'}
+                  </p>
+                </div>
+              ) : (
+                mailAccounts.map(acc => (
+                  <div key={acc.id} className="settings-row">
+                    <div className="settings-id">
+                      <div className="settings-id-primary">{acc.email_address}</div>
+                      <div className="settings-id-meta">
+                        {acc.provider}
+                        {acc.last_verified_at ? (
+                          <span className="settings-status-pill ok">{isZh ? '已验证' : 'verified'} {new Date(acc.last_verified_at).toLocaleDateString()}</span>
+                        ) : (
+                          <span className="settings-status-pill">{acc.status}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="settings-row-actions">
+                      <button
+                        type="button"
+                        className="settings-btn"
+                        onClick={async () => {
+                          setVerifyingMailId(acc.id);
+                          try {
+                            await handleVerifyMailAccount(acc.id);
+                            showToast(isZh ? '连接正常' : 'Connection OK');
+                          } catch {
+                            showToast(isZh ? '连接验证失败' : 'Verification failed');
+                          } finally {
+                            setVerifyingMailId(null);
+                          }
+                        }}
+                        disabled={verifyingMailId === acc.id}
+                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                      >
+                        {verifyingMailId === acc.id ? '...' : (isZh ? '测试连接' : 'Verify')}
+                      </button>
+                      <button
+                        type="button"
+                        className="settings-btn btn-danger"
+                        onClick={async () => {
+                          if (!confirm(isZh ? `解绑 ${acc.email_address}？` : `Unbind ${acc.email_address}?`)) return;
+                          try {
+                            await handleUnbindMailAccount(acc.id);
+                            showToast(isZh ? '已解绑' : 'Unbound');
+                          } catch {
+                            showToast(isZh ? '解绑失败' : 'Failed to unbind');
+                          }
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                      >
+                        {isZh ? '解绑' : 'Unbind'}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div className="settings-pane-foot">
+                <span>{isZh ? '点击测试连接会重新校验 IMAP/SMTP 凭据' : 'Verify re-checks the IMAP/SMTP credentials'}</span>
+                <button
+                  type="button"
+                  className="settings-btn btn-primary"
+                  onClick={() => setShowBindMail(true)}
+                  style={{ padding: '6px 14px', fontSize: '0.82rem' }}
+                >
+                  {isZh ? '+ 绑定邮箱' : '+ Bind Mail'}
                 </button>
               </div>
-            )}
-          </div>
+            </div>
+          </section>
+
         </div>
       </div>
+      <BindMailAccountModal
+        isOpen={showBindMail}
+        onClose={() => setShowBindMail(false)}
+        authToken={authToken}
+        onBound={() => {
+          showToast(i18n.language === 'zh' ? '邮箱绑定成功' : 'Mail account bound');
+          handleRefreshMailAccounts();
+        }}
+        isZh={isZh}
+      />
       {selectedCommit && (
         <div className="settings-commit-detail-overlay" onClick={closeCommitDetails}>
           <section className="settings-commit-detail" role="dialog" aria-modal="true" aria-labelledby="commit-detail-title" onClick={event => event.stopPropagation()}>

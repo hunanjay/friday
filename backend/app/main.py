@@ -9,7 +9,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 from app.agents import checkpointer
-from app.api import agent, auth, calendar, contact, github, github_auth, mail, memos, todos
+from app.api import agent, auth, calendar, contact, github, github_auth, mail, mail_accounts, memos, todos
 from app.core.config import settings
 from app.infrastructure.db import pool as db_pool
 from app.infrastructure.db.repositories import (
@@ -74,6 +74,7 @@ app.include_router(memos.router)
 app.include_router(todos.router)
 app.include_router(github_auth.router)
 app.include_router(github.router)
+app.include_router(mail_accounts.router)
 
 import os
 
