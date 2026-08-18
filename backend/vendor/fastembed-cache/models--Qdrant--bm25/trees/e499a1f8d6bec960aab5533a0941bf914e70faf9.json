@@ -1,0 +1,137 @@
+{
+ "format_version": 1,
+ "files": {
+  ".gitattributes": {
+   "size": 1519,
+   "blob_id": "a6344aac8c09253b3b630fb776ae94478aa0275b"
+  },
+  "README.md": {
+   "size": 1375,
+   "blob_id": "f6d0f987186f9e257dff054e28c74aa290325b5f"
+  },
+  "arabic.txt": {
+   "size": 6348,
+   "blob_id": "ee3a26e793f8ab69a44b30332708cc122b258b51"
+  },
+  "azerbaijani.txt": {
+   "size": 967,
+   "blob_id": "27bf2940fe608d8a0698a7b896cd1fd22ad64ac9"
+  },
+  "basque.txt": {
+   "size": 2202,
+   "blob_id": "3b84c32419b346f0606212affb50f08f3d226194"
+  },
+  "bengali.txt": {
+   "size": 5443,
+   "blob_id": "9dc1bfcb2a87c09952a3e61c4c365612c4adccd2"
+  },
+  "catalan.txt": {
+   "size": 1558,
+   "blob_id": "cdba332cb94448bf8b93d41e5d58e2b6f447211f"
+  },
+  "chinese.txt": {
+   "size": 5560,
+   "blob_id": "0873a9033a24948ae253085187c882418b5b3aaa"
+  },
+  "config.json": {
+   "size": 2,
+   "blob_id": "9e26dfeeb6e641a33dae4961196235bdb965b21b"
+  },
+  "danish.txt": {
+   "size": 424,
+   "blob_id": "d3edc6757912e3d83acfa241859c4a1bdb6005ad"
+  },
+  "dutch.txt": {
+   "size": 453,
+   "blob_id": "cafa0324b53763f7efadda5b0f3d0321ffa7ab38"
+  },
+  "english.txt": {
+   "size": 936,
+   "blob_id": "1280aa3b08d64b846272b2d23314377200db36e9"
+  },
+  "finnish.txt": {
+   "size": 1579,
+   "blob_id": "47ee200f6781ddfdb31af37e317e1f05d10a04ff"
+  },
+  "french.txt": {
+   "size": 813,
+   "blob_id": "00af58791541ed63f33c98207199f6b32727f571"
+  },
+  "german.txt": {
+   "size": 1362,
+   "blob_id": "c2241d0ee7bbc192abe3b56efffb75f29a29e185"
+  },
+  "greek.txt": {
+   "size": 2167,
+   "blob_id": "9d08b144659c4ae804bb84a624e1248bb2b90e40"
+  },
+  "hebrew.txt": {
+   "size": 1836,
+   "blob_id": "8ac778585f3d9b71c5a6d1e4fc9afb83eb4e691a"
+  },
+  "hinglish.txt": {
+   "size": 5958,
+   "blob_id": "de0654e211e01952c3f38c78d370739e7c71d2e2"
+  },
+  "hungarian.txt": {
+   "size": 1227,
+   "blob_id": "94e9f9a0b07a68aeff30605fc445db71f63be630"
+  },
+  "indonesian.txt": {
+   "size": 6446,
+   "blob_id": "bf88a458130df5ab852fb1656a8157a00ec355e9"
+  },
+  "italian.txt": {
+   "size": 1654,
+   "blob_id": "6ee02b51fb1711625c1de28595615cdecba4de7c"
+  },
+  "kazakh.txt": {
+   "size": 3880,
+   "blob_id": "ebb9fc1bdc99fa06919ad03c1f5ac6a44695e111"
+  },
+  "nepali.txt": {
+   "size": 3610,
+   "blob_id": "b2e4d34709f5573aa7a19009dc8732db43f9fd6f"
+  },
+  "norwegian.txt": {
+   "size": 851,
+   "blob_id": "9ac1abbb6cba1fb3159caa6d88b25543b9080031"
+  },
+  "portuguese.txt": {
+   "size": 1286,
+   "blob_id": "eb53a8fc2544b16d2a849d98e26c6e34bf07bdb0"
+  },
+  "romanian.txt": {
+   "size": 1910,
+   "blob_id": "45651c90ec7ea5b26c51ea9a11fddafb00652190"
+  },
+  "russian.txt": {
+   "size": 1235,
+   "blob_id": "ecb83d4a7f393b67b054b44e337d683b2ff2d973"
+  },
+  "slovene.txt": {
+   "size": 15980,
+   "blob_id": "eb4d1bcf28f31cb48ffa1e1d7b8fddc60f0fbd32"
+  },
+  "spanish.txt": {
+   "size": 2176,
+   "blob_id": "6a7d50cc633609c8bc2da53c3dac9a015c248b62"
+  },
+  "stopwords.txt": {
+   "size": 936,
+   "blob_id": "1280aa3b08d64b846272b2d23314377200db36e9"
+  },
+  "swedish.txt": {
+   "size": 559,
+   "blob_id": "742bb6263b99fb2ea6e1e3624a65eb2799a1e24c"
+  },
+  "tajik.txt": {
+   "size": 1818,
+   "blob_id": "898614a0210a2f4cd74deed295978c04a19bbf37"
+  },
+  "turkish.txt": {
+   "size": 260,
+   "blob_id": "5a48ccce0737bb38cb99cafa1f8d3d0ce34e7488"
+  }
+ }
+}
