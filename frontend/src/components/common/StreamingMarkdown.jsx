@@ -149,7 +149,29 @@ function parseInlineWithBuffer(text, isLastBlockAndStreaming) {
   const elements = [];
   let i = 0;
 
+  const findUnescaped = (value, start, target) => {
+    for (let index = start; index < value.length; index += 1) {
+      if (value[index] !== target) continue;
+      let slashCount = 0;
+      for (let slashIndex = index - 1; slashIndex >= 0 && value[slashIndex] === '\\'; slashIndex -= 1) {
+        slashCount += 1;
+      }
+      if (slashCount % 2 === 0) return index;
+    }
+    return -1;
+  };
+
+  const unescapeLinkText = (value) => value.replace(/\\([\\[\\]])/g, '$1');
+
   while (i < text.length) {
+    // Backslash escapes are used by internal-link labels for literal
+    // brackets (e.g. email subjects such as "[通知]").
+    if (text[i] === '\\' && i + 1 < text.length && '\\[]'.includes(text[i + 1])) {
+      elements.push(text[i + 1]);
+      i += 2;
+      continue;
+    }
+
     // 1. Bold (**)
     if (text.startsWith('**', i)) {
       const closeIndex = text.indexOf('**', i + 2);
@@ -230,12 +252,12 @@ function parseInlineWithBuffer(text, isLastBlockAndStreaming) {
     }
     // 4. Link [text](url)
     else if (text.startsWith('[', i)) {
-      const closeBrackIndex = text.indexOf(']', i + 1);
+      const closeBrackIndex = findUnescaped(text, i + 1, ']');
       if (closeBrackIndex !== -1) {
         if (text.startsWith('(', closeBrackIndex + 1)) {
-          const closeParenIndex = text.indexOf(')', closeBrackIndex + 2);
+          const closeParenIndex = findUnescaped(text, closeBrackIndex + 2, ')');
           if (closeParenIndex !== -1) {
-            const linkText = text.slice(i + 1, closeBrackIndex);
+            const linkText = unescapeLinkText(text.slice(i + 1, closeBrackIndex));
             const linkUrl = text.slice(closeBrackIndex + 2, closeParenIndex);
             elements.push(
               <a key={`link-${i}`} href={linkUrl} target="_blank" rel="noopener noreferrer" className="markdown-link">

@@ -97,6 +97,7 @@ export default function EmailPage() {
   const handleSelectEmailRef = useRef(null);
   // IDs of messages whose full body is expanded in the timeline view.
   const [expandedMsgIds, setExpandedMsgIds] = useState(new Set());
+  const targetFetchKeyRef = useRef(null);
 
   useEffect(() => () => {
     threadPrefetchTimersRef.current.forEach(timer => window.clearTimeout(timer));
@@ -679,15 +680,48 @@ export default function EmailPage() {
   };
   handleSelectEmailRef.current = handleSelectEmail;
 
-  const targetEmailId = location.state?.emailId;
+  const searchParams = new URLSearchParams(location.search);
+  const targetEmailId = location.state?.emailId || searchParams.get('emailId');
+  const targetEmailFolder = location.state?.emailFolder || searchParams.get('folder') || 'inbox';
+  const targetEmailProvider = location.state?.emailProvider || searchParams.get('provider') || MICROSOFT;
   useEffect(() => {
     if (!targetEmailId) return;
     const targetEmail = location.state?.email || emails.find(email => email.id === targetEmailId);
-    if (!targetEmail) return;
-    setActiveFolder(targetEmail.parentFolderId || 'inbox');
-    handleSelectEmailRef.current?.({ ...targetEmail, _threadKey: targetEmail.conversationId || targetEmail.id });
-    navigate('/email', { replace: true, state: null });
-  }, [emails, location.state, navigate, targetEmailId]);
+    if (targetEmail) {
+      setActiveFolder(targetEmail.parentFolderId || targetEmailFolder);
+      handleSelectEmailRef.current?.({ ...targetEmail, _threadKey: targetEmail.conversationId || targetEmail.id });
+      navigate('/email', { replace: true, state: null });
+      return;
+    }
+
+    // Chat links may point to a message that is outside the currently synced
+    // page (for example, a sent or older message). Fetch that message by ID so
+    // the internal link still opens the reader instead of silently doing nothing.
+    const fetchKey = `${targetEmailProvider}:${targetEmailId}`;
+    if (targetFetchKeyRef.current === fetchKey) return;
+    targetFetchKeyRef.current = fetchKey;
+    const url = targetEmailProvider === MICROSOFT
+      ? `${API_URL}/api/graph/mail/${encodeURIComponent(targetEmailId)}`
+      : `${API_URL}/api/mail/${encodeURIComponent(targetEmailId)}`;
+    fetch(url, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(async res => {
+        if (!res.ok) throw new Error(`Failed to load linked email (${res.status})`);
+        return res.json();
+      })
+      .then(message => {
+        const fetchedEmail = normalizeMessage(message, targetEmailFolder);
+        setActiveFolder(targetEmailFolder);
+        handleSelectEmailRef.current?.({
+          ...fetchedEmail,
+          _threadKey: fetchedEmail.conversationId || fetchedEmail.id,
+        });
+        navigate('/email', { replace: true, state: null });
+      })
+      .catch(() => showToast(t('email.loadFailed', { defaultValue: 'Failed to load email' })))
+      .finally(() => {
+        targetFetchKeyRef.current = null;
+      });
+  }, [authToken, emails, location.search, location.state, navigate, showToast, t, targetEmailFolder, targetEmailId, targetEmailProvider]);
 
   const toggleMsgExpand = (msgId) => {
     setExpandedMsgIds(prev => {

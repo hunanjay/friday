@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from langchain_core.tools import tool
 
 from app.agents.calendar_dates import resolve_calendar_day
+from app.agents.internal_links import markdown_internal_link
 from app.infrastructure.db.repositories import memos as memos_db
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
@@ -48,12 +49,19 @@ async def _graph_mutation(coro):
     return await coro
 
 
-def _format_email_row(m: dict) -> str:
+def _format_email_row(m: dict, folder: str = "inbox") -> str:
     unread = "" if m.get("isRead", True) else "[UNREAD] "
     sender = m.get("sender", {}).get("emailAddress", {}).get("address")
+    subject = markdown_internal_link(
+        m.get("subject") or "(no subject)",
+        "email",
+        m["id"],
+        folder=folder,
+    )
     return (
         f"- {unread}id={m['id']} from={sender} "
-        f"subject={m.get('subject')!r} preview={m.get('bodyPreview', '')[:120]!r}"
+        f"subject={subject} received={m.get('receivedDateTime', '')} "
+        f"preview={m.get('bodyPreview', '')[:120]!r}"
     )
 
 
@@ -160,7 +168,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         messages = data.get("value", [])
         if not messages:
             return f"No messages in {folder}."
-        return "\n".join(_format_email_row(m) for m in messages)
+        return "\n".join(_format_email_row(m, folder=folder) for m in messages)
 
     @tool
     async def search_emails(
@@ -180,7 +188,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         messages = data.get("value", [])
         if not messages:
             return "No emails matched that search."
-        return "\n".join(_format_email_row(m) for m in messages)
+        return "\n".join(_format_email_row(m, folder=folder) for m in messages)
 
     @tool
     async def read_email(email_id: str) -> str:
@@ -374,7 +382,7 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
         path = (
             f"/me/calendarView?startDateTime={start}&endDateTime={end}"
             "&$top=50&$orderby=start/dateTime"
-            "&$select=id,subject,start,end,location,webLink"
+            "&$select=id,subject,start,end,location"
         )
         data, err = await _graph(
             graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_graph_tz()}"'})
@@ -382,8 +390,19 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
         return (data.get("value", []), None) if not err else (None, err)
 
     def format_event_subject(event: dict) -> str:
-        subject = (event.get("subject") or "(no subject)").replace("[", r"\[").replace("]", r"\]")
-        return f"[{subject}]({event.get('webLink') or '#'})"
+        subject = event.get("subject") or "(no subject)"
+        event_id = event.get("id")
+        start = (event.get("start") or {}).get("dateTime") or ""
+        if not event_id:
+            return subject
+        # Keep chat links inside Friday. Graph's webLink points to Outlook Web,
+        # while this route can open the event in our own calendar UI.
+        return markdown_internal_link(
+            subject,
+            "calendar",
+            str(event_id),
+            eventStart=start,
+        )
 
     def format_event_rows(events: list[dict]) -> str:
         return "\n".join(
