@@ -129,6 +129,23 @@ class TestApprovedExecutionResult(unittest.TestCase):
     def test_missing_tool_result_is_not_reported_as_success(self):
         self.assertIn("verifiable", approved_tool_error(self.interrupt, [], []))
 
+    def test_nested_tool_event_counts_as_execution_result(self):
+        self.assertIsNone(
+            approved_tool_error(
+                self.interrupt,
+                [],
+                [],
+                [
+                    {
+                        "name": "send_email",
+                        "tool_call_id": "event-result-1",
+                        "status": "success",
+                        "content": "Email sent.",
+                    }
+                ],
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

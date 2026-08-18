@@ -4,6 +4,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from app.agents.checkpointer import get_checkpointer
@@ -239,8 +240,39 @@ async def _decide_action(
             if kind == "ai" and message_id
         }
         execution_error = None
+        execution_results = []
         try:
-            await graph.ainvoke(Command(resume={pending.id: resume_value}), config=config)
+            async for event in graph.astream_events(
+                Command(resume={pending.id: resume_value}),
+                config=config,
+                version="v2",
+            ):
+                event_type = event.get("event")
+                if event_type not in {"on_tool_end", "on_tool_error"}:
+                    continue
+                tool_name = event.get("name") or ""
+                if event_type == "on_tool_error":
+                    execution_results.append(
+                        {
+                            "name": tool_name,
+                            "tool_call_id": f"event-error-{len(execution_results)}",
+                            "status": "error",
+                            "content": str(event.get("data", {}).get("error", "tool execution failed")),
+                        }
+                    )
+                    continue
+                output = event.get("data", {}).get("output")
+                if isinstance(output, ToolMessage):
+                    execution_results.append(output)
+                else:
+                    execution_results.append(
+                        {
+                            "name": tool_name,
+                            "tool_call_id": f"event-result-{len(execution_results)}",
+                            "status": "success",
+                            "content": str(output or ""),
+                        }
+                    )
             resumed_state = await graph.aget_state(config)
         except Exception:
             # The external write may already have happened.  Fail closed and
@@ -267,6 +299,7 @@ async def _decide_action(
                     pending,
                     raw_before_messages,
                     list((resumed_state.values or {}).get("messages", [])),
+                    execution_results,
                 )
             status = "failed" if execution_error else "succeeded"
         action = interrupt_to_action(

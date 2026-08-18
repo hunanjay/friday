@@ -208,7 +208,12 @@ def _tool_message_fields(message) -> tuple[str | None, str | None, str | None, s
 
 def _is_tool_message(message) -> bool:
     return isinstance(message, ToolMessage) or (
-        isinstance(message, dict) and (message.get("type") == "tool" or message.get("role") == "tool")
+        isinstance(message, dict)
+        and (
+            message.get("type") == "tool"
+            or message.get("role") == "tool"
+            or (message.get("name") and message.get("tool_call_id"))
+        )
     )
 
 
@@ -216,6 +221,7 @@ def approved_tool_error(
     interrupt: Interrupt,
     before_messages: list,
     after_messages: list,
+    tool_results: list | None = None,
 ) -> str | None:
     """Return a safe failure reason unless every approved tool reported success."""
     value = interrupt.value if isinstance(interrupt.value, dict) else {}
@@ -228,7 +234,7 @@ def approved_tool_error(
         if tool_call_id
     }
     results = []
-    for message in after_messages:
+    for message in [*after_messages, *(tool_results or [])]:
         if not _is_tool_message(message):
             continue
         name, tool_call_id, status, content = _tool_message_fields(message)
