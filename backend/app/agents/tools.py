@@ -47,52 +47,91 @@ def _format_email_row(m: dict) -> str:
     )
 
 
+def _format_contact(c: dict, matches: list[dict] | None = None) -> str:
+    parts = [f"=== Contact: {c['name']} ==="]
+    meta = [
+        f"Email: {c.get('email', '') or 'N/A'}",
+        f"Phone: {c.get('phone', '') or 'N/A'}",
+        f"Company: {c.get('company', '') or 'N/A'}",
+        f"Job Title: {c.get('jobTitle', '') or 'N/A'}",
+        f"Location: {c.get('location', '') or 'N/A'}",
+    ]
+    parts.append(" | ".join(meta))
+    if c.get("ai_summary"):
+        parts.append(f"AI Summary / Profile: {c['ai_summary']}")
+    if c.get("tags"):
+        parts.append(f"Tags: {', '.join('#' + t for t in c['tags'])}")
+
+    # Memory Facts, each carrying the record it was learned from so the answer can cite it
+    timeline_by_id = {t.get("id"): t for t in c.get("timeline", [])}
+    facts = c.get("profiles", [])
+    if facts:
+        fact_lines = ["Memory Facts (4 Dimensions):"]
+        for p in facts:
+            origin = timeline_by_id.get(p.get("source_id"))
+            if origin:
+                date_str = str(origin.get("event_date", ""))[:10]
+                source = f" (source: {p.get('source_type')} on {date_str} — {origin.get('summary', '')})"
+            else:
+                source = f" (source: {p.get('source_type') or 'unknown'})"
+            fact_lines.append(
+                f"  * [{p.get('dimension', 'fact')} / {p.get('category', '')}] {p.get('fact_key')}: {p.get('fact_value')}{source}"
+            )
+        parts.append("\n".join(fact_lines))
+
+    # Timeline & Recent Activities
+    timeline = c.get("timeline", [])
+    if timeline:
+        tl_lines = ["Recent Interactions & Timeline Activity:"]
+        for item in timeline[:5]:
+            date_str = str(item.get("event_date", ""))[:10]
+            tl_lines.append(f"  * {date_str} [{item.get('source_type', 'activity')}]: {item.get('summary', '')}")
+        parts.append("\n".join(tl_lines))
+
+    if matches:
+        hit_lines = ["Semantically matched on:"]
+        for h in matches[:3]:
+            src = h.get("source_type") or "unknown"
+            hit_lines.append(f"  * [{h.get('doc_type', '')}] {h.get('snippet', '')} (source: {src})")
+        parts.append("\n".join(hit_lines))
+
+    return "\n".join(parts)
+
+
 def _make_search_contacts_tool(user_id: str):
     @tool
     async def search_contacts(query: str = "") -> str:
         """Search and retrieve full profiles from the user's Personal Contact Relationship Brain.
         Matches by name, email, company, job title, location, tags, memory facts (diet, hobby, background, scale), or AI summary.
+        Also handles vague descriptions ('the investor who likes pu-erh tea') via semantic search.
         Use this tool whenever asked about a person, contact, colleague, investor, their recent activities/plans ('他最近在干啥', '张明是谁'), or relationships."""
+        from app.infrastructure.vector import qdrant
         from app.services.contact_service import ContactService
+
         contacts = await ContactService.get_contacts(user_id=user_id, query=query)
+        matches_by_contact: dict[str, list[dict]] = {}
+
+        # ponytail: SQL ILIKE already nails names, companies and literal fact text, so
+        # the embedding call is only spent when literal matching found nothing. Revisit
+        # blending both rankings once the offline eval set can measure the difference.
+        if not contacts and query.strip():
+            ordered_ids: list[str] = []
+            for hit in await qdrant.search_contact_docs(user_id, query, limit=10):
+                cid = hit.get("contact_id")
+                if not cid:
+                    continue
+                if cid not in matches_by_contact:
+                    ordered_ids.append(cid)
+                matches_by_contact.setdefault(cid, []).append(hit)
+            for cid in ordered_ids[:5]:
+                found = await ContactService.get_contact_by_id(user_id=user_id, contact_id=cid)
+                if found:
+                    contacts.append(found)
+
         if not contacts:
             return "No contacts matched that search in your Relationship Brain."
-        lines = []
-        for c in contacts[:10]:
-            parts = [f"=== Contact: {c['name']} ==="]
-            meta = [
-                f"Email: {c.get('email', '') or 'N/A'}",
-                f"Phone: {c.get('phone', '') or 'N/A'}",
-                f"Company: {c.get('company', '') or 'N/A'}",
-                f"Job Title: {c.get('jobTitle', '') or 'N/A'}",
-                f"Location: {c.get('location', '') or 'N/A'}",
-            ]
-            parts.append(" | ".join(meta))
-            if c.get("ai_summary"):
-                parts.append(f"AI Summary / Profile: {c['ai_summary']}")
-            if c.get("tags"):
-                parts.append(f"Tags: {', '.join('#' + t for t in c['tags'])}")
 
-            # Memory Facts
-            facts = c.get("profiles", [])
-            if facts:
-                fact_lines = ["Memory Facts (4 Dimensions):"]
-                for p in facts:
-                    fact_lines.append(f"  * [{p.get('dimension', 'fact')} / {p.get('category', '')}] {p.get('fact_key')}: {p.get('fact_value')}")
-                parts.append("\n".join(fact_lines))
-
-            # Timeline & Recent Activities
-            timeline = c.get("timeline", [])
-            if timeline:
-                tl_lines = ["Recent Interactions & Timeline Activity:"]
-                for item in timeline[:5]:
-                    date_str = str(item.get("event_date", ""))[:10]
-                    tl_lines.append(f"  * {date_str} [{item.get('source_type', 'activity')}]: {item.get('summary', '')}")
-                parts.append("\n".join(tl_lines))
-
-            lines.append("\n".join(parts))
-
-        return "\n\n".join(lines)
+        return "\n\n".join(_format_contact(c, matches_by_contact.get(c["id"])) for c in contacts[:10])
     return search_contacts
 
 
@@ -256,6 +295,8 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
             category=cat_clean,
             fact_key=fact_key.strip(),
             fact_value=fact_value.strip(),
+            source_type="chat",
+            source_id=session_id,
         )
         return f"Successfully recorded memory fact for {cname}: [{dim_clean} / {cat_clean}] {fact_key} = {fact_value} (fact_id: {fact['id']})."
 

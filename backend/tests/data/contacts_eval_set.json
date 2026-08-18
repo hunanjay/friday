@@ -1,0 +1,86 @@
+{
+  "_comment": "Offline retrieval goldset for contacts RAG (issue #13). Seeded straight into Qdrant under a throwaway user_id, so it needs QDRANT_URL + an embedding key but no Postgres.",
+  "contacts": [
+    {
+      "id": "e0000000-0000-4000-8000-000000000001",
+      "name": "张明",
+      "company": "北极光创投",
+      "jobTitle": "合伙人",
+      "location": "北京",
+      "ai_summary": "消费赛道投资人，看早期项目",
+      "tags": ["投资人", "消费"],
+      "facts": [
+        {"id": "e0000000-0000-4000-8000-0000000000a1", "fact_key": "tea_preference", "fact_value": "喜欢喝热普洱茶", "source_type": "chat_paste"},
+        {"id": "e0000000-0000-4000-8000-0000000000a2", "fact_key": "investment_focus", "fact_value": "关注新消费和供应链效率", "source_type": "email"}
+      ]
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000002",
+      "name": "李思远",
+      "company": "字节跳动",
+      "jobTitle": "算法工程师",
+      "location": "上海",
+      "ai_summary": "推荐系统方向的工程师",
+      "tags": ["工程师", "算法"],
+      "facts": [
+        {"id": "e0000000-0000-4000-8000-0000000000b1", "fact_key": "current_project", "fact_value": "在做短视频推荐排序模型", "source_type": "memo"},
+        {"id": "e0000000-0000-4000-8000-0000000000b2", "fact_key": "family", "fact_value": "小孩明年参加高考", "source_type": "chat_paste"}
+      ]
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000003",
+      "name": "Sarah Chen",
+      "company": "Anthropic",
+      "jobTitle": "Research Scientist",
+      "location": "San Francisco",
+      "ai_summary": "Works on model interpretability",
+      "tags": ["research", "ai"],
+      "facts": [
+        {"id": "e0000000-0000-4000-8000-0000000000c1", "fact_key": "dietary_restriction", "fact_value": "allergic to peanuts", "source_type": "chat_paste"},
+        {"id": "e0000000-0000-4000-8000-0000000000c2", "fact_key": "research_area", "fact_value": "sparse autoencoders and feature steering", "source_type": "memo"}
+      ]
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000004",
+      "name": "王建国",
+      "company": "华为",
+      "jobTitle": "供应链总监",
+      "location": "深圳",
+      "ai_summary": "负责海外供应链",
+      "tags": ["供应链"],
+      "facts": [
+        {"id": "e0000000-0000-4000-8000-0000000000d1", "fact_key": "annual_trip", "fact_value": "每年三月去北海道滑雪", "source_type": "chat_paste"}
+      ]
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000005",
+      "name": "Michael O'Brien",
+      "company": "Sequoia Capital",
+      "jobTitle": "Principal",
+      "location": "London",
+      "ai_summary": "Ex-founder turned investor, fintech focus",
+      "tags": ["investor", "fintech"],
+      "facts": [
+        {"id": "e0000000-0000-4000-8000-0000000000e1", "fact_key": "background", "fact_value": "founded and sold a payments startup before joining the fund", "source_type": "email"}
+      ]
+    }
+  ],
+  "queries": [
+    {"kind": "zh_name", "query": "张明是谁", "expect": "e0000000-0000-4000-8000-000000000001"},
+    {"kind": "zh_name", "query": "王建国", "expect": "e0000000-0000-4000-8000-000000000004"},
+    {"kind": "zh_name", "query": "李思远最近在干嘛", "expect": "e0000000-0000-4000-8000-000000000002"},
+    {"kind": "en_name", "query": "Sarah Chen", "expect": "e0000000-0000-4000-8000-000000000003"},
+    {"kind": "en_name", "query": "who is Michael", "expect": "e0000000-0000-4000-8000-000000000005"},
+    {"kind": "company", "query": "北极光", "expect": "e0000000-0000-4000-8000-000000000001"},
+    {"kind": "company", "query": "字节跳动的那个人", "expect": "e0000000-0000-4000-8000-000000000002"},
+    {"kind": "company", "query": "Sequoia", "expect": "e0000000-0000-4000-8000-000000000005"},
+    {"kind": "company", "query": "华为的联系人", "expect": "e0000000-0000-4000-8000-000000000004"},
+    {"kind": "vague", "query": "喜欢喝茶的那个投资人", "expect": "e0000000-0000-4000-8000-000000000001"},
+    {"kind": "vague", "query": "谁对花生过敏", "expect": "e0000000-0000-4000-8000-000000000003"},
+    {"kind": "vague", "query": "做推荐算法的朋友", "expect": "e0000000-0000-4000-8000-000000000002"},
+    {"kind": "vague", "query": "冬天爱去日本滑雪的人", "expect": "e0000000-0000-4000-8000-000000000004"},
+    {"kind": "vague", "query": "自己创过业的投资人", "expect": "e0000000-0000-4000-8000-000000000005"},
+    {"kind": "vague", "query": "孩子快高考的那位", "expect": "e0000000-0000-4000-8000-000000000002"},
+    {"kind": "vague", "query": "someone researching interpretability", "expect": "e0000000-0000-4000-8000-000000000003"}
+  ]
+}

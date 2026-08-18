@@ -1,6 +1,7 @@
 import logging
 
 from app.infrastructure.db.pool import get_pool
+from app.infrastructure.vector import qdrant as vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,16 @@ CREATE TABLE IF NOT EXISTS contact_interactions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_interactions_contact_id ON contact_interactions (contact_id, event_date DESC);
+
+-- 5. 向量索引状态: NULL = 尚未写入 Qdrant (写入失败时保持 NULL, 供后台补偿重建)
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ;
+ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ;
+ALTER TABLE contact_interactions ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ;
+
+-- 6. 事实来源溯源: 这条事实是从哪封邮件/备忘录/会话/手动录入学到的。
+-- 不设 DEFAULT: 迁移前写入的事实来源不可考, NULL 表示未知, 好过谎称 'manual'。
+ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS source_type TEXT;
+ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS source_id TEXT;
 """
 
 def _db_pool():
@@ -69,6 +80,45 @@ def _db_pool():
     if pool is None:
         raise RuntimeError("Database pool is not initialized")
     return pool
+
+
+_INDEXED_TABLES = {"contacts", "contact_profiles", "contact_interactions"}
+
+
+async def _index_docs(docs: list[dict], table: str, row_id: str) -> None:
+    """Write vector docs after the row is committed, best effort.
+
+    Postgres stays the source of truth: an index failure only leaves indexed_at
+    NULL, which is exactly what a rebuild/compensation job selects on.
+    """
+    if table not in _INDEXED_TABLES:
+        raise ValueError(f"unknown indexed table: {table}")
+    try:
+        await vector_store.upsert_contact_docs(docs)
+    except Exception:
+        logger.warning("failed to index %s row %s in Qdrant", table, row_id, exc_info=True)
+        return
+    try:
+        async with _db_pool().connection() as conn:
+            await conn.execute(f"UPDATE {table} SET indexed_at = NOW() WHERE id = %s", (row_id,))
+    except Exception:
+        logger.warning("failed to mark %s row %s as indexed", table, row_id, exc_info=True)
+
+
+async def _unindex(doc_ids: list[str]) -> None:
+    try:
+        await vector_store.delete_contact_docs(doc_ids)
+    except Exception:
+        logger.warning("failed to drop contact docs %s from Qdrant", doc_ids, exc_info=True)
+
+
+async def _contact_name(user_id: str, contact_id: str) -> str:
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            "SELECT name FROM contacts WHERE id = %s AND user_id = %s", (contact_id, user_id)
+        )
+        row = await cur.fetchone()
+    return row[0] if row else ""
 
 
 async def init_schema():
@@ -202,6 +252,7 @@ async def create_contact(
     contact["profiles"] = []
     contact["tags"] = []
     contact["timeline"] = []
+    await _index_docs([vector_store.contact_identity_doc(contact)], "contacts", contact["id"])
     return contact
 
 
@@ -254,7 +305,12 @@ async def update_contact(
     if not row:
         return None
 
-    return await get_contact_by_id(user_id, contact_id)
+    contact = await get_contact_by_id(user_id, contact_id)
+    if contact:
+        await _index_docs(
+            [vector_store.contact_identity_doc(contact, contact.get("tags"))], "contacts", contact_id
+        )
+    return contact
 
 
 async def delete_contact(user_id: str, contact_id: str) -> bool:
@@ -263,7 +319,15 @@ async def delete_contact(user_id: str, contact_id: str) -> bool:
             "DELETE FROM contacts WHERE id = %s AND user_id = %s RETURNING id",
             (contact_id, user_id),
         )
-        return await cur.fetchone() is not None
+        deleted = await cur.fetchone() is not None
+
+    if deleted:
+        # Postgres cascades the child rows; mirror that in the vector store.
+        try:
+            await vector_store.delete_contact_points(user_id, contact_id)
+        except Exception:
+            logger.warning("failed to drop contact %s points from Qdrant", contact_id, exc_info=True)
+    return deleted
 
 
 # --- Contact Profiles (Facts) Operations ---
@@ -272,7 +336,7 @@ async def get_contact_profiles(user_id: str, contact_id: str) -> list[dict]:
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
             """
-            SELECT id, dimension, category, fact_key, fact_value, confidence, created_at
+            SELECT id, dimension, category, fact_key, fact_value, confidence, created_at, source_type, source_id
             FROM contact_profiles
             WHERE user_id = %s AND contact_id = %s
             ORDER BY dimension, created_at DESC
@@ -290,6 +354,8 @@ async def get_contact_profiles(user_id: str, contact_id: str) -> list[dict]:
             "fact_value": r[4],
             "confidence": r[5],
             "created_at": r[6].isoformat() if r[6] else None,
+            "source_type": r[7] or "",
+            "source_id": r[8] or "",
         }
         for r in rows
     ]
@@ -303,19 +369,21 @@ async def add_contact_profile(
     fact_key: str,
     fact_value: str,
     confidence: float = 1.0,
+    source_type: str = "manual",
+    source_id: str | None = None,
 ) -> dict:
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
             """
-            INSERT INTO contact_profiles (user_id, contact_id, dimension, category, fact_key, fact_value, confidence)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id, dimension, category, fact_key, fact_value, confidence, created_at
+            INSERT INTO contact_profiles (user_id, contact_id, dimension, category, fact_key, fact_value, confidence, source_type, source_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, dimension, category, fact_key, fact_value, confidence, created_at, source_type, source_id
             """,
-            (user_id, contact_id, dimension, category, fact_key, fact_value, confidence),
+            (user_id, contact_id, dimension, category, fact_key, fact_value, confidence, source_type, source_id),
         )
         r = await cur.fetchone()
 
-    return {
+    fact = {
         "id": str(r[0]),
         "dimension": r[1],
         "category": r[2],
@@ -323,7 +391,17 @@ async def add_contact_profile(
         "fact_value": r[4],
         "confidence": r[5],
         "created_at": r[6].isoformat() if r[6] else None,
+        "source_type": r[7],
+        "source_id": r[8] or "",
     }
+    # ponytail: one embedding round trip per fact. ContactBrainService adds ~5 facts
+    # per extraction; batch them through upsert_contact_docs if that latency shows up.
+    await _index_docs(
+        [vector_store.contact_fact_doc(user_id, contact_id, await _contact_name(user_id, contact_id), fact)],
+        "contact_profiles",
+        fact["id"],
+    )
+    return fact
 
 
 async def delete_contact_profile(user_id: str, contact_id: str, fact_id: str) -> bool:
@@ -332,7 +410,11 @@ async def delete_contact_profile(user_id: str, contact_id: str, fact_id: str) ->
             "DELETE FROM contact_profiles WHERE id = %s AND contact_id = %s AND user_id = %s RETURNING id",
             (fact_id, contact_id, user_id),
         )
-        return await cur.fetchone() is not None
+        deleted = await cur.fetchone() is not None
+
+    if deleted:
+        await _unindex([fact_id])
+    return deleted
 
 
 # --- Contact Tags Operations ---
@@ -348,6 +430,9 @@ async def get_contact_tags(user_id: str, contact_id: str) -> list[str]:
     return [r[0] for r in rows]
 
 
+# ponytail: tags ride along in the identity doc, so a tag added on its own only
+# reaches Qdrant on the next contact update. Swap for client.set_payload if tag
+# filtering on the vector side starts mattering.
 async def add_contact_tag(user_id: str, contact_id: str, tag_name: str, tag_category: str = "general") -> bool:
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
@@ -419,7 +504,7 @@ async def add_contact_interaction(
         )
         r = await cur.fetchone()
 
-    return {
+    interaction = {
         "id": str(r[0]),
         "source_type": r[1],
         "summary": r[2],
@@ -427,6 +512,16 @@ async def add_contact_interaction(
         "event_date": r[4].isoformat() if r[4] else None,
         "created_at": r[5].isoformat() if r[5] else None,
     }
+    await _index_docs(
+        [
+            vector_store.contact_interaction_doc(
+                user_id, contact_id, await _contact_name(user_id, contact_id), interaction
+            )
+        ],
+        "contact_interactions",
+        interaction["id"],
+    )
+    return interaction
 
 
 # --- MS Graph Sync Helpers ---
@@ -458,8 +553,7 @@ async def upsert_contact_from_microsoft(
                 """,
                 (outlook_contact_id, name, email or row[4], phone or row[5], company or row[6], job_title or row[7], cid, user_id),
             )
-            updated_row = await cur.fetchone()
-            return _row_to_contact_dict(updated_row), False
+            result_row, is_new = await cur.fetchone(), False
         else:
             cur = await conn.execute(
                 f"""
@@ -469,5 +563,120 @@ async def upsert_contact_from_microsoft(
                 """,
                 (user_id, outlook_contact_id, name, email, phone, company, job_title),
             )
-            inserted_row = await cur.fetchone()
-            return _row_to_contact_dict(inserted_row), True
+            result_row, is_new = await cur.fetchone(), True
+
+    # Index outside the connection block: the row must be committed first, and
+    # _index_docs checks out its own connection.
+    contact = _row_to_contact_dict(result_row)
+    await _index_docs([vector_store.contact_identity_doc(contact)], "contacts", contact["id"])
+    return contact, is_new
+
+
+# --- Vector Index Rebuild / Compensation ---
+
+async def reindex_pending(user_id: str | None = None, limit: int = 500) -> dict:
+    """Index every row a previous write failed to index (indexed_at IS NULL).
+
+    This is the compensation half of the best-effort writes in _index_docs: the
+    DB write always won, so the backlog is simply the NULL rows. Call
+    reset_index_state() first to force a full rebuild.
+    """
+    scope = "AND user_id = %s" if user_id else ""
+    args: tuple = (user_id, limit) if user_id else (limit,)
+    counts = {"identity": 0, "profile": 0, "interaction": 0, "pending": 0}
+
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            f"SELECT {_CONTACT_COLS} FROM contacts WHERE indexed_at IS NULL {scope} ORDER BY updated_at LIMIT %s",
+            args,
+        )
+        contact_rows = await cur.fetchall()
+        cur = await conn.execute(
+            f"""
+            SELECT p.id, p.user_id, p.contact_id, c.name, p.dimension, p.category, p.fact_key,
+                   p.fact_value, p.confidence, p.source_type, p.source_id
+            FROM contact_profiles p JOIN contacts c ON c.id = p.contact_id
+            WHERE p.indexed_at IS NULL {scope.replace("user_id", "p.user_id")} ORDER BY p.created_at LIMIT %s
+            """,
+            args,
+        )
+        fact_rows = await cur.fetchall()
+        cur = await conn.execute(
+            f"""
+            SELECT i.id, i.user_id, i.contact_id, c.name, i.source_type, i.summary, i.raw_snippet, i.event_date
+            FROM contact_interactions i JOIN contacts c ON c.id = i.contact_id
+            WHERE i.indexed_at IS NULL {scope.replace("user_id", "i.user_id")} ORDER BY i.created_at LIMIT %s
+            """,
+            args,
+        )
+        interaction_rows = await cur.fetchall()
+
+    for row in contact_rows:
+        contact = _row_to_contact_dict(row)
+        contact["tags"] = await get_contact_tags(contact["user_id"], contact["id"])
+        await _index_docs(
+            [vector_store.contact_identity_doc(contact, contact["tags"])], "contacts", contact["id"]
+        )
+        counts["identity"] += 1
+
+    for r in fact_rows:
+        fact = {
+            "id": str(r[0]),
+            "dimension": r[4],
+            "category": r[5],
+            "fact_key": r[6],
+            "fact_value": r[7],
+            "confidence": r[8],
+            "source_type": r[9],
+            "source_id": r[10] or "",
+        }
+        await _index_docs(
+            [vector_store.contact_fact_doc(r[1], str(r[2]), r[3], fact)], "contact_profiles", fact["id"]
+        )
+        counts["profile"] += 1
+
+    for r in interaction_rows:
+        interaction = {
+            "id": str(r[0]),
+            "source_type": r[4],
+            "summary": r[5],
+            "raw_snippet": r[6] or "",
+            "event_date": r[7].isoformat() if r[7] else None,
+        }
+        await _index_docs(
+            [vector_store.contact_interaction_doc(r[1], str(r[2]), r[3], interaction)],
+            "contact_interactions",
+            interaction["id"],
+        )
+        counts["interaction"] += 1
+
+    # _index_docs swallows failures, so re-read the backlog rather than assuming
+    # success. Non-zero means rows failed again or were past this batch's limit.
+    counts["pending"] = await count_pending(user_id)
+    return counts
+
+
+async def count_pending(user_id: str | None = None) -> int:
+    """Rows still missing from the vector index."""
+    scope = "AND user_id = %s" if user_id else ""
+    args: tuple = (user_id,) * 3 if user_id else ()
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            f"""
+            SELECT (SELECT COUNT(*) FROM contacts WHERE indexed_at IS NULL {scope})
+                 + (SELECT COUNT(*) FROM contact_profiles WHERE indexed_at IS NULL {scope})
+                 + (SELECT COUNT(*) FROM contact_interactions WHERE indexed_at IS NULL {scope})
+            """,
+            args,
+        )
+        row = await cur.fetchone()
+    return int(row[0])
+
+
+async def reset_index_state(user_id: str | None = None) -> None:
+    """Mark everything unindexed so reindex_pending() performs a full rebuild."""
+    scope = "WHERE user_id = %s" if user_id else ""
+    args: tuple = (user_id,) if user_id else ()
+    async with _db_pool().connection() as conn:
+        for table in ("contacts", "contact_profiles", "contact_interactions"):
+            await conn.execute(f"UPDATE {table} SET indexed_at = NULL {scope}", args)

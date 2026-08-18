@@ -4,10 +4,12 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, create_autospec, patch
 
 backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, backend_dir)
+
+from qdrant_client import AsyncQdrantClient
 
 from app.infrastructure.vector import qdrant
 
@@ -35,7 +37,8 @@ class TestQdrantSparseFallback(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(qdrant._sparse_unavailable)
 
     async def test_upsert_uses_dense_vector_when_sparse_is_unavailable(self):
-        client = SimpleNamespace(upsert=AsyncMock())
+        # autospec: mocking a method the real client does not have must fail loudly
+        client = create_autospec(AsyncQdrantClient, instance=True)
         dense = SimpleNamespace(aembed_query=AsyncMock(return_value=[0.1, 0.2]))
 
         with (
@@ -49,10 +52,8 @@ class TestQdrantSparseFallback(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(point.vector, {"dense": [0.1, 0.2]})
 
     async def test_search_skips_hybrid_query_when_sparse_is_unavailable(self):
-        client = SimpleNamespace(
-            query_points=AsyncMock(),
-            search=AsyncMock(return_value=[]),
-        )
+        client = create_autospec(AsyncQdrantClient, instance=True)
+        client.query_points.return_value = SimpleNamespace(points=[])
         dense = SimpleNamespace(aembed_query=AsyncMock(return_value=[0.1, 0.2]))
 
         with (
@@ -63,8 +64,10 @@ class TestQdrantSparseFallback(unittest.IsolatedAsyncioTestCase):
             result = await qdrant.search_memos("user-1", "query")
 
         self.assertEqual(result, [])
-        client.query_points.assert_not_awaited()
-        client.search.assert_awaited_once()
+        # dense-only still goes through query_points, just without prefetch/fusion
+        kwargs = client.query_points.await_args.kwargs
+        self.assertEqual(kwargs["using"], "dense")
+        self.assertNotIn("prefetch", kwargs)
 
 
 if __name__ == "__main__":
