@@ -5,7 +5,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, create_autospec, patch
 
 backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, backend_dir)
@@ -18,6 +18,8 @@ for _var, _stub in (
 ):
     # set, not setdefault: CI leaves these unset, .env may leave them empty
     os.environ[_var] = os.environ.get(_var) or _stub
+
+from qdrant_client import AsyncQdrantClient
 
 from app.infrastructure.db.repositories import contacts as contacts_repo
 from app.infrastructure.vector import qdrant
@@ -73,7 +75,8 @@ class TestUpsertContactDocs(unittest.IsolatedAsyncioTestCase):
         qdrant._sparse_unavailable = self.original_sparse_unavailable
 
     async def test_dense_vectors_are_embedded_in_one_batched_call(self):
-        client = SimpleNamespace(upsert=AsyncMock())
+        # autospec: mocking a method the real client does not have must fail loudly
+        client = create_autospec(AsyncQdrantClient, instance=True)
         dense = SimpleNamespace(aembed_documents=AsyncMock(return_value=[[0.1], [0.2]]))
         docs = [
             qdrant.contact_identity_doc(CONTACT),
@@ -94,7 +97,7 @@ class TestUpsertContactDocs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(points[0].vector, {"dense": [0.1]})
 
     async def test_empty_text_docs_are_skipped_without_touching_qdrant(self):
-        client = SimpleNamespace(upsert=AsyncMock())
+        client = create_autospec(AsyncQdrantClient, instance=True)
         with patch.object(qdrant, "_get_client", return_value=client):
             await qdrant.upsert_contact_docs([{"id": "x", "text": "", "payload": {}}])
         client.upsert.assert_not_awaited()
@@ -142,10 +145,8 @@ class TestContactSearch(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_hybrid_rrf_filters_both_branches_by_user_id(self):
-        client = SimpleNamespace(
-            query_points=AsyncMock(return_value=SimpleNamespace(points=[self._point()])),
-            search=AsyncMock(),
-        )
+        client = create_autospec(AsyncQdrantClient, instance=True)
+        client.query_points.return_value = SimpleNamespace(points=[self._point()])
         dense = SimpleNamespace(aembed_query=AsyncMock(return_value=[0.1]))
         sparse = qdrant.models.SparseVector(indices=[1], values=[1.0])
 
@@ -165,11 +166,11 @@ class TestContactSearch(unittest.IsolatedAsyncioTestCase):
                 any(c.key == "user_id" and c.match.value == "user-1" for c in conditions),
                 "every prefetch branch must be scoped to the caller",
             )
-        client.search.assert_not_awaited()
         self.assertEqual(hits[0]["snippet"], "喜欢普洱茶")
 
     async def test_dense_only_fallback_keeps_the_user_filter(self):
-        client = SimpleNamespace(query_points=AsyncMock(), search=AsyncMock(return_value=[self._point()]))
+        client = create_autospec(AsyncQdrantClient, instance=True)
+        client.query_points.return_value = SimpleNamespace(points=[self._point()])
         dense = SimpleNamespace(aembed_query=AsyncMock(return_value=[0.1]))
 
         with (
@@ -179,13 +180,17 @@ class TestContactSearch(unittest.IsolatedAsyncioTestCase):
         ):
             hits = await qdrant.search_contact_docs("user-1", "q")
 
-        client.query_points.assert_not_awaited()
-        conditions = client.search.await_args.kwargs["query_filter"].must
+        # dense-only is query_points without prefetch/fusion, not the removed client.search
+        kwargs = client.query_points.await_args.kwargs
+        self.assertEqual(kwargs["using"], "dense")
+        self.assertNotIn("prefetch", kwargs)
+        conditions = kwargs["query_filter"].must
         self.assertTrue(any(c.key == "user_id" and c.match.value == "user-1" for c in conditions))
         self.assertEqual(len(hits), 1)
 
     async def test_points_leaking_another_tenant_are_dropped(self):
-        client = SimpleNamespace(query_points=AsyncMock(), search=AsyncMock(return_value=[self._point(user_id="user-2")]))
+        client = create_autospec(AsyncQdrantClient, instance=True)
+        client.query_points.return_value = SimpleNamespace(points=[self._point(user_id="user-2")])
         dense = SimpleNamespace(aembed_query=AsyncMock(return_value=[0.1]))
 
         with (

@@ -216,12 +216,16 @@ async def search_memos(user_id: str, query: str, limit: int = 5) -> list[dict]:
                 logger.warning("Qdrant RRF query_points failed, falling back to dense search: %s", err)
 
         if points is None:
-            points = await client.search(
+            # client.search() was removed in qdrant-client 1.18; query_points without
+            # prefetch/fusion is the dense-only equivalent.
+            result = await client.query_points(
                 collection_name=COLLECTION,
-                query_vector=("dense", dense_vec),
+                query=dense_vec,
+                using="dense",
                 query_filter=user_filter,
                 limit=limit,
             )
+            points = result.points
 
         return [
             {
@@ -427,12 +431,14 @@ async def search_contact_docs(
                 logger.warning("Qdrant contacts RRF query failed, falling back to dense search: %s", err)
 
         if points is None:
-            points = await client.search(
+            result = await client.query_points(
                 collection_name=CONTACTS_COLLECTION,
-                query_vector=("dense", dense_vec),
+                query=dense_vec,
+                using="dense",
                 query_filter=scope,
                 limit=limit,
             )
+            points = result.points
 
         hits = []
         for p in points:
