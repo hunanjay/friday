@@ -1293,6 +1293,8 @@
 .app-main-content {
   flex-grow: 1;
   height: 100vh;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
@@ -2074,6 +2076,9 @@
   display: flex;
   height: 100%;
   width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-sidebar {
@@ -2253,10 +2258,15 @@
   flex-grow: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background-color: var(--bg-app);
 }
 
 .chat-header {
+  min-width: 0;
+  box-sizing: border-box;
   padding: 16px 24px;
   border-bottom: 1px solid var(--border-light);
   background-color: var(--bg-card);
@@ -2266,6 +2276,10 @@
 }
 
 .active-thread-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 2px;
@@ -2274,6 +2288,11 @@
 .active-thread-desc {
   font-size: 0.8rem;
   color: var(--text-secondary);
+}
+
+.chat-header-info {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .thread-status-badge {
@@ -2287,7 +2306,10 @@
 
 .chat-messages-area {
   flex-grow: 1;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
   display: flex;
   flex-direction: column;
@@ -2299,6 +2321,7 @@
   align-items: flex-start;
   gap: 12px;
   max-width: 80%;
+  min-width: 0;
   animation: fadeIn 0.25s ease-out;
 }
 
@@ -2335,6 +2358,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .user-row .message-bubble-wrapper {
@@ -2349,9 +2374,24 @@
 
 .message-bubble {
   padding: 12px 16px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-radius: 12px;
   font-size: 0.95rem;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.tool-calls-container {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.tool-calls-container > div {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .user-bubble {
@@ -2389,6 +2429,8 @@
 .approval-card {
   align-self: flex-start;
   width: min(560px, 86%);
+  max-width: 100%;
+  box-sizing: border-box;
   margin-left: 44px;
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, var(--border-light));
@@ -2682,6 +2724,10 @@
 
 /* Input Area */
 .chat-input-area {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   position: relative;
   padding: 16px 24px 24px;
   background-color: var(--bg-card);
@@ -2768,6 +2814,9 @@
   border-radius: 12px;
   padding: 6px 12px;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .composer-agent-chip {
