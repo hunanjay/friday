@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next';
 import './DashboardPage.css';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
+const MICROSOFT = 'microsoft';
 
 const doraLightTheme = {
   ...webLightTheme,
@@ -221,7 +222,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
   const { theme } = useTheme();
-  const { authToken, emails, githubStatus, inboxUnread, memos, user, handleSyncInboxEmails } = useWorkspace();
+  const { authToken, emails, githubStatus, inboxUnread, memos, user, mailAccounts, handleSyncInboxEmails } = useWorkspace();
   const isZh = i18n.language === 'zh';
 
   // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────
@@ -473,13 +474,20 @@ export default function DashboardPage() {
     setIsEmailsLoading(true);
     setPanelErrors(errors => ({ ...errors, email: false }));
 
-    fetch(`${API_URL}/api/graph/mail/inbox`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-      .then(data => {
+    // Multi-channel inbox: Microsoft Graph plus every bound IMAP account,
+    // so the dashboard summary reflects all mailboxes (unread badge does).
+    const channels = [MICROSOFT, ...(mailAccounts || []).map(a => a.id)];
+    Promise.all(channels.map(channel => {
+      const url = channel === MICROSOFT
+        ? `${API_URL}/api/graph/mail/inbox`
+        : `${API_URL}/api/mail-accounts/${channel}/mail/inbox`;
+      return fetch(url, { headers: { Authorization: `Bearer ${authToken}` } })
+        .then(res => (res.ok ? res.json() : { value: [] }))
+        .catch(() => ({ value: [] }));
+    }))
+      .then(pages => {
         if (!active) return;
-        const normalized = (data.value || []).map(msg => ({
+        const normalized = pages.flatMap(page => (page.value || []).map(msg => ({
           id: msg.id,
           subject: msg.subject,
           bodyPreview: msg.bodyPreview,
@@ -491,14 +499,21 @@ export default function DashboardPage() {
           parentFolderId: 'inbox',
           conversationId: msg.conversationId || null,
           hasAttachments: Boolean(msg.hasAttachments),
-        }));
+          // Same channel semantics as EmailPage.normalizeMessage: IMAP ids are
+          // "imap:{accountId}:{mailbox}:{uid}", so provider carries the
+          // mail_accounts id (not the literal "imap") for URL routing.
+          provider: msg.provider === 'imap' && msg.id?.startsWith('imap:')
+            ? msg.id.split(':')[1]
+            : MICROSOFT,
+        })));
         handleSyncInboxEmails(normalized);
       })
       .catch(() => { if (active) setPanelErrors(errors => ({ ...errors, email: true })); })
       .finally(() => { if (active) setIsEmailsLoading(false); });
 
     return () => { active = false; };
-  }, [authToken, handleSyncInboxEmails, retryKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken, handleSyncInboxEmails, retryKey, mailAccounts]);
 
   // ── Fetch Calendar ───────────────────────────────────────────────────────
   useEffect(() => {
