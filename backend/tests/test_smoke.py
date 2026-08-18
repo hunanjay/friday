@@ -50,6 +50,12 @@ slash = decide_route("/mail_agent 帮我看邮件")
 check("slash command selects named agent", slash.agent_name == "mail_agent" and slash.source == "slash_command")
 check("slash command removes its prefix", slash.message == "帮我看邮件")
 
+hyphenated_slash = decide_route("/calendar-agent arrange a meeting")
+check(
+    "hyphenated slash command aliases the canonical agent name",
+    hyphenated_slash.agent_name == "calendar_agent" and hyphenated_slash.message == "arrange a meeting",
+)
+
 multi_line = decide_route("/mail_agent help me read email with multiple\nlines")
 check("slash command preserves multiline body", multi_line.message.endswith("multiple\nlines"))
 

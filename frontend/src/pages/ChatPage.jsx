@@ -10,6 +10,7 @@ import {
   resolveLiveApprovalAnchor,
   resolvePersistedApprovalAnchor,
 } from '../components/common/approvalPlacement';
+import { parseAgentCommand } from '../utils/agentCommand';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -58,7 +59,7 @@ export default function ChatPage() {
 
   // Slash-command agent picker: only while the whole box is still "/query"
   // (no space typed yet) — mirrors the Slack/Notion "/" mention pattern.
-  const slashMatch = inputText.match(/^\/(\w*)$/);
+  const slashMatch = inputText.match(/^\/([\w-]*)$/);
   const agents = AGENT_IDS.map(id => ({
     id,
     Icon: AGENT_ICONS[id],
@@ -67,7 +68,7 @@ export default function ChatPage() {
   }));
   const filteredAgents = slashMatch
     ? agents.filter(a => {
-        const q = slashMatch[1].toLowerCase();
+        const q = slashMatch[1].toLowerCase().replaceAll('-', '_');
         return a.id.includes(q) || a.label.toLowerCase().includes(q);
       })
     : [];
@@ -286,15 +287,17 @@ export default function ChatPage() {
 
     const sessionId = activeThreadId;
     const sentText = inputText;
+    const explicitAgent = parseAgentCommand(sentText);
     setInputText('');
-    handleUpdateSessionPreview(sessionId, sentText);
+    handleUpdateSessionPreview(sessionId, explicitAgent?.message || sentText);
 
     const userMsg = {
       id: 'msg_' + Date.now(),
       threadId: sessionId,
       sender: 'user',
       senderName: i18n.language === 'zh' ? '您' : 'You',
-      text: sentText,
+      text: explicitAgent?.message || sentText,
+      agent_name: explicitAgent?.agentName || null,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -630,6 +633,7 @@ export default function ChatPage() {
                 threadMessages.map(msg => {
                   const isUser = msg.sender === 'user';
                   const isBot = msg.sender === 'bot';
+                  const RoutedAgentIcon = isUser && msg.agent_name ? AGENT_ICONS[msg.agent_name] : null;
 
                   return (
                     <React.Fragment key={msg.id}>
@@ -680,7 +684,15 @@ export default function ChatPage() {
                             </div>
                           )}
                           {isUser ? (
-                            <p className="markdown-p">{msg.text}</p>
+                            <>
+                              {RoutedAgentIcon && (
+                                <span className="message-agent-chip">
+                                  <RoutedAgentIcon size={13} />
+                                  {t(`chat.agents.${msg.agent_name}.label`)}
+                                </span>
+                              )}
+                              <p className="markdown-p">{msg.text}</p>
+                            </>
                           ) : (
                             <StreamingMarkdown
                               content={msg.text}

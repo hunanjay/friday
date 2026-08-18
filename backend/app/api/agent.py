@@ -19,7 +19,7 @@ from app.agents.message_visibility import (
     visible_conversation_parts,
     visible_message_parts,
 )
-from app.agents.routing import decide_route
+from app.agents.routing import AGENT_NAMES, decide_route
 from app.agents.supervisor import build_supervisor, generate_session_title
 from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
@@ -42,6 +42,11 @@ def _paused_reply(message: str) -> str:
         if is_zh
         else "The action is paused. Review the confirmation card; it will not run before approval."
     )
+
+
+def _explicit_agent_name(message) -> str | None:
+    name = message.get("name") if isinstance(message, dict) else getattr(message, "name", None)
+    return name if name in AGENT_NAMES else None
 
 
 async def _visible_actions(user_id: str, session_id: str, interrupts: tuple) -> list[dict]:
@@ -123,6 +128,11 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
     config = {"configurable": {"thread_id": session_id}}
     state = await supervisor.aget_state(config)
     raw_messages = (state.values or {}).get("messages", [])
+    explicit_agents = {
+        str(message.get("id") if isinstance(message, dict) else getattr(message, "id", "")): agent_name
+        for message in raw_messages
+        if (agent_name := _explicit_agent_name(message))
+    }
 
     results = []
     for visible in visible_conversation_parts(raw_messages):
@@ -134,6 +144,7 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
                 "sender": "user",
                 "senderName": "You",
                 "text": content,
+                "agent_name": explicit_agents.get(str(msg_id)),
                 "timestamp": "",
             })
         elif msg_type == "ai":
@@ -340,7 +351,13 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
         }
         assistant_chunks: list[str] = []
         graph = build_supervisor(user_id, session_id)
-        run_input = {"messages": [{"role": "user", "content": routed_message}]}
+        user_message = {"role": "user", "content": routed_message}
+        if route.source == "slash_command":
+            # Persist the explicit route for UI rendering. The model adapter
+            # strips message names before provider serialization, so this is
+            # checkpoint metadata rather than prompt content.
+            user_message["name"] = routed_agent
+        run_input = {"messages": [user_message]}
         try:
             async for event in graph.astream_events(run_input, config=config, version="v2"):
                 event_type = event.get("event")

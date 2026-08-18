@@ -2745,6 +2745,20 @@
   white-space: nowrap;
 }
 
+.message-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 7px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--accent-primary) 82%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .chat-input-wrapper {
   display: flex;
   align-items: center;
