@@ -9,6 +9,7 @@ from langgraph.types import Command
 from app.agents.checkpointer import get_checkpointer
 from app.agents.draft import draft_reply
 from app.agents.hitl import (
+    approved_tool_error,
     interrupt_to_action,
     pending_actions_from_interrupts,
     resume_value_for,
@@ -44,11 +45,13 @@ def _paused_reply(message: str) -> str:
 
 
 async def _visible_actions(user_id: str, session_id: str, interrupts: tuple) -> list[dict]:
-    """Combine official pending interrupts with resolved card history."""
-    completed = await hitl_audit.list_completed(user_id, session_id)
+    """Combine official interrupts with their durable execution state."""
     pending = pending_actions_from_interrupts(interrupts, session_id)
-    pending_ids = {action["id"] for action in pending}
-    return [action for action in completed if action["id"] not in pending_ids] + pending
+    for action in pending:
+        await hitl_audit.ensure_pending(user_id, session_id, action)
+    persisted = await hitl_audit.list_actions(user_id, session_id)
+    persisted_ids = {action["id"] for action in persisted}
+    return persisted + [action for action in pending if action["id"] not in persisted_ids]
 
 
 @router.post("/draft-reply")
@@ -197,14 +200,44 @@ async def _decide_action(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        before_messages = visible_conversation_parts((state.values or {}).get("messages", []))
+        pending_action = interrupt_to_action(
+            pending,
+            session_id,
+            anchor_message_id=f"hitl_{pending.id}",
+        )
+        await hitl_audit.ensure_pending(user_id, session_id, pending_action)
+        claim_status = await hitl_audit.claim_action(
+            user_id,
+            session_id,
+            action_id,
+            decision_id,
+        )
+        if claim_status == "expired":
+            raise HTTPException(status_code=410, detail="This approval has expired")
+        if claim_status != "claimed":
+            raise HTTPException(
+                status_code=409,
+                detail=f"This HITL action is already {claim_status}",
+            )
+
+        raw_before_messages = list((state.values or {}).get("messages", []))
+        before_messages = visible_conversation_parts(raw_before_messages)
         before_ai_ids = {
             message_id
             for kind, _content, message_id in before_messages
             if kind == "ai" and message_id
         }
-        await graph.ainvoke(Command(resume={pending.id: resume_value}), config=config)
-        resumed_state = await graph.aget_state(config)
+        execution_error = None
+        try:
+            await graph.ainvoke(Command(resume={pending.id: resume_value}), config=config)
+            resumed_state = await graph.aget_state(config)
+        except Exception:
+            # The external write may already have happened.  Fail closed and
+            # retain the action for reconciliation instead of allowing a blind
+            # retry that could duplicate the side effect.
+            logger.exception("HITL action %s failed while resuming the graph", action_id)
+            execution_error = "Execution was interrupted; the external outcome may require reconciliation."
+            resumed_state = state
         messages = visible_conversation_parts((resumed_state.values or {}).get("messages", []))
         final_reply = next(
             (
@@ -215,20 +248,38 @@ async def _decide_action(
             None,
         )
         final_text = final_reply[0] if final_reply else ""
-        status = "completed" if decision_id == "approve" else "cancelled"
+        if decision_id == "reject" and execution_error is None:
+            status = "cancelled"
+        else:
+            if execution_error is None:
+                execution_error = approved_tool_error(
+                    pending,
+                    raw_before_messages,
+                    list((resumed_state.values or {}).get("messages", [])),
+                )
+            status = "failed" if execution_error else "succeeded"
         action = interrupt_to_action(
             pending,
             session_id,
             status=status,
             anchor_message_id=final_reply[1] if final_reply else None,
         )
-        action["resolved"] = status == "completed"
+        action["resolved"] = True
+        if execution_error:
+            action["error"] = execution_error
         try:
-            await hitl_audit.record_resolution(user_id, session_id, action, status)
+            await hitl_audit.finish_action(
+                user_id,
+                session_id,
+                action,
+                status,
+                error=execution_error,
+            )
         except Exception:
-            # The graph has already resumed, so an audit-display failure must
-            # not turn a successfully executed action into an API error.
-            logger.exception("failed to persist resolved HITL card %s", action_id)
+            # If the graph already performed an external write, keep the API
+            # response independent from presentation persistence. The row
+            # remains executing and can be reconciled instead of retried.
+            logger.exception("failed to finalize HITL execution state %s", action_id)
         preview = session.get("preview") or ""
         if final_text:
             preview = await chat_sessions.update_session_preview(user_id, session_id, final_text)

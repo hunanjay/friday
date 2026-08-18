@@ -16,6 +16,7 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 // Mirrors the sub-agent names in backend/app/agents/supervisor.py.
 const AGENT_ICONS = { mail_agent: Mail, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
 const AGENT_IDS = Object.keys(AGENT_ICONS);
+const isActionResolved = status => Boolean(status && status !== 'pending');
 
 export default function ChatPage() {
   const {
@@ -175,7 +176,7 @@ export default function ChatPage() {
           if (anchorMessageId) usedAnchorIds.add(anchorMessageId);
           return {
             ...action,
-            resolved: action.status === 'completed',
+            resolved: isActionResolved(action.status),
             anchorMessageId,
           };
         }));
@@ -241,6 +242,14 @@ export default function ChatPage() {
         return;
       }
       const data = await res.json().catch(() => ({}));
+      if (res.status === 410) {
+        setPendingActions(prev => prev.map(item => (
+          item.id === action.id
+            ? { ...item, busy: false, resolved: true, status: 'expired', error: '' }
+            : item
+        )));
+        return;
+      }
       if (!res.ok) throw new Error(data.detail || t('chat.approvalFailed'));
 
       const selectedDecision = action.decisions?.find(item => item.id === decision);
@@ -249,14 +258,14 @@ export default function ChatPage() {
           const existingById = new Map(prev.map(item => [item.id, item]));
           return data.pending_actions.map(item => ({
             ...item,
-            resolved: item.status === 'completed',
+            resolved: isActionResolved(item.status),
             anchorMessageId: existingById.get(item.id)?.anchorMessageId || item.anchorMessageId || null,
           }));
         });
       } else if ((selectedDecision?.outcome || decision) === 'approve') {
         setPendingActions(prev => prev.map(item => (
           item.id === action.id
-            ? { ...item, busy: false, resolved: true, status: 'completed' }
+            ? { ...item, busy: false, resolved: true, status: 'succeeded' }
             : item
         )));
       } else {
@@ -387,7 +396,7 @@ export default function ChatPage() {
                     const existingById = new Map(prev.map(action => [action.id, action]));
                     return data.pending_actions.map(action => ({
                       ...action,
-                      resolved: action.status === 'completed',
+                      resolved: isActionResolved(action.status),
                       anchorMessageId: resolveLiveApprovalAnchor(
                         action,
                         existingById.get(action.id)?.anchorMessageId,
@@ -421,7 +430,7 @@ export default function ChatPage() {
                 const existingById = new Map(prev.map(action => [action.id, action]));
                 return data.pending_actions.map(action => ({
                   ...action,
-                  resolved: action.status === 'completed',
+                  resolved: isActionResolved(action.status),
                   anchorMessageId: resolveLiveApprovalAnchor(
                     action,
                     existingById.get(action.id)?.anchorMessageId,

@@ -6,8 +6,9 @@ session so a second browser tab or retry cannot read stale history and write
 over the first response.
 
 This registry is intentionally process-local.  It is sufficient for the
-current single-backend deployment; a multi-replica deployment should replace
-it with a database or Redis-backed lock using the same session_id key.
+current single-backend deployment; cross-replica approval races are guarded by
+the durable atomic claim in ``hitl_audit``.  General chat-turn serialization
+still requires a database or Redis lease before a multi-replica deployment.
 """
 
 import asyncio

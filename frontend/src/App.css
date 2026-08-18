@@ -2419,6 +2419,15 @@
   border-color: color-mix(in srgb, var(--color-success, #2f9e44) 45%, var(--border-light));
 }
 
+.approval-card-failed,
+.approval-card-expired {
+  border-color: color-mix(in srgb, var(--color-danger, #c92a2a) 45%, var(--border-light));
+}
+
+.approval-card-cancelled {
+  border-color: var(--border-light);
+}
+
 .approval-resolved-status {
   display: flex;
   justify-content: flex-end;
@@ -2486,6 +2495,24 @@
 .approval-status-sent {
   color: var(--color-success, #2f9e44);
   background: color-mix(in srgb, var(--color-success, #2f9e44) 14%, var(--bg-card));
+}
+
+.approval-status-succeeded,
+.approval-status-completed {
+  color: var(--color-success, #2f9e44);
+  background: color-mix(in srgb, var(--color-success, #2f9e44) 14%, var(--bg-card));
+}
+
+.approval-status-failed,
+.approval-status-expired {
+  color: var(--color-danger, #c92a2a);
+  background: color-mix(in srgb, var(--color-danger, #c92a2a) 12%, var(--bg-card));
+}
+
+.approval-status-cancelled,
+.approval-status-executing {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
 }
 
 .message-status {

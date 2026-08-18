@@ -26,16 +26,23 @@ export default function ApprovalCard({
 
   const presentation = action.presentation || {};
   const { Preview, Icon } = getApprovalRenderer(action);
-  const isResolved = action.resolved || action.status === 'completed';
+  const actionStatus = action.status || 'pending';
+  const isResolved = action.resolved || actionStatus !== 'pending';
   const defaultTitle = title || (presentation.title_key
     ? t(presentation.title_key)
     : t('chat.reviewAction'));
   const defaultSubtitle = subtitle || (presentation.subtitle_key
     ? t(presentation.subtitle_key)
     : t('chat.approvalRequired'));
-  const statusKey = isResolved
+  const terminalStatusKeys = {
+    cancelled: 'chat.approvalStatusCancelled',
+    expired: 'chat.approvalStatusExpired',
+    failed: 'chat.approvalStatusFailed',
+    executing: 'chat.approvalStatusExecuting',
+  };
+  const statusKey = terminalStatusKeys[actionStatus] || (isResolved
     ? presentation.completed_status_key || 'chat.approvalStatusCompleted'
-    : presentation.pending_status_key || 'chat.approvalStatusPending';
+    : presentation.pending_status_key || 'chat.approvalStatusPending');
   const defaultStatusLabel = statusLabel || t(statusKey);
   const configuredDecisions = action.decisions || [];
 
@@ -74,11 +81,12 @@ export default function ApprovalCard({
 
   if (isResolved) {
     return (
-      <div className={`approval-card approval-card-resolved ${className}`} role="status">
+      <div className={`approval-card approval-card-resolved approval-card-${actionStatus} ${className}`} role="status">
         <div className="approval-resolved-status">
-          <span className="approval-status approval-status-sent">{defaultStatusLabel}</span>
+          <span className={`approval-status approval-status-${actionStatus}`}>{defaultStatusLabel}</span>
         </div>
         <Preview payload={action.payload} action={action} t={t} />
+        {action.error && <p className="approval-error" role="alert">{action.error}</p>}
       </div>
     );
   }
