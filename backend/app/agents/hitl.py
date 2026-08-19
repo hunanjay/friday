@@ -219,26 +219,17 @@ def _is_tool_message(message) -> bool:
 
 def approved_tool_error(
     interrupt: Interrupt,
-    before_messages: list,
-    after_messages: list,
-    tool_results: list | None = None,
+    tool_results: list,
 ) -> str | None:
     """Return a safe failure reason unless every approved tool reported success."""
     value = interrupt.value if isinstance(interrupt.value, dict) else {}
     expected_names = [request.get("name") for request in value.get("action_requests") or []]
-    before_ids = {
-        tool_call_id
-        for message in before_messages
-        if _is_tool_message(message)
-        for _name, tool_call_id, _status, _content in [_tool_message_fields(message)]
-        if tool_call_id
-    }
     results = []
-    for message in [*after_messages, *(tool_results or [])]:
+    for message in tool_results:
         if not _is_tool_message(message):
             continue
         name, tool_call_id, status, content = _tool_message_fields(message)
-        if name in expected_names and tool_call_id not in before_ids:
+        if name in expected_names and tool_call_id:
             results.append((status, content))
     failures = [content for status, content in results if status == "error"]
     if failures:

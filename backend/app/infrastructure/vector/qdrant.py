@@ -6,6 +6,8 @@ from fastembed import SparseTextEmbedding
 from langchain_openai import OpenAIEmbeddings
 from qdrant_client import AsyncQdrantClient, models
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 COLLECTION = "memos"
@@ -13,18 +15,14 @@ CONTACTS_COLLECTION = "contacts"
 
 
 def _embedding_base_url() -> str | None:
-    return os.environ.get("EMBEDDING_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
+    return settings.EMBEDDING_BASE_URL or None
 
 
 def _embedding_model() -> str:
-    configured = os.environ.get("EMBEDDING_MODEL")
-    if configured:
-        return configured
-    base_url = (_embedding_base_url() or "").lower()
-    return "embedding-3" if "bigmodel.cn" in base_url else "text-embedding-3-large"
+    return settings.EMBEDDING_MODEL
 
 
-_DENSE_SIZE = int(os.environ.get("EMBEDDING_DIMENSIONS", "1536"))
+_DENSE_SIZE = settings.EMBEDDING_DIMENSIONS
 _SPARSE_MODEL = os.environ.get("SPARSE_EMBEDDING_MODEL", "Qdrant/bm25")
 _SPARSE_CACHE_DIR = os.environ.get("FASTEMBED_CACHE_DIR") or None
 _SPARSE_TIMEOUT_SECONDS = float(os.environ.get("SPARSE_EMBEDDING_TIMEOUT_SECONDS", "5"))
@@ -59,11 +57,16 @@ def _get_client() -> AsyncQdrantClient | None:
 def _get_dense() -> OpenAIEmbeddings:
     global _dense_embedder
     if _dense_embedder is None:
+        if settings.LLM_PROVIDER in {"qwen", "zhipu"} and not settings.EMBEDDING_API_KEY:
+            key_name = f"{settings.LLM_PROVIDER.upper()}_EMBEDDING_API_KEY"
+            raise RuntimeError(
+                f"{key_name} (or the provider API key) is required for dense embeddings"
+            )
         _dense_embedder = OpenAIEmbeddings(
             model=_embedding_model(),
             dimensions=_DENSE_SIZE,
             base_url=_embedding_base_url(),
-            api_key=os.environ.get("EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+            api_key=settings.EMBEDDING_API_KEY,
             request_timeout=60.0,
             max_retries=3,
         )

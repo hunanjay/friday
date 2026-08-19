@@ -1,10 +1,11 @@
 import json
 import logging
 import re
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
 from app.agents.checkpointer import get_checkpointer
@@ -246,8 +247,7 @@ async def _decide_action(
                 detail=f"This HITL action is already {claim_status}",
             )
 
-        raw_before_messages = list((state.values or {}).get("messages", []))
-        before_messages = visible_conversation_parts(raw_before_messages)
+        before_messages = visible_conversation_parts((state.values or {}).get("messages", []))
         before_ai_ids = {
             message_id
             for kind, _content, message_id in before_messages
@@ -311,8 +311,6 @@ async def _decide_action(
             if execution_error is None:
                 execution_error = approved_tool_error(
                     pending,
-                    raw_before_messages,
-                    list((resumed_state.values or {}).get("messages", [])),
                     execution_results,
                 )
             status = "failed" if execution_error else "succeeded"
@@ -391,12 +389,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     assistant_name = await user_settings.get_assistant_name(user_id)
 
     async def locked_event_generator():
-        config = {
-            "configurable": {
-                "thread_id": session_id,
-                "entry_agent": routed_agent,
-            }
-        }
+        config = {"configurable": {"thread_id": session_id}}
         graph = build_supervisor(user_id, session_id, assistant_name)
         user_message = {"role": "user", "content": routed_message}
         if route.source == "slash_command":
@@ -404,7 +397,22 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
             # strips message names before provider serialization, so this is
             # checkpoint metadata rather than prompt content.
             user_message["name"] = routed_agent
-        run_input = {"messages": [user_message]}
+        input_messages = [user_message]
+        if route.source == "slash_command":
+            input_messages.append(
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": f"delegate_to_{routed_agent}",
+                            "args": {"task": routed_message},
+                            "id": f"slash-{uuid.uuid4().hex}",
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+            )
+        run_input = {"messages": input_messages}
         try:
             async for event in graph.astream_events(run_input, config=config, version="v2"):
                 event_type = event.get("event")
@@ -413,7 +421,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 checkpoint_ns = metadata.get("langgraph_checkpoint_ns", "")
                 is_supervisor_turn = is_supervisor_stream_namespace(checkpoint_ns)
 
-                if event_type == "on_chat_model_stream" and node == "agent" and is_supervisor_turn:
+                if event_type == "on_chat_model_stream" and node == "model" and is_supervisor_turn:
                     chunk = event["data"].get("chunk")
                     chunk_content = getattr(chunk, "content", None)
                     if chunk_content is None and isinstance(chunk, dict):
@@ -422,10 +430,14 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                         yield f"data: {json.dumps({'chunk': chunk_content})}\n\n"
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
+                    if tool_name.startswith("delegate_to_"):
+                        continue
                     tool_input = event.get("data", {}).get("input") or {}
                     yield f"data: {json.dumps({'tool_call': {'name': tool_name, 'input': tool_input, 'status': 'running'}})}\n\n"
                 elif event_type == "on_tool_end":
                     tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
+                    if tool_name.startswith("delegate_to_"):
+                        continue
                     tool_output = event.get("data", {}).get("output")
                     output_str = str(tool_output)[:500] if tool_output is not None else ""
                     yield f"data: {json.dumps({'tool_call': {'name': tool_name, 'output': output_str, 'status': 'completed'}})}\n\n"

@@ -6,7 +6,9 @@ import os
 import docx
 import pypdf
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
+
+from app.core.config import settings
+from app.core.llm import make_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +104,9 @@ class DocumentParser:
             base64_img = base64.b64encode(image_bytes).decode("utf-8")
             media_type = mime_type if mime_type.startswith("image/") else "image/jpeg"
 
-            llm = ChatOpenAI(
-                model="gpt-4o-mini",
+            llm = make_chat_model(
+                model=settings.VISION_MODEL,
                 max_tokens=1000,
-                base_url=os.environ.get("OPENAI_BASE_URL") or None,
                 timeout=60.0,
                 max_retries=3,
             )
