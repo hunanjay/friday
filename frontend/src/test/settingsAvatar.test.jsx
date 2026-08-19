@@ -20,6 +20,10 @@ function renderSettings(overrides = {}) {
     handleConnectGithub: vi.fn(),
     handleDisconnectGithub: vi.fn(),
     handleSaveGithubRepos: vi.fn(),
+    mailAccounts: [],
+    handleUnbindMailAccount: vi.fn(),
+    handleVerifyMailAccount: vi.fn(),
+    handleRefreshMailAccounts: vi.fn(),
     assistantName: 'Friday',
     handleUpdateAssistantName: vi.fn(),
     avatarUrl: '/avatars/avatar-01.png',
@@ -39,9 +43,9 @@ function renderSettings(overrides = {}) {
 }
 
 describe('SettingsPage assistant avatar', () => {
-  it('shows a current-avatar preview independent of the preset grid', () => {
+  it('marks the currently selected preset with a check', () => {
     renderSettings();
-    expect(screen.getByAltText('Friday')).toHaveAttribute('src', '/avatars/avatar-01.png');
+    expect(screen.getByTitle('avatar-01.png (current)')).toHaveClass('selected');
   });
 
   it('clicking the already-selected preset gives visible feedback instead of doing nothing', () => {

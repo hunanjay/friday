@@ -299,20 +299,6 @@ export default function SettingsPage() {
                   <div className="settings-field-hint">{isZh ? '选择聊天和邮件中显示的头像。' : 'Choose the avatar shown in chat and email.'}</div>
                 </div>
                 <div>
-                  {/* A ground truth for "what's selected right now", independent of the
-                      grid below - with only one preset, every tile can look identical
-                      to "already selected", and a 2px border is easy to miss. */}
-                  <div className="avatar-current-preview">
-                    {avatarUrl ? (
-                      <img src={avatarUrl} alt={assistantName} className="avatar-current-preview-img" />
-                    ) : (
-                      <div className="avatar-current-preview-placeholder">{assistantName?.[0]?.toUpperCase() || 'A'}</div>
-                    )}
-                    <div className="avatar-current-preview-text">
-                      <span className="avatar-current-preview-label">{isZh ? '当前头像' : 'Current avatar'}</span>
-                      <span className="avatar-current-preview-name">{assistantName}</span>
-                    </div>
-                  </div>
                   <div className="avatar-preset-grid">
                     {avatarPresets.map((preset) => {
                       const isSelected = avatarUrl === preset.url;

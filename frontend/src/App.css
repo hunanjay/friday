@@ -5538,60 +5538,6 @@
   border-color: var(--accent-primary);
 }
 
-.avatar-current-preview {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-light);
-}
-
-.avatar-current-preview-img,
-.avatar-current-preview-placeholder {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.avatar-current-preview-img {
-  object-fit: cover;
-}
-
-.avatar-current-preview-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--accent-primary);
-  color: #fff;
-  font-weight: 600;
-}
-
-.avatar-current-preview-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.avatar-current-preview-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.avatar-current-preview-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .avatar-preset-grid {
   display: flex;
   flex-wrap: wrap;

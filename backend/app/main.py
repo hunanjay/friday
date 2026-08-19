@@ -9,7 +9,19 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 from app.agents import checkpointer
-from app.api import agent, auth, calendar, contact, github, github_auth, mail, mail_accounts, memos, settings as settings_api, todos
+from app.api import (
+    agent,
+    auth,
+    calendar,
+    contact,
+    github,
+    github_auth,
+    mail,
+    mail_accounts,
+    memos,
+    settings as settings_api,
+    todos,
+)
 from app.core.config import settings
 from app.infrastructure.db import pool as db_pool
 from app.infrastructure.db.repositories import (
