@@ -5732,15 +5732,6 @@
   margin: 0;
 }
 
-.repo-filter-controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
 .settings-search-wrapper {
   position: relative;
   display: flex;
@@ -5789,73 +5780,11 @@
   color: var(--text-primary);
 }
 
-.repo-selection-helpers {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-}
-
-.helper-link-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--accent-primary);
-  cursor: pointer;
-  font-weight: 500;
-  transition: var(--transition-fast);
-}
-
-.helper-link-btn:hover {
-  color: var(--accent-hover);
-  text-decoration: underline;
-}
-
-.helper-separator {
-  color: var(--text-muted);
-}
-
-/* Scrollable area for Repositories */
-.settings-repos-scrollable {
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  padding: 16px;
-  background-color: var(--bg-app);
-  max-height: 440px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-medium) transparent;
-}
-
-.settings-repos-scrollable::-webkit-scrollbar {
-  width: 6px;
-}
-.settings-repos-scrollable::-webkit-scrollbar-thumb {
-  background: var(--border-medium);
-  border-radius: 3px;
-}
-
-.settings-repo-section {
-  margin-bottom: 20px;
-}
-
-.settings-repo-section:last-child {
-  margin-bottom: 0;
-}
-
-.settings-repo-section-title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin: 0 0 10px 4px;
-}
-
 .settings-repo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 6px;
+  margin-bottom: 12px;
 }
 
 .settings-repo-chip {
@@ -5863,57 +5792,14 @@
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--accent-primary);
   border-radius: 6px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.settings-repo-chip:hover {
-  border-color: var(--border-medium);
-  background-color: var(--bg-card-hover);
-}
-
-.settings-repo-chip.is-selected {
-  border-color: var(--accent-primary);
   background-color: var(--accent-light);
 }
 
-.settings-repo-checkbox {
-  width: 13px;
-  height: 13px;
-  border: 1.5px solid var(--border-medium);
-  border-radius: 3px;
-  background-color: var(--bg-card);
-  transition: all var(--transition-fast);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.settings-repo-chip:hover .settings-repo-checkbox {
-  border-color: var(--text-muted);
-}
-
-.settings-repo-chip.is-selected .settings-repo-checkbox {
-  background-color: var(--accent-primary);
-  border-color: var(--accent-primary);
-}
-
-.settings-repo-checkbox::after {
-  content: "";
-  width: 3px;
-  height: 6px;
-  border: solid white;
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg) scale(0);
-  transition: transform 0.1s ease;
-}
-
-.settings-repo-chip.is-selected .settings-repo-checkbox::after {
-  transform: rotate(45deg) scale(1);
+.settings-repo-chip .settings-repo-name {
+  color: var(--accent-primary);
+  flex: 1;
 }
 
 .settings-repo-name {
@@ -5925,8 +5811,69 @@
   text-overflow: ellipsis;
 }
 
-.settings-repo-chip.is-selected .settings-repo-name {
+.repo-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
   color: var(--accent-primary);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.repo-remove-btn:hover {
+  background-color: var(--bg-card);
+}
+
+.repo-add-wrapper {
+  /* Deliberately not position:absolute - .settings-panel clips overflow for
+     its rounded corners, which would cut off a floating popover. Expanding
+     inline pushes the rest of the card down instead. */
+  display: block;
+}
+
+.repo-add-dropdown {
+  margin-top: 10px;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 10px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.repo-add-dropdown-list {
+  margin-top: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
+
+.repo-add-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.repo-add-option:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--accent-primary);
+}
+
+.repo-add-option .settings-repo-name {
+  color: inherit;
 }
 
 .repos-empty-state {

@@ -1,35 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle } from '../components/common/Icons';
-
-function RepoSection({ label, repos, checked, onToggle }) {
-  if (repos.length === 0) return null;
-  return (
-    <div className="settings-repo-section">
-      <h3 className="settings-repo-section-title">{label}</h3>
-      <div className="settings-repo-grid">
-        {repos.map(r => {
-          const isChecked = checked.has(r.full_name);
-          return (
-            <label key={r.full_name} className={`settings-repo-chip ${isChecked ? 'is-selected' : ''}`}>
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={() => onToggle(r.full_name)}
-                className="visually-hidden"
-              />
-              <span className="settings-repo-checkbox" aria-hidden="true" />
-              <span className="settings-repo-name" title={r.full_name}>{r.full_name}</span>
-            </label>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus } from '../components/common/Icons';
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -71,7 +45,21 @@ export default function SettingsPage() {
   const [assistantNameDraft, setAssistantNameDraft] = useState(assistantName);
   const [isSavingAssistantName, setIsSavingAssistantName] = useState(false);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const [showAddRepo, setShowAddRepo] = useState(false);
+  const addRepoRef = useRef(null);
   const selectedCommit = location.state?.commit;
+
+  // Close the "Add repo" dropdown on an outside click.
+  useEffect(() => {
+    if (!showAddRepo) return;
+    const onClickOutside = (e) => {
+      if (addRepoRef.current && !addRepoRef.current.contains(e.target)) {
+        setShowAddRepo(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [showAddRepo]);
 
   useEffect(() => {
     setAssistantNameDraft(assistantName);
@@ -156,32 +144,18 @@ export default function SettingsPage() {
     }
   };
 
-  // Filter and group repos
-  const filteredRepos = useMemo(() => {
+  const selectedRepos = useMemo(
+    () => (githubRepos?.available || []).filter(r => checked.has(r.full_name)),
+    [githubRepos?.available, checked]
+  );
+
+  // Repos still available to add, filtered by the dropdown's search box.
+  const addableRepos = useMemo(() => {
     if (!githubRepos?.available) return [];
     return githubRepos.available.filter(r =>
-      r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
+      !checked.has(r.full_name) && r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [githubRepos?.available, searchQuery]);
-
-  const privateRepos = useMemo(() => filteredRepos.filter(r => r.private), [filteredRepos]);
-  const publicRepos = useMemo(() => filteredRepos.filter(r => !r.private), [filteredRepos]);
-
-  const handleSelectAllFiltered = () => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      filteredRepos.forEach(r => next.add(r.full_name));
-      return next;
-    });
-  };
-
-  const handleClearAllFiltered = () => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      filteredRepos.forEach(r => next.delete(r.full_name));
-      return next;
-    });
-  };
+  }, [githubRepos?.available, checked, searchQuery]);
 
   const isZh = i18n.language === 'zh';
   const closeCommitDetails = () => navigate('/settings', { replace: true, state: null });
@@ -387,53 +361,86 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  <div className="repo-filter-controls">
-                    <div className="settings-search-wrapper">
-                      <Search size={16} className="settings-search-icon" />
-                      <input
-                        type="text"
-                        placeholder={isZh ? "搜索仓库..." : "Search repositories..."}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="settings-search-input"
-                      />
-                      {searchQuery && (
-                        <button type="button" className="settings-search-clear" onClick={() => setSearchQuery('')}>
-                          <X size={16} />
-                        </button>
-                      )}
+                  {githubRepos?.available?.length === 0 ? (
+                    <div className="repos-empty-state">
+                      <Github size={32} />
+                      <p>{isZh ? '在您的 GitHub 账户中未找到任何仓库。' : 'No repositories found in your GitHub account.'}</p>
                     </div>
+                  ) : (
+                    <>
+                      <div className="settings-repo-grid">
+                        {selectedRepos.map(r => (
+                          <div key={r.full_name} className="settings-repo-chip is-selected">
+                            <span className="settings-repo-name" title={r.full_name}>{r.full_name}</span>
+                            <button
+                              type="button"
+                              className="repo-remove-btn"
+                              onClick={() => toggleRepo(r.full_name)}
+                              aria-label={isZh ? '移除仓库' : 'Remove repository'}
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedRepos.length === 0 && (
+                        <p className="settings-field-hint">{isZh ? '还没有选择仓库。' : 'No repositories selected yet.'}</p>
+                      )}
 
-                    {filteredRepos.length > 0 && (
-                      <div className="repo-selection-helpers">
-                        <button type="button" onClick={handleSelectAllFiltered} className="helper-link-btn">
-                          {isZh ? '全选匹配' : 'Select all matching'}
+                      <div className="repo-add-wrapper" ref={addRepoRef}>
+                        <button
+                          type="button"
+                          className="settings-btn"
+                          onClick={() => setShowAddRepo(v => !v)}
+                        >
+                          <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />
+                          {isZh ? '添加仓库' : 'Add repo'}
                         </button>
-                        <span className="helper-separator">•</span>
-                        <button type="button" onClick={handleClearAllFiltered} className="helper-link-btn">
-                          {isZh ? '全部取消匹配' : 'Clear all matching'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="settings-repos-scrollable">
-                    {githubRepos?.available?.length === 0 ? (
-                      <div className="repos-empty-state">
-                        <Github size={32} />
-                        <p>{isZh ? '在您的 GitHub 账户中未找到任何仓库。' : 'No repositories found in your GitHub account.'}</p>
+                        {showAddRepo && (
+                          <div className="repo-add-dropdown">
+                            <div className="settings-search-wrapper">
+                              <Search size={16} className="settings-search-icon" />
+                              <input
+                                type="text"
+                                placeholder={isZh ? "搜索仓库..." : "Search repositories..."}
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="settings-search-input"
+                                autoFocus
+                              />
+                              {searchQuery && (
+                                <button type="button" className="settings-search-clear" onClick={() => setSearchQuery('')}>
+                                  <X size={16} />
+                                </button>
+                              )}
+                            </div>
+                            <div className="repo-add-dropdown-list">
+                              {addableRepos.length === 0 ? (
+                                <p className="settings-field-hint">
+                                  {searchQuery
+                                    ? (isZh ? '没有符合搜索条件的仓库。' : 'No repositories match your search.')
+                                    : (isZh ? '所有仓库都已添加。' : 'All repositories are already added.')}
+                                </p>
+                              ) : (
+                                addableRepos.map(r => (
+                                  <button
+                                    type="button"
+                                    key={r.full_name}
+                                    className="repo-add-option"
+                                    onClick={() => toggleRepo(r.full_name)}
+                                  >
+                                    <span className="settings-repo-name" title={r.full_name}>{r.full_name}</span>
+                                    <Plus size={14} />
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ) : filteredRepos.length === 0 ? (
-                      <div className="repos-empty-state">
-                        <p>{isZh ? '没有符合搜索条件的仓库。' : 'No repositories match your search.'}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <RepoSection label={isZh ? "私有仓库" : "Private Repositories"} repos={privateRepos} checked={checked} onToggle={toggleRepo} />
-                        <RepoSection label={isZh ? "公开仓库" : "Public Repositories"} repos={publicRepos} checked={checked} onToggle={toggleRepo} />
-                      </>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
               )}
 
