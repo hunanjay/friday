@@ -1176,14 +1176,60 @@ check(
     "prompt no longer tells the model to 'answer as <assistant_name>'",
     "answer as {assistant_name}" not in supervisor_source,
 )
+# Keep the suite hermetic: importing app.agents.supervisor pulls in
+# app.agents.tools -> github_client -> ... -> app.core.security, which builds
+# a Supabase client at import time. CI leaves these unset.
+for _var, _stub in (
+    ("SUPABASE_URL", "https://test.supabase.co"),
+    ("SUPABASE_ANON_KEY", "test-anon-key"),
+    ("SUPABASE_SERVICE_ROLE_KEY", "test-service-key"),
+):
+    os.environ[_var] = os.environ.get(_var) or _stub
+
+from app.agents.supervisor import _agent_prompts, _supervisor_prompt  # noqa: E402
+
+_identity_guard = "Never reply with your name by itself"
+_sample_prompts = _agent_prompts("Friday", "2026-01-01")
 check(
-    "both the domain-agent and supervisor prompts forbid a name-only reply",
-    supervisor_source.count("Never reply with your name by itself") == 2,
+    "every domain-agent prompt forbids a name-only reply",
+    all(_identity_guard in prompt for prompt in _sample_prompts.values()),
+)
+check(
+    "the supervisor prompt forbids a name-only reply",
+    _identity_guard in _supervisor_prompt("Friday", "2026-01-01"),
 )
 check(
     "an empty final_message is never streamed, so it cannot blank the bubble",
     "if final_text:" in agent_api_source
     and "'final_message': final_text" in agent_api_source,
+)
+check(
+    "supervisor prompt no longer hardcodes a stale agent count",
+    "four agents" not in supervisor_source,
+)
+check(
+    "supervisor prompt routes person/contact questions to contact_agent, not mail_agent",
+    "hand off to contact_agent" in _supervisor_prompt("Friday", "2026-01-01"),
+)
+
+from app.agents.supervisor import describe_team  # noqa: E402
+
+_team = describe_team("smoke-test-user", assistant_name="Friday")
+check(
+    "describe_team covers every registered agent",
+    {agent["name"] for agent in _team["agents"]} == set(AGENT_NAMES),
+)
+check(
+    "describe_team's contact_agent entry lists create_contact with its docstring",
+    any(
+        t["name"] == "create_contact" and "structured details" in t["description"]
+        for agent in _team["agents"] if agent["name"] == "contact_agent"
+        for t in agent["tools"]
+    ),
+)
+check(
+    "describe_team's supervisor prompt also routes contacts to contact_agent",
+    "hand off to contact_agent" in _team["supervisor"]["system_prompt"],
 )
 
 

@@ -22,7 +22,7 @@ from app.agents.message_visibility import (
     visible_message_parts,
 )
 from app.agents.routing import AGENT_NAMES, decide_route
-from app.agents.supervisor import build_supervisor, generate_session_title
+from app.agents.supervisor import build_supervisor, describe_team, generate_session_title
 from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
 from app.infrastructure.db.repositories import chat_sessions, hitl_audit, user_settings
@@ -69,6 +69,15 @@ async def draft(body: dict, user_id: str = Depends(get_user_id)):
     if not email_id or not intent:
         raise HTTPException(status_code=400, detail="email_id and intent are required")
     return {"draft": await draft_reply(user_id, email_id, intent, my_name)}
+
+
+@router.get("/team_info")
+async def team_info(user_id: str = Depends(get_user_id)):
+    """Debug/introspection: the supervisor's prompt plus each domain agent's
+    system prompt and tool name/description, exactly as they're sent to the
+    model on the next real request from this user."""
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    return describe_team(user_id, assistant_name=assistant_name)
 
 
 @router.get("/sessions")
