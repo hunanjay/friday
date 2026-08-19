@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 AGENT_NAMES = ("mail_agent", "calendar_agent", "memos_agent", "github_agent")
 
-_TAG_RE = re.compile(r"^/(\w+)\s+(.*)", re.DOTALL)
+_TAG_RE = re.compile(r"^/([\w-]+)\s+(.*)", re.DOTALL)
 EMAIL_ADDRESS_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 _EMAIL_SEND_RE = re.compile(
     r"(?:"
@@ -88,10 +88,11 @@ def decide_route(message: str) -> RouteDecision:
     5. All other requests go to the LangGraph supervisor.
     """
     tagged = _TAG_RE.match(message.strip())
-    if tagged and tagged.group(1) in AGENT_NAMES:
+    tagged_agent = tagged.group(1).replace("-", "_") if tagged else None
+    if tagged and tagged_agent in AGENT_NAMES:
         return RouteDecision(
             message=tagged.group(2).strip(),
-            agent_name=tagged.group(1),
+            agent_name=tagged_agent,
             source="slash_command",
         )
     if is_email_send_request(message):

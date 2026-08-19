@@ -80,6 +80,30 @@ describe('ApprovalCard', () => {
     expect(screen.getByText('Lunch with Professor Liu')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['failed', 'Failed'],
+    ['cancelled', 'Cancelled'],
+    ['expired', 'Expired'],
+  ])('renders a restored %s card as terminal', (status, label) => {
+    render(
+      <ApprovalCard
+        action={{
+          action_type: 'calendar.delete',
+          status,
+          payload: { subject: 'Architecture review' },
+          error: status === 'failed' ? 'Graph request failed' : '',
+          decisions: [
+            { id: 'approve', label_key: 'chat.confirmDelete', style: 'danger' },
+          ],
+        }}
+        onDecision={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
 });
 
 describe('approval placement', () => {

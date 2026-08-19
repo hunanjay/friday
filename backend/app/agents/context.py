@@ -23,7 +23,7 @@ _AGENT_TOOLS = {
         "send_email", "mark_email_read", "delete_email",
     },
     "calendar_agent": {
-        "list_events", "list_events_on_day", "request_delete_event_on_day",
+        "list_events", "list_events_on_day",
         "create_event", "delete_event", "accept_event", "decline_event",
     },
     "memos_agent": {"list_memos", "search_memos", "create_memo", "search_contacts"},

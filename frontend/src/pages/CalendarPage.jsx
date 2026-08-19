@@ -90,8 +90,9 @@ export default function CalendarPage() {
   const [eventLocation, setEventLocation] = useState('');
   const [eventCategory, setEventCategory] = useState('work'); // work, personal, urgent, study
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const targetEventId = location.state?.eventId;
-  const targetEventStart = location.state?.eventStart;
+  const searchParams = new URLSearchParams(location.search);
+  const targetEventId = location.state?.eventId || searchParams.get('eventId');
+  const targetEventStart = location.state?.eventStart || searchParams.get('eventStart');
 
   useEffect(() => {
     if (!targetEventStart) return;

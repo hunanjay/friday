@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from langchain_core.tools import tool
 
 from app.agents.calendar_dates import resolve_calendar_day
+from app.agents.internal_links import markdown_internal_link
 from app.infrastructure.db.repositories import memos as memos_db
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
@@ -38,12 +39,29 @@ async def _graph(coro):
         raise
 
 
-def _format_email_row(m: dict) -> str:
+async def _graph_mutation(coro):
+    """Run a Graph write and preserve failures as error ToolMessages.
+
+    LangGraph's ToolNode converts raised exceptions into ToolMessages with
+    ``status='error'``.  Keeping writes on that path lets the approval API
+    distinguish a successful execution from an approved call that failed.
+    """
+    return await coro
+
+
+def _format_email_row(m: dict, folder: str = "inbox") -> str:
     unread = "" if m.get("isRead", True) else "[UNREAD] "
     sender = m.get("sender", {}).get("emailAddress", {}).get("address")
+    subject = markdown_internal_link(
+        m.get("subject") or "(no subject)",
+        "email",
+        m["id"],
+        folder=folder,
+    )
     return (
         f"- {unread}id={m['id']} from={sender} "
-        f"subject={m.get('subject')!r} preview={m.get('bodyPreview', '')[:120]!r}"
+        f"subject={subject} received={m.get('receivedDateTime', '')} "
+        f"preview={m.get('bodyPreview', '')[:120]!r}"
     )
 
 
@@ -150,7 +168,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         messages = data.get("value", [])
         if not messages:
             return f"No messages in {folder}."
-        return "\n".join(_format_email_row(m) for m in messages)
+        return "\n".join(_format_email_row(m, folder=folder) for m in messages)
 
     @tool
     async def search_emails(
@@ -170,7 +188,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         messages = data.get("value", [])
         if not messages:
             return "No emails matched that search."
-        return "\n".join(_format_email_row(m) for m in messages)
+        return "\n".join(_format_email_row(m, folder=folder) for m in messages)
 
     @tool
     async def read_email(email_id: str) -> str:
@@ -200,7 +218,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         """Send an email with final recipient, subject, and body. This tool is
         guarded by LangChain HITL middleware and only runs after approval."""
         html_body = body.replace("\r\n", "\n").replace("\n", "<br>")
-        _, err = await _graph(
+        await _graph_mutation(
             graph_post(
                 user_id,
                 "/me/sendMail",
@@ -214,8 +232,6 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
                 },
             )
         )
-        if err:
-            return err
         return f"Email sent to {to}."
 
     @tool
@@ -230,15 +246,13 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
     async def delete_email(email_id: str, subject: str = "", sender: str = "") -> str:
         """Move an email to Deleted Items. Include subject/sender when known so
         the HITL card is informative. Execution is blocked until approval."""
-        _, err = await _graph(
+        await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/messages/{quote(email_id)}/move",
                 {"destinationId": "deleteditems"},
             )
         )
-        if err:
-            return err
         return f"Email moved to Deleted Items: {subject or email_id}."
 
     @tool
@@ -365,17 +379,38 @@ def _graph_tz() -> str:
 
 def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
     async def list_event_range(start: str, end: str) -> tuple[list[dict] | None, str | None]:
-        path = f"/me/calendarView?startDateTime={start}&endDateTime={end}&$top=50&$orderby=start/dateTime"
+        path = (
+            f"/me/calendarView?startDateTime={start}&endDateTime={end}"
+            "&$top=50&$orderby=start/dateTime"
+            "&$select=id,subject,start,end,location"
+        )
         data, err = await _graph(
             graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_graph_tz()}"'})
         )
         return (data.get("value", []), None) if not err else (None, err)
 
+    def format_event_subject(event: dict) -> str:
+        subject = event.get("subject") or "(no subject)"
+        event_id = event.get("id")
+        start = (event.get("start") or {}).get("dateTime") or ""
+        if not event_id:
+            return subject
+        # Keep chat links inside Friday. Graph's webLink points to Outlook Web,
+        # while this route can open the event in our own calendar UI.
+        return markdown_internal_link(
+            subject,
+            "calendar",
+            str(event_id),
+            eventStart=start,
+        )
+
     def format_event_rows(events: list[dict]) -> str:
         return "\n".join(
-            f"- id={event['id']} subject={event.get('subject')!r} "
+            f"- internal_event_id={event['id']} "
+            f"subject={format_event_subject(event)} "
             f"start={(event.get('start') or {}).get('dateTime')} "
-            f"end={(event.get('end') or {}).get('dateTime')}"
+            f"end={(event.get('end') or {}).get('dateTime')} "
+            f"location={(event.get('location') or {}).get('displayName', '')!r}"
             for event in events
         )
 
@@ -409,39 +444,6 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
         return f"Resolved date: {resolved.isoformat()}.\n{format_event_rows(events)}"
 
     @tool
-    async def request_delete_event_on_day(day: str, subject: str = "") -> str:
-        """Find and delete one matching event on a natural-language/ISO day.
-        Use this for requests such as "删除本周三的事件". The entire tool call is
-        blocked by LangChain HITL middleware until the user approves it."""
-        resolved = resolve_calendar_day(day)
-        if not resolved:
-            return f"Could not resolve calendar day: {day!r}. Ask the user for an exact date."
-        start = resolved.isoformat() + "T00:00:00"
-        end = (resolved + timedelta(days=1)).isoformat() + "T00:00:00"
-        events, err = await list_event_range(start, end)
-        if err:
-            return err
-        if subject.strip():
-            needle = " ".join(subject.casefold().split())
-            events = [
-                event
-                for event in events
-                if needle in " ".join((event.get("subject") or "").casefold().split())
-            ]
-        if not events:
-            return f"Resolved date: {resolved.isoformat()}. No matching event was found."
-        if len(events) > 1:
-            return (
-                f"Resolved date: {resolved.isoformat()}. Multiple events matched; "
-                f"ask the user which one:\n{format_event_rows(events)}"
-            )
-        event = events[0]
-        _, err = await _graph(graph_delete(user_id, f"/me/events/{quote(event['id'])}"))
-        if err:
-            return err
-        return f"Event deleted: {event.get('subject') or '(no subject)'}."
-
-    @tool
     async def create_event(subject: str, start: str, end: str, location: str = "") -> str:
         """Create a calendar event after HITL approval. `start`/`end` are ISO 8601 datetimes in the
         user's local timezone (configured via TIMEZONE env var, default Asia/Shanghai).
@@ -454,58 +456,49 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
         }
         if location:
             body["location"] = {"displayName": location}
-        _, err = await _graph(graph_post(user_id, "/me/events", body))
-        if err:
-            return err
+        await _graph_mutation(graph_post(user_id, "/me/events", body))
         return f"Event created: {subject}."
 
     @tool
     async def delete_event(
         event_id: str,
-        subject: str = "",
-        start: str = "",
-        end: str = "",
+        subject: str,
+        start: str,
+        end: str,
         location: str = "",
     ) -> str:
         """Delete a calendar event by id after HITL approval. Include the
         display fields when known so the approval card can show them."""
-        _, err = await _graph(graph_delete(user_id, f"/me/events/{quote(event_id)}"))
-        if err:
-            return err
+        await _graph_mutation(graph_delete(user_id, f"/me/events/{quote(event_id)}"))
         return f"Event deleted: {subject or event_id}."
 
     @tool
     async def accept_event(event_id: str, comment: str = "") -> str:
         """Accept a calendar invitation after HITL approval."""
-        _, err = await _graph(
+        await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/events/{quote(event_id)}/accept",
                 {"comment": comment},
             )
         )
-        if err:
-            return err
         return "Event invitation accepted."
 
     @tool
     async def decline_event(event_id: str, comment: str = "") -> str:
         """Decline a calendar invitation after HITL approval."""
-        _, err = await _graph(
+        await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/events/{quote(event_id)}/decline",
                 {"comment": comment},
             )
         )
-        if err:
-            return err
         return "Event invitation declined."
 
     return [
         list_events,
         list_events_on_day,
-        request_delete_event_on_day,
         create_event,
         delete_event,
         accept_event,

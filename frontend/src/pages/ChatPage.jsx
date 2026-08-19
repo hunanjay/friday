@@ -10,12 +10,14 @@ import {
   resolveLiveApprovalAnchor,
   resolvePersistedApprovalAnchor,
 } from '../components/common/approvalPlacement';
+import { parseAgentCommand, parseAgentPrefix } from '../utils/agentCommand';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Mirrors the sub-agent names in backend/app/agents/supervisor.py.
 const AGENT_ICONS = { mail_agent: Mail, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
 const AGENT_IDS = Object.keys(AGENT_ICONS);
+const isActionResolved = status => Boolean(status && status !== 'pending');
 
 export default function ChatPage() {
   const {
@@ -34,6 +36,7 @@ export default function ChatPage() {
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [selectedAgent, setSelectedAgent] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   // State updates are asynchronous; this ref closes the small window where a
   // double click can invoke handleSend twice before the button re-renders.
@@ -57,7 +60,7 @@ export default function ChatPage() {
 
   // Slash-command agent picker: only while the whole box is still "/query"
   // (no space typed yet) — mirrors the Slack/Notion "/" mention pattern.
-  const slashMatch = inputText.match(/^\/(\w*)$/);
+  const slashMatch = inputText.match(/^\/([\w-]*)$/);
   const agents = AGENT_IDS.map(id => ({
     id,
     Icon: AGENT_ICONS[id],
@@ -66,7 +69,7 @@ export default function ChatPage() {
   }));
   const filteredAgents = slashMatch
     ? agents.filter(a => {
-        const q = slashMatch[1].toLowerCase();
+        const q = slashMatch[1].toLowerCase().replaceAll('-', '_');
         return a.id.includes(q) || a.label.toLowerCase().includes(q);
       })
     : [];
@@ -112,7 +115,8 @@ export default function ChatPage() {
   }, [contactMenuIndex, showContactMenu]);
 
   const selectAgent = (agent) => {
-    setInputText(`/${agent.id} `);
+    setSelectedAgent(agent.id);
+    setInputText('');
     inputRef.current?.focus();
   };
 
@@ -121,6 +125,17 @@ export default function ChatPage() {
     setInputText((prev) => prev.replace(/@([^\s@]*)$/, text));
     setContactList([]);
     inputRef.current?.focus();
+  };
+
+  const handleInputChange = (event) => {
+    const value = event.target.value;
+    const prefixed = parseAgentPrefix(value);
+    if (prefixed) {
+      setSelectedAgent(prefixed.agentName);
+      setInputText(prefixed.message);
+      return;
+    }
+    setInputText(value);
   };
 
   // Fetch conversation history from the LangGraph checkpoint whenever the
@@ -175,7 +190,7 @@ export default function ChatPage() {
           if (anchorMessageId) usedAnchorIds.add(anchorMessageId);
           return {
             ...action,
-            resolved: action.status === 'completed',
+            resolved: isActionResolved(action.status),
             anchorMessageId,
           };
         }));
@@ -241,6 +256,14 @@ export default function ChatPage() {
         return;
       }
       const data = await res.json().catch(() => ({}));
+      if (res.status === 410) {
+        setPendingActions(prev => prev.map(item => (
+          item.id === action.id
+            ? { ...item, busy: false, resolved: true, status: 'expired', error: '' }
+            : item
+        )));
+        return;
+      }
       if (!res.ok) throw new Error(data.detail || t('chat.approvalFailed'));
 
       const selectedDecision = action.decisions?.find(item => item.id === decision);
@@ -249,14 +272,14 @@ export default function ChatPage() {
           const existingById = new Map(prev.map(item => [item.id, item]));
           return data.pending_actions.map(item => ({
             ...item,
-            resolved: item.status === 'completed',
+            resolved: isActionResolved(item.status),
             anchorMessageId: existingById.get(item.id)?.anchorMessageId || item.anchorMessageId || null,
           }));
         });
       } else if ((selectedDecision?.outcome || decision) === 'approve') {
         setPendingActions(prev => prev.map(item => (
           item.id === action.id
-            ? { ...item, busy: false, resolved: true, status: 'completed' }
+            ? { ...item, busy: false, resolved: true, status: 'succeeded' }
             : item
         )));
       } else {
@@ -276,16 +299,19 @@ export default function ChatPage() {
     isSendingRef.current = true;
 
     const sessionId = activeThreadId;
-    const sentText = inputText;
+    const sentText = selectedAgent ? `/${selectedAgent} ${inputText}` : inputText;
+    const explicitAgent = parseAgentCommand(sentText);
     setInputText('');
-    handleUpdateSessionPreview(sessionId, sentText);
+    setSelectedAgent(null);
+    handleUpdateSessionPreview(sessionId, explicitAgent?.message || sentText);
 
     const userMsg = {
       id: 'msg_' + Date.now(),
       threadId: sessionId,
       sender: 'user',
       senderName: i18n.language === 'zh' ? '您' : 'You',
-      text: sentText,
+      text: explicitAgent?.message || sentText,
+      agent_name: explicitAgent?.agentName || null,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -387,7 +413,7 @@ export default function ChatPage() {
                     const existingById = new Map(prev.map(action => [action.id, action]));
                     return data.pending_actions.map(action => ({
                       ...action,
-                      resolved: action.status === 'completed',
+                      resolved: isActionResolved(action.status),
                       anchorMessageId: resolveLiveApprovalAnchor(
                         action,
                         existingById.get(action.id)?.anchorMessageId,
@@ -421,7 +447,7 @@ export default function ChatPage() {
                 const existingById = new Map(prev.map(action => [action.id, action]));
                 return data.pending_actions.map(action => ({
                   ...action,
-                  resolved: action.status === 'completed',
+                  resolved: isActionResolved(action.status),
                   anchorMessageId: resolveLiveApprovalAnchor(
                     action,
                     existingById.get(action.id)?.anchorMessageId,
@@ -621,6 +647,7 @@ export default function ChatPage() {
                 threadMessages.map(msg => {
                   const isUser = msg.sender === 'user';
                   const isBot = msg.sender === 'bot';
+                  const RoutedAgentIcon = isUser && msg.agent_name ? AGENT_ICONS[msg.agent_name] : null;
 
                   return (
                     <React.Fragment key={msg.id}>
@@ -671,7 +698,15 @@ export default function ChatPage() {
                             </div>
                           )}
                           {isUser ? (
-                            <p className="markdown-p">{msg.text}</p>
+                            <>
+                              {RoutedAgentIcon && (
+                                <span className="message-agent-chip">
+                                  <RoutedAgentIcon size={13} />
+                                  {t(`chat.agents.${msg.agent_name}.label`)}
+                                </span>
+                              )}
+                              <p className="markdown-p">{msg.text}</p>
+                            </>
                           ) : (
                             <StreamingMarkdown
                               content={msg.text}
@@ -758,13 +793,30 @@ export default function ChatPage() {
                 </div>
               )}
               <div className="chat-input-wrapper">
+                {selectedAgent && (
+                  <span className="composer-agent-chip">
+                    {(() => {
+                      const Icon = AGENT_ICONS[selectedAgent];
+                      return <Icon size={14} />;
+                    })()}
+                    {t(`chat.agents.${selectedAgent}.label`)}
+                    <button
+                      type="button"
+                      className="composer-agent-chip-remove"
+                      aria-label={i18n.language === 'zh' ? '移除 Agent' : 'Remove agent'}
+                      onClick={() => setSelectedAgent(null)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
                 <button type="button" className="attachment-btn" title="Attach file" onClick={() => alert(t('chat.attachmentsSimulated'))}>
                   <Paperclip size={18} />
                 </button>
                 <textarea
                   ref={inputRef}
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   placeholder={t('chat.inputPlaceholderAI')}
                   rows="1"

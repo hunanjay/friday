@@ -50,6 +50,12 @@ slash = decide_route("/mail_agent 帮我看邮件")
 check("slash command selects named agent", slash.agent_name == "mail_agent" and slash.source == "slash_command")
 check("slash command removes its prefix", slash.message == "帮我看邮件")
 
+hyphenated_slash = decide_route("/calendar-agent arrange a meeting")
+check(
+    "hyphenated slash command aliases the canonical agent name",
+    hyphenated_slash.agent_name == "calendar_agent" and hyphenated_slash.message == "arrange a meeting",
+)
+
 multi_line = decide_route("/mail_agent help me read email with multiple\nlines")
 check("slash command preserves multiline body", multi_line.message.endswith("multiple\nlines"))
 
@@ -244,7 +250,6 @@ for tool_name in (
     "delete_email",
     "create_event",
     "delete_event",
-    "request_delete_event_on_day",
     "accept_event",
     "decline_event",
 ):
@@ -255,7 +260,14 @@ for tool_name in (
         calls = _called_names(tool_fn) | _called_attributes(tool_fn)
         check(f"{tool_name} has no model-controlled confirm argument", "confirm" not in arg_names)
         check(f"{tool_name} is the real Graph mutation", bool({"graph_post", "graph_delete"} & calls))
+        check(f"{tool_name} preserves Graph failures as error ToolMessages", "_graph_mutation" in calls)
         check(f"{tool_name} has no custom approval proposal", "propose" not in calls)
+
+check("calendar deletion no longer selects its target after approval",
+      _function("request_delete_event_on_day") is None)
+delete_event_fn = _function("delete_event")
+check("calendar deletion requires an event id and display snapshot",
+      delete_event_fn is not None and len(delete_event_fn.args.defaults) == 1)
 
 agent_source = (backend_dir / "app/api/agent.py").read_text()
 check("generic decision endpoint is available",
@@ -287,7 +299,7 @@ from app.agents.hitl import (  # noqa: E402
 
 expected_hitl_tools = {
     "send_email", "delete_email", "create_event", "delete_event",
-    "request_delete_event_on_day", "accept_event", "decline_event",
+    "accept_event", "decline_event",
 }
 check("all email/calendar mutation tools have interrupt policies",
       expected_hitl_tools <= set(HITL_TOOL_CONFIGS))
@@ -560,7 +572,7 @@ check(
 )
 check(
     "calendar agent exposes deterministic single-day lookup",
-    {"list_events_on_day", "request_delete_event_on_day"}
+    {"list_events_on_day", "delete_event"}
     <= _returned_tool_names("make_calendar_tools"),
 )
 

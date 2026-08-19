@@ -1,8 +1,10 @@
-"""LangChain HumanInTheLoopMiddleware policy and UI adapter."""
+"""LangChain HumanInTheLoopMiddleware policy and execution adapter."""
 
+import json
 from typing import Any
 
 from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain_core.messages import ToolMessage
 from langgraph.types import Interrupt
 
 HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
@@ -21,10 +23,6 @@ HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
     "delete_event": {
         "allowed_decisions": ["approve", "reject"],
         "description": "Review and approve deleting this calendar event.",
-    },
-    "request_delete_event_on_day": {
-        "allowed_decisions": ["approve", "reject"],
-        "description": "Review and approve finding and deleting the matching event on this day.",
     },
     "accept_event": {
         "allowed_decisions": ["approve", "reject"],
@@ -53,13 +51,6 @@ _ACTION_UI = {
         "chat.confirmCreate",
     ),
     "delete_event": (
-        "calendar.delete",
-        "calendar",
-        "chat.reviewCalendarDelete",
-        "chat.approvalStatusDeleted",
-        "chat.confirmDelete",
-    ),
-    "request_delete_event_on_day": (
         "calendar.delete",
         "calendar",
         "chat.reviewCalendarDelete",
@@ -109,7 +100,6 @@ def interrupt_to_action(
     is_danger = tool_name in {
         "delete_email",
         "delete_event",
-        "request_delete_event_on_day",
         "decline_event",
     }
     payload = dict(first.get("args") or {})
@@ -196,3 +186,63 @@ def resume_value_for(interrupt: Interrupt, decision: str) -> dict:
             for _ in range(count)
         ]
     return {"decisions": decisions}
+
+
+def _tool_message_fields(message) -> tuple[str | None, str | None, str | None, str]:
+    if isinstance(message, dict):
+        content = message.get("content", "")
+        return (
+            message.get("name"),
+            message.get("tool_call_id"),
+            message.get("status"),
+            content if isinstance(content, str) else json.dumps(content),
+        )
+    content = getattr(message, "content", "")
+    return (
+        getattr(message, "name", None),
+        getattr(message, "tool_call_id", None),
+        getattr(message, "status", None),
+        content if isinstance(content, str) else json.dumps(content),
+    )
+
+
+def _is_tool_message(message) -> bool:
+    return isinstance(message, ToolMessage) or (
+        isinstance(message, dict)
+        and (
+            message.get("type") == "tool"
+            or message.get("role") == "tool"
+            or (message.get("name") and message.get("tool_call_id"))
+        )
+    )
+
+
+def approved_tool_error(
+    interrupt: Interrupt,
+    before_messages: list,
+    after_messages: list,
+    tool_results: list | None = None,
+) -> str | None:
+    """Return a safe failure reason unless every approved tool reported success."""
+    value = interrupt.value if isinstance(interrupt.value, dict) else {}
+    expected_names = [request.get("name") for request in value.get("action_requests") or []]
+    before_ids = {
+        tool_call_id
+        for message in before_messages
+        if _is_tool_message(message)
+        for _name, tool_call_id, _status, _content in [_tool_message_fields(message)]
+        if tool_call_id
+    }
+    results = []
+    for message in [*after_messages, *(tool_results or [])]:
+        if not _is_tool_message(message):
+            continue
+        name, tool_call_id, status, content = _tool_message_fields(message)
+        if name in expected_names and tool_call_id not in before_ids:
+            results.append((status, content))
+    failures = [content for status, content in results if status == "error"]
+    if failures:
+        return failures[0][:500]
+    if len(results) < len(expected_names):
+        return "The approved tool did not produce a verifiable execution result."
+    return None
