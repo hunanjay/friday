@@ -7121,3 +7121,106 @@
   white-space: pre-wrap;
   line-height: 1.5;
 }
+
+/* Settings > Agent Team debug view */
+.team-agent-card {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.team-agent-card:last-child {
+  margin-bottom: 0;
+}
+
+.team-agent-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.team-agent-header:hover {
+  background-color: var(--bg-card-hover);
+}
+
+.team-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.team-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.team-agent-name {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.team-agent-body {
+  padding: 0 14px 14px 36px;
+}
+
+.team-agent-subhead {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 12px 0 6px;
+}
+
+.team-agent-subhead:first-child {
+  margin-top: 0;
+}
+
+.team-prompt-pre {
+  margin: 0;
+  padding: 10px 12px;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.team-tool-item {
+  padding: 8px 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.team-tool-item:first-of-type {
+  border-top: none;
+}
+
+.team-tool-name {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.team-tool-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}

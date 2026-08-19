@@ -1,9 +1,11 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus } from '../components/common/Icons';
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight } from '../components/common/Icons';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -47,7 +49,40 @@ export default function SettingsPage() {
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const addRepoRef = useRef(null);
+  const [teamInfo, setTeamInfo] = useState(null);
+  const [isLoadingTeam, setIsLoadingTeam] = useState(false);
+  const [teamError, setTeamError] = useState(false);
+  const [showSupervisorPrompt, setShowSupervisorPrompt] = useState(false);
+  const [expandedAgents, setExpandedAgents] = useState(new Set());
   const selectedCommit = location.state?.commit;
+
+  const loadTeamInfo = useCallback(() => {
+    if (!authToken) return;
+    setIsLoadingTeam(true);
+    setTeamError(false);
+    fetch(`${API_URL}/api/agent/team_info`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`team_info failed: ${res.status}`);
+        return res.json();
+      })
+      .then(setTeamInfo)
+      .catch(() => setTeamError(true))
+      .finally(() => setIsLoadingTeam(false));
+  }, [authToken]);
+
+  const toggleAgentExpanded = (name) => {
+    setExpandedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  };
 
   // Close the "Add repo" dropdown on an outside click.
   useEffect(() => {
@@ -186,6 +221,7 @@ export default function SettingsPage() {
           <a href="#assistant">{isZh ? '助手' : 'Assistant'}</a>
           <a href="#github">GitHub</a>
           <a href="#mail">{isZh ? '邮箱账号' : 'Mail Accounts'}</a>
+          <a href="#team">{isZh ? '智能体团队' : 'Agent Team'}</a>
         </nav>
 
         <div className="settings-panes">
@@ -541,6 +577,102 @@ export default function SettingsPage() {
                   {isZh ? '+ 绑定邮箱' : '+ Bind Mail'}
                 </button>
               </div>
+            </div>
+          </section>
+
+          <section className="settings-pane" id="team">
+            <div className="settings-pane-head">
+              <h2>{isZh ? '智能体团队' : 'Agent Team'}</h2>
+              {teamInfo && (
+                <span className="settings-pane-count">
+                  {teamInfo.agents.length} {isZh ? '个 agent' : 'agents'}
+                </span>
+              )}
+            </div>
+            <p className="settings-callout">
+              {isZh
+                ? '调试用：查看 supervisor 和每个 agent 当前实际发给模型的 system prompt，以及各自可用的工具及其描述。'
+                : "Debug view: the supervisor's and each agent's actual system prompt sent to the model, plus their available tools and descriptions."}
+            </p>
+            <div className="settings-panel">
+              {!teamInfo && !isLoadingTeam && !teamError && (
+                <div className="settings-pane-foot" style={{ borderTop: 'none' }}>
+                  <span>{isZh ? '尚未加载' : 'Not loaded yet'}</span>
+                  <button type="button" className="settings-btn btn-primary" onClick={loadTeamInfo} style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                    {isZh ? '加载' : 'Load'}
+                  </button>
+                </div>
+              )}
+              {isLoadingTeam && (
+                <div className="settings-row"><span className="settings-field-hint">{isZh ? '加载中...' : 'Loading...'}</span></div>
+              )}
+              {teamError && !isLoadingTeam && (
+                <div className="settings-pane-foot" style={{ borderTop: 'none' }}>
+                  <span className="settings-field-hint">{isZh ? '加载失败' : 'Failed to load'}</span>
+                  <button type="button" className="settings-btn" onClick={loadTeamInfo} style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                    {isZh ? '重试' : 'Retry'}
+                  </button>
+                </div>
+              )}
+              {teamInfo && (
+                <>
+                  <div className="team-agent-card">
+                    <button
+                      type="button"
+                      className="team-agent-header"
+                      onClick={() => setShowSupervisorPrompt(v => !v)}
+                    >
+                      <ChevronRight size={14} className={`team-chevron ${showSupervisorPrompt ? 'expanded' : ''}`} />
+                      <span className="team-agent-name">supervisor</span>
+                      <span className="settings-field-hint">{teamInfo.model}</span>
+                    </button>
+                    {showSupervisorPrompt && (
+                      <pre className="team-prompt-pre">{teamInfo.supervisor.system_prompt}</pre>
+                    )}
+                  </div>
+
+                  {teamInfo.agents.map(agent => {
+                    const isExpanded = expandedAgents.has(agent.name);
+                    return (
+                      <div key={agent.name} className="team-agent-card">
+                        <button
+                          type="button"
+                          className="team-agent-header"
+                          onClick={() => toggleAgentExpanded(agent.name)}
+                        >
+                          <ChevronRight size={14} className={`team-chevron ${isExpanded ? 'expanded' : ''}`} />
+                          <span className="team-agent-name">{agent.name}</span>
+                          <span className="settings-field-hint">
+                            {agent.tools.length} {isZh ? '个工具' : 'tools'}
+                          </span>
+                        </button>
+                        {isExpanded && (
+                          <div className="team-agent-body">
+                            <div className="team-agent-subhead">{isZh ? '路由提示' : 'Routing hint'}</div>
+                            <p className="settings-field-hint">{agent.routing_hint}</p>
+                            <div className="team-agent-subhead">System prompt</div>
+                            <pre className="team-prompt-pre">{agent.system_prompt}</pre>
+                            <div className="team-agent-subhead">{isZh ? '工具' : 'Tools'}</div>
+                            {agent.tools.map(tool => (
+                              <div key={tool.name} className="team-tool-item">
+                                <div className="team-tool-name">{tool.name}</div>
+                                <div className="team-tool-desc">{tool.description}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div className="settings-pane-foot">
+                    <span>{isZh ? '数据不会自动刷新' : 'Not auto-refreshed'}</span>
+                    <button type="button" className="settings-btn" onClick={loadTeamInfo} style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                      {isZh ? '刷新' : 'Refresh'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
