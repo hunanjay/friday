@@ -388,7 +388,6 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 "entry_agent": routed_agent,
             }
         }
-        assistant_chunks: list[str] = []
         graph = build_supervisor(user_id, session_id, assistant_name)
         user_message = {"role": "user", "content": routed_message}
         if route.source == "slash_command":
