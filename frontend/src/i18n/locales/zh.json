@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "Dora",
+    "appName": "Friday",
     "themeLight": "浅色模式",
     "themeDark": "深色模式",
     "signOut": "安全退出",
@@ -20,10 +20,10 @@
   },
   "login": {
     "title": "欢迎来到你的专属助手空间",
-    "subtitle": "使用微软账号登录，与 Dora 开始今天的协同工作。",
-    "tagline": "Dora 个人智能管家",
-    "heroTitle": "把繁杂交给 Dora，把从容还给自己。",
-    "heroSub": "无论是梳理复杂邮件、规划全天日程，还是归纳知识笔记，Dora 始终在你需要时提供沉静、精准的上下文支持。",
+    "subtitle": "使用微软账号登录，与 Friday 开始今天的协同工作。",
+    "tagline": "Friday 个人智能管家",
+    "heroTitle": "把繁杂交给 Friday，把从容还给自己。",
+    "heroSub": "无论是梳理复杂邮件、规划全天日程，还是归纳知识笔记，Friday 始终在你需要时提供沉静、精准的上下文支持。",
     "storyNote": "邮件 · 日历 · 知识库 · 工作日报 — 统一归纳于你的私人工作空间",
     "button": "使用微软账号一键登录",
     "buttonLoading": "正在前往微软登录...",
@@ -55,13 +55,13 @@
     "selectEmail": "选择一封邮件以查看其内容。",
     "sentSuccess": "邮件发送成功！",
     "movedToTrash": "已移至废纸篓",
-    "doraTitle": "Dora AI 助手",
-    "doraReplyTab": "草拟回复",
-    "intentPlaceholder": "告诉 Dora 你想表达什么，例如：婉拒邀请但表达感谢，希望下次参加",
+    "assistantTitle": "{{name}} AI 助手",
+    "assistantReplyTab": "草拟回复",
+    "intentPlaceholder": "告诉 {{name}} 你想表达什么，例如：婉拒邀请但表达感谢，希望下次参加",
     "generateReply": "生成回复",
-    "doraCopyDraft": "应用为草稿",
-    "doraDrafted": "Dora 已生成回复草稿",
-    "doraWait": "Dora 正在思考中..."
+    "assistantCopyDraft": "应用为草稿",
+    "assistantDrafted": "{{name}} 已生成回复草稿",
+    "assistantWait": "{{name}} 正在思考中..."
   },
   "calendar": {
     "prevMonth": "上个月",
@@ -91,7 +91,7 @@
     "sidebarTitle": "聊天列表",
     "startConversation": "会话开始。打个招呼吧！",
     "active": "在线",
-    "inputPlaceholderAI": "向 Dora 提问...（例如关于邮件、日历或便签）",
+    "inputPlaceholderAI": "向 {{name}} 提问...（例如关于邮件、日历或便签）",
     "sendMessage": "发送消息",
     "sendHint": "Enter 换行 · Ctrl/⌘ + Enter 发送",
     "attachmentsSimulated": "附件功能已模拟。您可以直接在聊天中输入文字！",
@@ -99,11 +99,11 @@
     "newSessionTitle": "新对话",
     "deleteSession": "删除对话",
     "noPreview": "暂无消息",
-    "aiAssistantDesc": "AI 助手",
+    "aiAssistantDesc": "{{name}} · AI 助手",
     "agentMenuHint": "可用 Agent 命令（按 Enter 或 Tab 选择）",
     "mentionContactHint": "联系人快捷提及 (@)",
     "loading": "正在加载对话...",
-    "approvalRequired": "此操作需要您的确认，Dora 无法自行执行。",
+    "approvalRequired": "此操作需要您的确认，{{name}} 无法自行执行。",
     "reviewEmail": "发送前检查邮件",
     "reviewDelete": "检查邮件删除操作",
     "sender": "发件人",
@@ -130,6 +130,7 @@
     "emailDeleted": "您确认后，邮件已移至“已删除”。",
     "agents": {
       "mail_agent": { "label": "邮件", "desc": "查找、阅读、发送邮件" },
+      "contact_agent": { "label": "联系人", "desc": "查找、添加联系人" },
       "calendar_agent": { "label": "日历", "desc": "安排和管理日程" },
       "memos_agent": { "label": "便签", "desc": "保存和查找笔记" },
       "github_agent": { "label": "日报", "desc": "根据 GitHub 提交生成日报" }

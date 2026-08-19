@@ -1,35 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail } from '../components/common/Icons';
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight } from '../components/common/Icons';
 
-function RepoSection({ label, repos, checked, onToggle }) {
-  if (repos.length === 0) return null;
-  return (
-    <div className="settings-repo-section">
-      <h3 className="settings-repo-section-title">{label}</h3>
-      <div className="settings-repo-grid">
-        {repos.map(r => {
-          const isChecked = checked.has(r.full_name);
-          return (
-            <label key={r.full_name} className={`settings-repo-chip ${isChecked ? 'is-selected' : ''}`}>
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={() => onToggle(r.full_name)}
-                className="visually-hidden"
-              />
-              <span className="settings-repo-checkbox" aria-hidden="true" />
-              <span className="settings-repo-name" title={r.full_name}>{r.full_name}</span>
-            </label>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -49,6 +25,11 @@ export default function SettingsPage() {
     handleUnbindMailAccount,
     handleVerifyMailAccount,
     handleRefreshMailAccounts,
+    assistantName,
+    handleUpdateAssistantName,
+    avatarUrl,
+    avatarPresets,
+    handleUpdateAvatar,
     showToast,
   } = useWorkspace();
 
@@ -63,7 +44,61 @@ export default function SettingsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showBindMail, setShowBindMail] = useState(false);
   const [verifyingMailId, setVerifyingMailId] = useState(null);
+  const [assistantNameDraft, setAssistantNameDraft] = useState(assistantName);
+  const [isSavingAssistantName, setIsSavingAssistantName] = useState(false);
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const [showAddRepo, setShowAddRepo] = useState(false);
+  const addRepoRef = useRef(null);
+  const [teamInfo, setTeamInfo] = useState(null);
+  const [isLoadingTeam, setIsLoadingTeam] = useState(false);
+  const [teamError, setTeamError] = useState(false);
+  const [showSupervisorPrompt, setShowSupervisorPrompt] = useState(false);
+  const [expandedAgents, setExpandedAgents] = useState(new Set());
   const selectedCommit = location.state?.commit;
+
+  const loadTeamInfo = useCallback(() => {
+    if (!authToken) return;
+    setIsLoadingTeam(true);
+    setTeamError(false);
+    fetch(`${API_URL}/api/agent/team_info`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`team_info failed: ${res.status}`);
+        return res.json();
+      })
+      .then(setTeamInfo)
+      .catch(() => setTeamError(true))
+      .finally(() => setIsLoadingTeam(false));
+  }, [authToken]);
+
+  const toggleAgentExpanded = (name) => {
+    setExpandedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  };
+
+  // Close the "Add repo" dropdown on an outside click.
+  useEffect(() => {
+    if (!showAddRepo) return;
+    const onClickOutside = (e) => {
+      if (addRepoRef.current && !addRepoRef.current.contains(e.target)) {
+        setShowAddRepo(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [showAddRepo]);
+
+  useEffect(() => {
+    setAssistantNameDraft(assistantName);
+  }, [assistantName]);
 
   // Sync selection state from context when ready
   useEffect(() => {
@@ -96,6 +131,40 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveAssistantName = async () => {
+    const name = assistantNameDraft.trim();
+    if (!name || name === assistantName) return;
+    setIsSavingAssistantName(true);
+    try {
+      await handleUpdateAssistantName(name);
+      showToast(isZh ? '助手名称已更新' : 'Assistant name updated');
+    } catch {
+      showToast(isZh ? '更新失败' : 'Failed to update assistant name');
+    } finally {
+      setIsSavingAssistantName(false);
+    }
+  };
+
+  const handleSelectAvatar = async (url) => {
+    if (isSavingAvatar) return;
+    // Still confirm on click even when this is already the active avatar -
+    // a silent no-op is indistinguishable from a broken button, especially
+    // with only one preset where every click is "already selected".
+    if (url === avatarUrl) {
+      showToast(isZh ? '这已经是当前头像' : 'This is already your current avatar');
+      return;
+    }
+    setIsSavingAvatar(true);
+    try {
+      await handleUpdateAvatar(url);
+      showToast(isZh ? '头像已更新' : 'Avatar updated');
+    } catch {
+      showToast(isZh ? '更新失败' : 'Failed to update avatar');
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (confirm(i18n.language === 'zh' ? '确定要断开与 GitHub 的连接吗？' : 'Are you sure you want to disconnect from GitHub?')) {
       setIsDisconnecting(true);
@@ -110,32 +179,18 @@ export default function SettingsPage() {
     }
   };
 
-  // Filter and group repos
-  const filteredRepos = useMemo(() => {
+  const selectedRepos = useMemo(
+    () => (githubRepos?.available || []).filter(r => checked.has(r.full_name)),
+    [githubRepos?.available, checked]
+  );
+
+  // Repos still available to add, filtered by the dropdown's search box.
+  const addableRepos = useMemo(() => {
     if (!githubRepos?.available) return [];
     return githubRepos.available.filter(r =>
-      r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
+      !checked.has(r.full_name) && r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [githubRepos?.available, searchQuery]);
-
-  const privateRepos = useMemo(() => filteredRepos.filter(r => r.private), [filteredRepos]);
-  const publicRepos = useMemo(() => filteredRepos.filter(r => !r.private), [filteredRepos]);
-
-  const handleSelectAllFiltered = () => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      filteredRepos.forEach(r => next.add(r.full_name));
-      return next;
-    });
-  };
-
-  const handleClearAllFiltered = () => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      filteredRepos.forEach(r => next.delete(r.full_name));
-      return next;
-    });
-  };
+  }, [githubRepos?.available, checked, searchQuery]);
 
   const isZh = i18n.language === 'zh';
   const closeCommitDetails = () => navigate('/settings', { replace: true, state: null });
@@ -163,8 +218,10 @@ export default function SettingsPage() {
         <nav className="settings-section-nav">
           <a className="current" href="#profile">{isZh ? '账号' : 'Account'}</a>
           <a href="#general">{isZh ? '常规' : 'General'}</a>
+          <a href="#assistant">{isZh ? '助手' : 'Assistant'}</a>
           <a href="#github">GitHub</a>
           <a href="#mail">{isZh ? '邮箱账号' : 'Mail Accounts'}</a>
+          <a href="#team">{isZh ? '智能体团队' : 'Agent Team'}</a>
         </nav>
 
         <div className="settings-panes">
@@ -214,6 +271,69 @@ export default function SettingsPage() {
                 <div className="settings-segmented">
                   <button className={i18n.language === 'zh' ? 'on' : ''} onClick={() => changeLanguage('zh')}>中文</button>
                   <button className={i18n.language === 'en' ? 'on' : ''} onClick={() => changeLanguage('en')}>EN</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="settings-pane" id="assistant">
+            <div className="settings-pane-head"><h2>{isZh ? '助手' : 'Assistant'}</h2></div>
+            <div className="settings-panel">
+              <div className="settings-field-row">
+                <div>
+                  <div className="settings-field-label">{isZh ? '助手名称' : 'Assistant Name'}</div>
+                  <div className="settings-field-hint">{isZh ? '自定义 AI 助手在聊天和邮件中显示的名字。' : 'Customize the name your AI assistant uses in chat and email.'}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    className="settings-text-input"
+                    value={assistantNameDraft}
+                    maxLength={40}
+                    onChange={(e) => setAssistantNameDraft(e.target.value)}
+                    placeholder="Friday"
+                  />
+                  <button
+                    type="button"
+                    className="settings-btn"
+                    disabled={isSavingAssistantName || !assistantNameDraft.trim() || assistantNameDraft.trim() === assistantName}
+                    onClick={handleSaveAssistantName}
+                  >
+                    {isSavingAssistantName ? (isZh ? '保存中...' : 'Saving...') : (isZh ? '保存' : 'Save')}
+                  </button>
+                </div>
+              </div>
+              <div className="settings-field-row">
+                <div>
+                  <div className="settings-field-label">{isZh ? '助手头像' : 'Assistant Avatar'}</div>
+                  <div className="settings-field-hint">{isZh ? '选择聊天和邮件中显示的头像。' : 'Choose the avatar shown in chat and email.'}</div>
+                </div>
+                <div>
+                  <div className="avatar-preset-grid">
+                    {avatarPresets.map((preset) => {
+                      const isSelected = avatarUrl === preset.url;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`avatar-preset-tile ${isSelected ? 'selected' : ''}`}
+                          disabled={isSavingAvatar}
+                          onClick={() => handleSelectAvatar(preset.url)}
+                          title={isSelected ? (isZh ? `${preset.id}（当前）` : `${preset.id} (current)`) : preset.id}
+                        >
+                          <img src={preset.url} alt={preset.id} />
+                          {isSelected && (
+                            <span className="avatar-preset-tile-check" aria-hidden="true">
+                              <CheckCircle size={16} />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    {avatarPresets.length === 0 && (
+                      <p className="settings-field-hint">{isZh ? '暂无可选头像' : 'No presets available'}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -277,53 +397,86 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  <div className="repo-filter-controls">
-                    <div className="settings-search-wrapper">
-                      <Search size={16} className="settings-search-icon" />
-                      <input
-                        type="text"
-                        placeholder={isZh ? "搜索仓库..." : "Search repositories..."}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="settings-search-input"
-                      />
-                      {searchQuery && (
-                        <button type="button" className="settings-search-clear" onClick={() => setSearchQuery('')}>
-                          <X size={16} />
-                        </button>
-                      )}
+                  {githubRepos?.available?.length === 0 ? (
+                    <div className="repos-empty-state">
+                      <Github size={32} />
+                      <p>{isZh ? '在您的 GitHub 账户中未找到任何仓库。' : 'No repositories found in your GitHub account.'}</p>
                     </div>
+                  ) : (
+                    <>
+                      <div className="settings-repo-grid">
+                        {selectedRepos.map(r => (
+                          <div key={r.full_name} className="settings-repo-chip is-selected">
+                            <span className="settings-repo-name" title={r.full_name}>{r.full_name}</span>
+                            <button
+                              type="button"
+                              className="repo-remove-btn"
+                              onClick={() => toggleRepo(r.full_name)}
+                              aria-label={isZh ? '移除仓库' : 'Remove repository'}
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedRepos.length === 0 && (
+                        <p className="settings-field-hint">{isZh ? '还没有选择仓库。' : 'No repositories selected yet.'}</p>
+                      )}
 
-                    {filteredRepos.length > 0 && (
-                      <div className="repo-selection-helpers">
-                        <button type="button" onClick={handleSelectAllFiltered} className="helper-link-btn">
-                          {isZh ? '全选匹配' : 'Select all matching'}
+                      <div className="repo-add-wrapper" ref={addRepoRef}>
+                        <button
+                          type="button"
+                          className="settings-btn"
+                          onClick={() => setShowAddRepo(v => !v)}
+                        >
+                          <Plus size={14} style={{ marginRight: 4, verticalAlign: -2 }} />
+                          {isZh ? '添加仓库' : 'Add repo'}
                         </button>
-                        <span className="helper-separator">•</span>
-                        <button type="button" onClick={handleClearAllFiltered} className="helper-link-btn">
-                          {isZh ? '全部取消匹配' : 'Clear all matching'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="settings-repos-scrollable">
-                    {githubRepos?.available?.length === 0 ? (
-                      <div className="repos-empty-state">
-                        <Github size={32} />
-                        <p>{isZh ? '在您的 GitHub 账户中未找到任何仓库。' : 'No repositories found in your GitHub account.'}</p>
+                        {showAddRepo && (
+                          <div className="repo-add-dropdown">
+                            <div className="settings-search-wrapper">
+                              <Search size={16} className="settings-search-icon" />
+                              <input
+                                type="text"
+                                placeholder={isZh ? "搜索仓库..." : "Search repositories..."}
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="settings-search-input"
+                                autoFocus
+                              />
+                              {searchQuery && (
+                                <button type="button" className="settings-search-clear" onClick={() => setSearchQuery('')}>
+                                  <X size={16} />
+                                </button>
+                              )}
+                            </div>
+                            <div className="repo-add-dropdown-list">
+                              {addableRepos.length === 0 ? (
+                                <p className="settings-field-hint">
+                                  {searchQuery
+                                    ? (isZh ? '没有符合搜索条件的仓库。' : 'No repositories match your search.')
+                                    : (isZh ? '所有仓库都已添加。' : 'All repositories are already added.')}
+                                </p>
+                              ) : (
+                                addableRepos.map(r => (
+                                  <button
+                                    type="button"
+                                    key={r.full_name}
+                                    className="repo-add-option"
+                                    onClick={() => toggleRepo(r.full_name)}
+                                  >
+                                    <span className="settings-repo-name" title={r.full_name}>{r.full_name}</span>
+                                    <Plus size={14} />
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ) : filteredRepos.length === 0 ? (
-                      <div className="repos-empty-state">
-                        <p>{isZh ? '没有符合搜索条件的仓库。' : 'No repositories match your search.'}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <RepoSection label={isZh ? "私有仓库" : "Private Repositories"} repos={privateRepos} checked={checked} onToggle={toggleRepo} />
-                        <RepoSection label={isZh ? "公开仓库" : "Public Repositories"} repos={publicRepos} checked={checked} onToggle={toggleRepo} />
-                      </>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -424,6 +577,102 @@ export default function SettingsPage() {
                   {isZh ? '+ 绑定邮箱' : '+ Bind Mail'}
                 </button>
               </div>
+            </div>
+          </section>
+
+          <section className="settings-pane" id="team">
+            <div className="settings-pane-head">
+              <h2>{isZh ? '智能体团队' : 'Agent Team'}</h2>
+              {teamInfo && (
+                <span className="settings-pane-count">
+                  {teamInfo.agents.length} {isZh ? '个 agent' : 'agents'}
+                </span>
+              )}
+            </div>
+            <p className="settings-callout">
+              {isZh
+                ? '调试用：查看 supervisor 和每个 agent 当前实际发给模型的 system prompt，以及各自可用的工具及其描述。'
+                : "Debug view: the supervisor's and each agent's actual system prompt sent to the model, plus their available tools and descriptions."}
+            </p>
+            <div className="settings-panel">
+              {!teamInfo && !isLoadingTeam && !teamError && (
+                <div className="settings-pane-foot" style={{ borderTop: 'none' }}>
+                  <span>{isZh ? '尚未加载' : 'Not loaded yet'}</span>
+                  <button type="button" className="settings-btn btn-primary" onClick={loadTeamInfo} style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                    {isZh ? '加载' : 'Load'}
+                  </button>
+                </div>
+              )}
+              {isLoadingTeam && (
+                <div className="settings-row"><span className="settings-field-hint">{isZh ? '加载中...' : 'Loading...'}</span></div>
+              )}
+              {teamError && !isLoadingTeam && (
+                <div className="settings-pane-foot" style={{ borderTop: 'none' }}>
+                  <span className="settings-field-hint">{isZh ? '加载失败' : 'Failed to load'}</span>
+                  <button type="button" className="settings-btn" onClick={loadTeamInfo} style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                    {isZh ? '重试' : 'Retry'}
+                  </button>
+                </div>
+              )}
+              {teamInfo && (
+                <>
+                  <div className="team-agent-card">
+                    <button
+                      type="button"
+                      className="team-agent-header"
+                      onClick={() => setShowSupervisorPrompt(v => !v)}
+                    >
+                      <ChevronRight size={14} className={`team-chevron ${showSupervisorPrompt ? 'expanded' : ''}`} />
+                      <span className="team-agent-name">supervisor</span>
+                      <span className="settings-field-hint">{teamInfo.model}</span>
+                    </button>
+                    {showSupervisorPrompt && (
+                      <pre className="team-prompt-pre">{teamInfo.supervisor.system_prompt}</pre>
+                    )}
+                  </div>
+
+                  {teamInfo.agents.map(agent => {
+                    const isExpanded = expandedAgents.has(agent.name);
+                    return (
+                      <div key={agent.name} className="team-agent-card">
+                        <button
+                          type="button"
+                          className="team-agent-header"
+                          onClick={() => toggleAgentExpanded(agent.name)}
+                        >
+                          <ChevronRight size={14} className={`team-chevron ${isExpanded ? 'expanded' : ''}`} />
+                          <span className="team-agent-name">{agent.name}</span>
+                          <span className="settings-field-hint">
+                            {agent.tools.length} {isZh ? '个工具' : 'tools'}
+                          </span>
+                        </button>
+                        {isExpanded && (
+                          <div className="team-agent-body">
+                            <div className="team-agent-subhead">{isZh ? '路由提示' : 'Routing hint'}</div>
+                            <p className="settings-field-hint">{agent.routing_hint}</p>
+                            <div className="team-agent-subhead">System prompt</div>
+                            <pre className="team-prompt-pre">{agent.system_prompt}</pre>
+                            <div className="team-agent-subhead">{isZh ? '工具' : 'Tools'}</div>
+                            {agent.tools.map(tool => (
+                              <div key={tool.name} className="team-tool-item">
+                                <div className="team-tool-name">{tool.name}</div>
+                                <div className="team-tool-desc">{tool.description}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div className="settings-pane-foot">
+                    <span>{isZh ? '数据不会自动刷新' : 'Not auto-refreshed'}</span>
+                    <button type="button" className="settings-btn" onClick={loadTeamInfo} style={{ padding: '6px 14px', fontSize: '0.82rem' }}>
+                      {isZh ? '刷新' : 'Refresh'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 

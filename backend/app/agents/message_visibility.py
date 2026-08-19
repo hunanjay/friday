@@ -54,7 +54,17 @@ def is_duplicate_agent_reply(
 
 
 def is_supervisor_stream_namespace(checkpoint_ns: str) -> bool:
-    """Only expose the top-level supervisor model, not a nested sub-agent."""
+    """Only stream the top-level supervisor model, not a nested sub-agent.
+
+    langgraph_supervisor wires every agent node back to the supervisor
+    unconditionally, so even a directly routed turn (routing.py's slash /
+    email / calendar / memo bypass) ends with a supervisor relay.  That relay
+    is the message that gets persisted as the answer, so it is also the only
+    one worth streaming.
+
+    This is a typing-effect filter, not the source of truth: what finally
+    renders is always final_reply_text below.
+    """
     parts = checkpoint_ns.split("|")
     return (
         len(parts) == 2
@@ -75,8 +85,7 @@ def visible_conversation_parts(messages: list) -> list[tuple[str, str, str | Non
     LangGraph Supervisor persists both a domain agent's answer and its own
     final relay.  If a turn contains a named supervisor reply, that is the
     authoritative UI answer; the nested agent reply is execution trace.  A
-    directly routed turn has no supervisor reply, so its domain-agent answer
-    remains visible.
+    turn that never reached the supervisor keeps its domain-agent answer.
     """
     results: list[tuple[str, str, str | None]] = []
     pending_ai: list[tuple[tuple[str, str, str | None], str | None]] = []
@@ -116,3 +125,17 @@ def visible_conversation_parts(messages: list) -> list[tuple[str, str, str | Non
             pending_ai.append((parts, _message_name(message)))
     flush_ai()
     return results
+
+
+def final_reply_text(messages: list) -> str:
+    """The one authoritative assistant reply for the latest turn.
+
+    Both the live SSE stream and GET /sessions/{id}/messages render from this
+    same projection, so what the user watches stream in and what they see after
+    a refresh are the same text by construction.  Streamed chunks are only a
+    typing effect and are replaced by this value when the turn ends.
+    """
+    visible = visible_conversation_parts(messages)
+    if visible and visible[-1][0] == "ai":
+        return visible[-1][1]
+    return ""

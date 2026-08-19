@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X } from '../components/common/Icons';
+import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 import ApprovalCard from '../components/common/ApprovalCard';
 import {
@@ -15,7 +15,7 @@ import { parseAgentCommand, parseAgentPrefix } from '../utils/agentCommand';
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Mirrors the sub-agent names in backend/app/agents/supervisor.py.
-const AGENT_ICONS = { mail_agent: Mail, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
+const AGENT_ICONS = { mail_agent: Mail, contact_agent: UserPlus, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
 const AGENT_IDS = Object.keys(AGENT_ICONS);
 const isActionResolved = status => Boolean(status && status !== 'pending');
 
@@ -27,7 +27,9 @@ export default function ChatPage() {
     handleUpdateSessionPreview,
     handleDeleteSession,
     handleLogout,
-    authToken
+    authToken,
+    assistantName,
+    avatarUrl
   } = useWorkspace();
   const navigate = useNavigate();
 
@@ -88,7 +90,7 @@ export default function ChatPage() {
     const q = mentionQuery;
     setIsLoadingContacts(true);
     const timer = setTimeout(() => {
-      fetch(`${API_URL}/api/graph/contacts?query=${encodeURIComponent(q)}`, {
+      fetch(`${API_URL}/api/contacts?query=${encodeURIComponent(q)}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       })
         .then((res) => (res.ok ? res.json() : []))
@@ -323,7 +325,7 @@ export default function ChatPage() {
       id: botMsgId,
       threadId: sessionId,
       sender: 'bot',
-      senderName: 'Dora',
+      senderName: assistantName,
       text: '',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -404,6 +406,13 @@ export default function ChatPage() {
                 } else if (data.chunk) {
                   botText += data.chunk;
                   setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
+                } else if (data.final_message) {
+                  // Streamed chunks are only a typing effect. The backend sends
+                  // the authoritative reply from the same projection the history
+                  // endpoint replays, so replace rather than append - otherwise a
+                  // refresh would show different text than the live view did.
+                  botText = data.final_message;
+                  setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
                 } else if (data.title) {
                   handleUpdateSessionTitle(sessionId, data.title);
                 } else if (data.preview) {
@@ -437,6 +446,9 @@ export default function ChatPage() {
             const data = JSON.parse(dataStr);
             if (data.chunk) {
               botText += data.chunk;
+              setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
+            } else if (data.final_message) {
+              botText = data.final_message;
               setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
             } else if (data.title) {
               handleUpdateSessionTitle(sessionId, data.title);
@@ -535,6 +547,7 @@ export default function ChatPage() {
         onDecision={(decision) => handleActionDecision(action, decision)}
         onCancel={() => handleActionDecision(action, 'reject')}
         onConfirm={() => handleActionDecision(action, 'approve')}
+        assistantName={assistantName}
       />
     );
   };
@@ -586,7 +599,7 @@ export default function ChatPage() {
               >
                 <div className="thread-avatar-container">
                   <div className="claude-avatar">
-                    <img src="/dora_assistant_avatar.png" alt="Dora" />
+                    <img src={avatarUrl || '/dora_assistant_avatar.png'} alt={assistantName} />
                   </div>
                 </div>
                 <div className="thread-meta">
@@ -627,7 +640,7 @@ export default function ChatPage() {
               </button>
               <div className="chat-header-info">
                 <h3 className="active-thread-name">{activeThread.title}</h3>
-                <span className="active-thread-desc">{t('chat.aiAssistantDesc')}</span>
+                <span className="active-thread-desc">{t('chat.aiAssistantDesc', { name: assistantName })}</span>
               </div>
               <div className="chat-header-actions">
                 <span className="thread-status-badge">{t('chat.active')}</span>
@@ -654,7 +667,7 @@ export default function ChatPage() {
                     <div className={`message-row ${isUser ? 'user-row' : 'other-row'}`}>
                       {!isUser && (
                         <div className="message-avatar">
-                          {isBot ? <img src="/dora_assistant_avatar.png" alt="Dora" /> : msg.senderName[0]}
+                          {isBot ? <img src={avatarUrl || '/dora_assistant_avatar.png'} alt={assistantName} /> : msg.senderName[0]}
                         </div>
                       )}
                       <div className="message-bubble-wrapper">
@@ -818,7 +831,7 @@ export default function ChatPage() {
                   value={inputText}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
-                  placeholder={t('chat.inputPlaceholderAI')}
+                  placeholder={t('chat.inputPlaceholderAI', { name: assistantName })}
                   rows="1"
                 />
                 <button

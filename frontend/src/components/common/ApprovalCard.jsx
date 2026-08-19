@@ -19,6 +19,7 @@ export default function ApprovalCard({
   cancelText,
   customActions,
   className = '',
+  assistantName = 'Friday',
 }) {
   const { t } = useTranslation();
 
@@ -33,7 +34,7 @@ export default function ApprovalCard({
     : t('chat.reviewAction'));
   const defaultSubtitle = subtitle || (presentation.subtitle_key
     ? t(presentation.subtitle_key)
-    : t('chat.approvalRequired'));
+    : t('chat.approvalRequired', { name: assistantName }));
   const terminalStatusKeys = {
     cancelled: 'chat.approvalStatusCancelled',
     expired: 'chat.approvalStatusExpired',

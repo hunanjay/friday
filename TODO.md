@@ -45,17 +45,37 @@
 
 ---
 
+### 🔔 3. Contact Reminder 主动提醒/触达机制 (Proactive Contact Reminders)
+> **目标**：让关系大脑从“被动问答”升级为主动发现关系维护机会，并生成可确认、可追踪、可延后或忽略的提醒。
+
+#### A. 显式时间型提醒 (Rule-triggered Time Facts)
+- [ ] **抽取时同步判断未来时间点**：在 AI 提取联系人记忆事实时，二次判断该事实是否包含未来时间点、是否值得设提醒，而不是事后全量扫描。
+- [ ] **未来事件 reminder 入库**：例如“孩子 9 月要上小学”生成 9 月初关心提醒，“下周三要交方案”生成跟进提醒。
+- [ ] **生日/纪念日提醒**：如果联系人资料或记忆事实中包含生日、纪念日等字段，自动在日前几天生成提醒。
+- [ ] **Reminder 数据模型**：新增 `contact_reminders` 表，记录 `type`, `due_at`, `source_profile_id`, `reason`, `suggested_action`, `status`, `dedupe_key` 等字段，避免重复生成。
+
+#### B. 关系衰减型提醒 (Scheduled Reconnect Scan)
+- [ ] **每日后台 Job**：新增定时任务扫描联系人最近互动记录，生成 `type=reconnect` 的关系维护提醒。
+- [ ] **动态衰减阈值**：阈值基于联系人历史互动频率估算，而不是固定 30 天；例如平时两周聊一次的人，20 天未联系即可提醒，半年聊一次的人不应过早提醒。
+- [ ] **AI 触达建议**：基于最近一次互动内容、标签和记忆事实生成 `suggested_action`，给出自然的话题切入点。
+
+#### C. 外部事件型提醒 (External Signals)
+- [ ] **暂缓实现**：联系人换工作、升职、邮件签名变化、LinkedIn 信号等属于外部事件提醒，目前信号源只有 Outlook 同步，先记录方向，等数据源扩展后再做。
+- [ ] **预留类型与入口**：Reminder 模型中预留 `external_event` 类型，未来可接入 LinkedIn、邮件签名变化检测或第三方信号源。
+
+---
+
 ## 🚀 中远期规划 (Future Roadmap)
 
-### 📅 3. 主动式 Agent 任务与定时简报 (Proactive Briefings)
+### 📅 4. 主动式 Agent 任务与定时简报 (Proactive Briefings)
 - [ ] **每日晨报 (Morning Briefing)**：每天定时扫描当天 Outlook 日程、紧急邮件与待办 Memos，生成焦点摘要。
 - [ ] **每日夕报 (Evening Briefing)**：结合 `github_agent` 自动拉取当日 Commit / PR 记录，生成工作日报 Draft。
 
-### 🔍 4. 全域知识库统一 RAG 检索 (Universal Cross-Module RAG)
+### 🔍 5. 全域知识库统一 RAG 检索 (Universal Cross-Module RAG)
 - [ ] **多源向量索引**：将历史 Emails、Calendar 日程、GitHub Commits 统一注入 Qdrant，支持跨模块语义检索（如“查找上周关于数据库重构的邮件与会议”）。
 
-### 👁️ 5. 可视化 Action 草稿与 Diff 模式 (Rich Action Draft & Diff)
+### 👁️ 6. 可视化 Action 草稿与 Diff 模式 (Rich Action Draft & Diff)
 - [ ] **变更对比预览**：在 Agent 修改 Memo、拟定长邮件或调整日程时，在聊天界面展示前后对比 Diff 卡片，支持用户划词编辑后批准执行。
 
-### 🔬 6. 深度研究 Agent (Deep Research Worker)
+### 🔬 7. 深度研究 Agent (Deep Research Worker)
 - [ ] **长流程自主研究**：输入课题后由 Agent 自动在后台联网检索、总结抓取并生成结构化 Markdown 调研报告存入 Memos。

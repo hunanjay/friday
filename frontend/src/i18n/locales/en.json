@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "Dora",
+    "appName": "Friday",
     "themeLight": "Light Mode",
     "themeDark": "Dark Mode",
     "signOut": "Sign Out",
@@ -20,10 +20,10 @@
   },
   "login": {
     "title": "Welcome to Your Assistant Space",
-    "subtitle": "Sign in with Microsoft to start collaborating with Dora today.",
-    "tagline": "Dora Personal AI Companion",
-    "heroTitle": "Leave the noise to Dora. Keep the calm for yourself.",
-    "heroSub": "From sifting crowded inboxes to organizing daily schedules and notes, Dora stands by to offer peaceful, accurate context whenever you need.",
+    "subtitle": "Sign in with Microsoft to start collaborating with Friday today.",
+    "tagline": "Friday Personal AI Companion",
+    "heroTitle": "Leave the noise to Friday. Keep the calm for yourself.",
+    "heroSub": "From sifting crowded inboxes to organizing daily schedules and notes, Friday stands by to offer peaceful, accurate context whenever you need.",
     "storyNote": "Email · Calendar · Memos · Worklog — Gathered in your private workspace",
     "button": "Sign in with Microsoft",
     "buttonLoading": "Redirecting to Microsoft...",
@@ -55,13 +55,13 @@
     "selectEmail": "Select an email to view its content.",
     "sentSuccess": "Email sent successfully!",
     "movedToTrash": "Moved to Trash",
-    "doraTitle": "Dora AI Assistant",
-    "doraReplyTab": "Draft Reply",
-    "intentPlaceholder": "Tell Dora what you want to say, e.g. \"Decline the invite but thank them and hope to join next time\"",
+    "assistantTitle": "{{name}} AI Assistant",
+    "assistantReplyTab": "Draft Reply",
+    "intentPlaceholder": "Tell {{name}} what you want to say, e.g. \"Decline the invite but thank them and hope to join next time\"",
     "generateReply": "Generate Reply",
-    "doraCopyDraft": "Use as Reply",
-    "doraDrafted": "Reply drafted by Dora",
-    "doraWait": "Dora is thinking..."
+    "assistantCopyDraft": "Use as Reply",
+    "assistantDrafted": "Reply drafted by {{name}}",
+    "assistantWait": "{{name}} is thinking..."
   },
   "calendar": {
     "prevMonth": "Prev Month",
@@ -91,7 +91,7 @@
     "sidebarTitle": "Chats",
     "startConversation": "Start of conversation. Say hello!",
     "active": "Active Now",
-    "inputPlaceholderAI": "Ask Dora anything... (Try asking about email, calendar, or memos!)",
+    "inputPlaceholderAI": "Ask {{name}} anything... (Try asking about email, calendar, or memos!)",
     "sendMessage": "Send message",
     "sendHint": "Enter for a new line · Ctrl/⌘ + Enter to send",
     "attachmentsSimulated": "Attachments are simulated. You can type in the chat instead!",
@@ -99,11 +99,11 @@
     "newSessionTitle": "New chat",
     "deleteSession": "Delete chat",
     "noPreview": "No messages yet",
-    "aiAssistantDesc": "AI Assistant",
+    "aiAssistantDesc": "{{name}} · AI Assistant",
     "agentMenuHint": "Jump to specified agent",
     "mentionContactHint": "Mention Contact (@)",
     "loading": "Loading conversation...",
-    "approvalRequired": "Your approval is required. Dora cannot perform this action.",
+    "approvalRequired": "Your approval is required. {{name}} cannot perform this action.",
     "reviewEmail": "Review email before sending",
     "reviewDelete": "Review email deletion",
     "sender": "Sender",
@@ -130,6 +130,7 @@
     "emailDeleted": "Email moved to Deleted Items after your confirmation.",
     "agents": {
       "mail_agent": { "label": "Mail", "desc": "Search, read, and send email" },
+      "contact_agent": { "label": "Contacts", "desc": "Find and add contacts" },
       "calendar_agent": { "label": "Calendar", "desc": "Schedule and manage events" },
       "memos_agent": { "label": "Memos", "desc": "Save and search notes" },
       "github_agent": { "label": "Daily Report", "desc": "Generate a report from GitHub commits" }

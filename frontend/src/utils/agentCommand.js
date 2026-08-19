@@ -1,4 +1,4 @@
-const AGENT_IDS = ['mail_agent', 'calendar_agent', 'memos_agent', 'github_agent'];
+const AGENT_IDS = ['mail_agent', 'contact_agent', 'calendar_agent', 'memos_agent', 'github_agent'];
 
 export function parseAgentPrefix(text) {
   const match = text.match(/^\/([\w-]+)(?:\s+|$)/);

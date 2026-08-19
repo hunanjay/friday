@@ -10,11 +10,23 @@ from langgraph.graph import START
 from langgraph_supervisor import create_handoff_tool, create_supervisor
 
 from app.agents.checkpointer import get_checkpointer
-from app.agents.context import RequireMemosToolMiddleware, ScopedContextMiddleware
+from app.agents.context import (
+    RequireContactToolMiddleware,
+    RequireMemosToolMiddleware,
+    ScopedContextMiddleware,
+    verify_agent_claims,
+)
 from app.agents.hitl import make_hitl_middleware
 from app.agents.routing import AGENT_NAMES
-from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
+from app.agents.tools import (
+    make_calendar_tools,
+    make_contact_tools,
+    make_github_tools,
+    make_mail_tools,
+    make_memos_tools,
+)
 from app.core.config import settings
+from app.infrastructure.db.repositories.user_settings import DEFAULT_ASSISTANT_NAME
 
 
 class _ProxyCompatChatOpenAI(ChatOpenAI):
@@ -73,9 +85,13 @@ def _today_str() -> str:
 # api/agent.py comment on the "/agent_name" tag bypass).
 _ROUTING_HINTS = {
     "mail_agent": (
-        "Route here for anything about the user's email/inbox, contacts, or people/relationships: "
-        "looking up who someone is (e.g. '张明是谁', '查一下张明', 'who is Zhang Ming'), finding contact info, "
-        "searching contacts/memory facts, listing/reading emails, sending new emails, marking read/unread, or deleting existing ones."
+        "Route here for anything about the user's email/inbox: listing/reading emails, "
+        "sending new emails, marking read/unread, or deleting existing ones."
+    ),
+    "contact_agent": (
+        "Route here for anything about people/relationships: looking up who someone is "
+        "(e.g. '张明是谁', '查一下张明', 'who is Zhang Ming'), finding contact info, searching "
+        "contacts/memory facts, or explicitly adding/creating a new contact."
     ),
     "calendar_agent": (
         "Route here for anything about scheduling: listing, creating, or deleting "
@@ -125,127 +141,180 @@ def _trim_history(state: dict) -> dict:
     return {"llm_input_messages": trimmed}
 
 
-def build_agent(user_id: str, name: str, session_id: str | None = None):
+def _name_line(assistant_name: str) -> str:
+    # "answer as <name>" reads to some models as "reply with the literal
+    # string <name>", which turned every greeting into a one-word reply.
+    # State the identity, then say explicitly that it is not the answer.
+    return (
+        f"You are {assistant_name}, the user's assistant. Mention your name only "
+        f"when the user asks who you are. Never reply with your name by itself - "
+        f"always respond to what the user actually said. "
+    )
+
+
+def _agent_prompts(assistant_name: str, today: str) -> dict[str, str]:
+    """The full system prompt for each domain agent, keyed by AGENT_NAMES.
+
+    Single source of truth so build_agent (which actually runs the agent) and
+    describe_team (which introspects it for debugging) can never drift apart.
+    """
+    name_line = _name_line(assistant_name)
+    return {
+        "mail_agent": (
+            name_line +
+            "You handle the user's email. "
+            "When the user asks you to send something they already wrote down - their "
+            "日报/daily report, notes, a summary - call search_memos FIRST and build the "
+            "email body from what it returns. Never send a placeholder body such as "
+            "'please find the report attached': you cannot attach anything, so the "
+            "report text itself must be in the body. If search_memos finds nothing, say "
+            "so and ask, instead of inventing content. "
+            "If the user names a recipient by name rather than email address, call "
+            "search_contacts(query) to resolve it before sending; never invent an address. "
+            "For emails: listing, searching, and reading messages, "
+            "show subjects as the provided internal Friday links; in user-visible email lists, "
+            "show the linked subject, sender, preview, and date when available, but never expose "
+            "opaque message IDs. Keep IDs only as internal arguments for read/follow-up tools. "
+            "sending new ones, and marking read/unread or deleting existing ones. "
+            "send_email and delete_email are blocked by official HITL middleware before "
+            "they execute. Call the relevant tool once with final values whenever the user "
+            "explicitly asks to send or delete. The interrupt creates the confirmation card. "
+            "Do not merely draft or ask whether they want to send when the user already "
+            "said send. Do not ask for confirmation in plain text; call the tool and let HITL "
+            "pause it. Never claim completion until the resumed tool result confirms it. "
+            "If a ToolMessage says the user rejected a call or it was not executed, stop: "
+            "do not call that tool or any other mutation tool again in the same turn."
+        ),
+        "contact_agent": (
+            name_line +
+            "You manage the user's Personal Contact Relationship Brain. "
+            "When asked about any person, contact, investor, colleague, or relationship (e.g. '张明是谁', '查一下张明', '谁喜欢喝普洱茶'), "
+            "ALWAYS call search_contacts(query) first to look up their identity, company, job title, tags, and memory facts. "
+            "Never claim you don't know or don't have access to personal information without calling search_contacts first. "
+            "When the user explicitly asks to add/create/save a new contact with structured details "
+            "(name plus company/phone/email/location/job title), call create_contact — never claim a "
+            "contact was added without calling it. When recording a single casual fact about an existing "
+            "contact, use record_contact_fact instead. "
+            "Every contact fact returned by search_contacts carries a 'source:' marker — cite it when you state the fact, "
+            "and never invent a contact fact that the tool did not return."
+        ),
+        "calendar_agent": (
+            name_line +
+            f"Today is {today}. You handle the user's calendar: listing, creating, and "
+            "deleting events, and accepting/declining event invitations. Resolve relative "
+            "dates with tools, never by calculating date ranges yourself. For a request about "
+            "one natural-language day such as 本周三, 周五, tomorrow, or next Wednesday, always "
+            "call list_events_on_day with the user's exact day phrase. Before deleting an event, "
+            "call list_events_on_day first, select exactly one returned event, then call "
+            "delete_event with its event_id, subject, start, end, and location snapshot. If "
+            "multiple events match, ask the user which one before calling delete_event. The "
+            "approval must identify the exact event_id; never re-query or select a different "
+            "event after approval. delete_event is automatically paused by HITL before execution. "
+            "For user-visible calendar lists, show only the linked subject, date/time, and location. "
+            "Never include event IDs, internal_event_id, or other opaque Graph identifiers in your "
+            "final response; keep them only as internal arguments for follow-up tools. "
+            "Do not ask for confirmation in plain text: call the tool and let the official "
+            "HITL interrupt produce the approval card. "
+            "Calendar write tools are blocked before execution; never claim the operation completed until "
+            "the resumed tool result says it completed. If a ToolMessage says the user "
+            "rejected a call or it was not executed, stop and acknowledge cancellation; "
+            "never call that tool or another mutation tool again in the same turn."
+        ),
+        "memos_agent": (
+            name_line +
+            "You manage the user's memos. Tools: list_memos (browse all), "
+            "search_memos(query) (answer a question from memos), create_memo(title, "
+            "content, category) (save something new).\n"
+            "Always call exactly one tool before replying. Never answer from "
+            "assumption. Never claim something is saved without calling create_memo "
+            "first. When the user asks to record/save the current or previous fact, "
+            "call create_memo—not list_memos—and infer a concise title and content "
+            "from the relevant conversation context. Never claim something was found "
+            "without calling search_memos or list_memos first."
+        ),
+        "github_agent": (
+            name_line +
+            f"Today is {today}. You generate the user's daily work report (日报) from "
+            "GitHub commit activity on their project repo. On every turn, call "
+            "list_todays_commits before you reply - do not ask for permission first, "
+            "just call it immediately. Write a concise report (grouped bullet points, "
+            "matching the language the user asked in) based only on the commit messages "
+            "the tool actually returned - never invent commits. Then call create_memo "
+            "with category='work', a title like 'Daily Report - <date>', and the "
+            "synthesized report as content. Confirm to the user once saved. If there "
+            "were no commits today, tell them that instead of saving an empty report."
+        ),
+    }
+
+
+_AGENT_TOOL_FACTORIES = {
+    "mail_agent": lambda user_id, session_id: make_mail_tools(user_id, session_id),
+    "contact_agent": lambda user_id, session_id: make_contact_tools(user_id, session_id),
+    "calendar_agent": lambda user_id, session_id: make_calendar_tools(user_id, session_id),
+    "memos_agent": lambda user_id, _session_id: make_memos_tools(user_id),
+    "github_agent": lambda user_id, _session_id: make_github_tools(user_id),
+}
+
+
+def build_agent(
+    user_id: str,
+    name: str,
+    session_id: str | None = None,
+    assistant_name: str = DEFAULT_ASSISTANT_NAME,
+):
     """Build one domain agent with scoped context and official HITL policy."""
+    if name not in _AGENT_TOOL_FACTORIES:
+        raise ValueError(f"Unknown agent: {name}")
     model = _get_model()
     today = _today_str()
+    tools = _AGENT_TOOL_FACTORIES[name](user_id, session_id)
+    system_prompt = _agent_prompts(assistant_name, today)[name]
 
-    def middleware_for(tools: list) -> list:
-        middleware = [ScopedContextMiddleware(name)]
-        hitl = make_hitl_middleware({item.name for item in tools})
-        if hitl:
-            middleware.append(hitl)
-        return middleware
-
-    if name == "mail_agent":
-        tools = make_mail_tools(user_id, session_id)
-        return create_agent(
-            model,
-            tools=tools,
-            name="mail_agent",
-            middleware=middleware_for(tools),
-            system_prompt=(
-                "You handle the user's email and Personal Contact Relationship Brain. "
-                "When asked about any person, contact, investor, colleague, or relationship (e.g. '张明是谁', '查一下张明', '谁喜欢喝普洱茶'), "
-                "ALWAYS call search_contacts(query) first to look up their identity, company, job title, tags, and memory facts. "
-                "Never claim you don't know or don't have access to personal information without calling search_contacts first. "
-                "When recording a casual memory fact, use record_contact_fact. "
-                "Every contact fact returned by search_contacts carries a 'source:' marker — cite it when you state the fact, "
-                "and never invent a contact fact that the tool did not return. "
-                "For emails: listing, searching, and reading messages, "
-                "show subjects as the provided internal Friday links; in user-visible email lists, "
-                "show the linked subject, sender, preview, and date when available, but never expose "
-                "opaque message IDs. Keep IDs only as internal arguments for read/follow-up tools. "
-                "sending new ones, and marking read/unread or deleting existing ones. "
-                "send_email and delete_email are blocked by official HITL middleware before "
-                "they execute. Call the relevant tool once with final values whenever the user "
-                "explicitly asks to send or delete. The interrupt creates the confirmation card. "
-                "Do not merely draft or ask whether they want to send when the user already "
-                "said send. Do not ask for confirmation in plain text; call the tool and let HITL "
-                "pause it. Never claim completion until the resumed tool result confirms it. "
-                "If a ToolMessage says the user rejected a call or it was not executed, stop: "
-                "do not call that tool or any other mutation tool again in the same turn."
-            ),
-        )
-    if name == "calendar_agent":
-        tools = make_calendar_tools(user_id, session_id)
-        return create_agent(
-            model,
-            tools=tools,
-            name="calendar_agent",
-            middleware=middleware_for(tools),
-            system_prompt=(
-                f"Today is {today}. You handle the user's calendar: listing, creating, and "
-                "deleting events, and accepting/declining event invitations. Resolve relative "
-                "dates with tools, never by calculating date ranges yourself. For a request about "
-                "one natural-language day such as 本周三, 周五, tomorrow, or next Wednesday, always "
-                "call list_events_on_day with the user's exact day phrase. Before deleting an event, "
-                "call list_events_on_day first, select exactly one returned event, then call "
-                "delete_event with its event_id, subject, start, end, and location snapshot. If "
-                "multiple events match, ask the user which one before calling delete_event. The "
-                "approval must identify the exact event_id; never re-query or select a different "
-                "event after approval. delete_event is automatically paused by HITL before execution. "
-                "For user-visible calendar lists, show only the linked subject, date/time, and location. "
-                "Never include event IDs, internal_event_id, or other opaque Graph identifiers in your "
-                "final response; keep them only as internal arguments for follow-up tools. "
-                "Do not ask for confirmation in plain text: call the tool and let the official "
-                "HITL interrupt produce the approval card. "
-                "Calendar write tools are blocked before execution; never claim the operation completed until "
-                "the resumed tool result says it completed. If a ToolMessage says the user "
-                "rejected a call or it was not executed, stop and acknowledge cancellation; "
-                "never call that tool or another mutation tool again in the same turn."
-            ),
-        )
+    middleware = [ScopedContextMiddleware(name)]
+    hitl = make_hitl_middleware({item.name for item in tools})
+    if hitl:
+        middleware.append(hitl)
+    if name == "contact_agent":
+        middleware.append(RequireContactToolMiddleware())
     if name == "memos_agent":
-        tools = make_memos_tools(user_id)
-        middleware = middleware_for(tools)
         middleware.append(RequireMemosToolMiddleware())
-        return create_agent(
-            model,
-            tools=tools,
-            name="memos_agent",
-            middleware=middleware,
-            system_prompt=(
-                "You manage the user's memos. Tools: list_memos (browse all), "
-                "search_memos(query) (answer a question from memos), create_memo(title, "
-                "content, category) (save something new).\n"
-                "Always call exactly one tool before replying. Never answer from "
-                "assumption. Never claim something is saved without calling create_memo "
-                "first. When the user asks to record/save the current or previous fact, "
-                "call create_memo—not list_memos—and infer a concise title and content "
-                "from the relevant conversation context. Never claim something was found "
-                "without calling search_memos or list_memos first."
-            ),
-        )
-    if name == "github_agent":
-        tools = make_github_tools(user_id)
-        return create_agent(
-            model,
-            tools=tools,
-            name="github_agent",
-            middleware=middleware_for(tools),
-            system_prompt=(
-                f"Today is {today}. You generate the user's daily work report (日报) from "
-                "GitHub commit activity on their project repo. On every turn, call "
-                "list_todays_commits before you reply - do not ask for permission first, "
-                "just call it immediately. Write a concise report (grouped bullet points, "
-                "matching the language the user asked in) based only on the commit messages "
-                "the tool actually returned - never invent commits. Then call create_memo "
-                "with category='work', a title like 'Daily Report - <date>', and the "
-                "synthesized report as content. Confirm to the user once saved. If there "
-                "were no commits today, tell them that instead of saving an empty report."
-            ),
-        )
-    raise ValueError(f"Unknown agent: {name}")
+
+    return create_agent(
+        model,
+        tools=tools,
+        name=name,
+        middleware=middleware,
+        system_prompt=system_prompt,
+    )
 
 
-def build_supervisor(user_id: str, session_id: str | None = None):
+def _supervisor_prompt(assistant_name: str, today: str) -> str:
+    agent_lines = "\n".join(f"- {name}: {hint}" for name, hint in _ROUTING_HINTS.items())
+    return (
+        _name_line(assistant_name) +
+        f"Today is {today}. You are a supervisor coordinating {len(AGENT_NAMES)} agents:\n"
+        f"{agent_lines}\n"
+        "Route each user request to the right agent(s) and relay their results back concisely.\n"
+        "- If the user asks about a person, contact, colleague, investor, or relationship (e.g., '张明是谁？', '查一下张明', '谁负责AI'), ALWAYS hand off to contact_agent so it searches the user's contacts database.\n"
+        "- Never refuse with generic answers like 'I cannot access external databases or personal info' — you have access to the user's private database via contact_agent (search_contacts) and memos_agent (search_memos).\n"
+        "- For email requests that explicitly ask to send, the mail agent must call send_email so a confirmation action is created; never report that an email was sent unless the user has confirmed the action."
+        "\n- For memo requests, never claim a note was saved unless memos_agent returned a successful create_memo tool result."
+    )
+
+
+def build_supervisor(
+    user_id: str,
+    session_id: str | None = None,
+    assistant_name: str = DEFAULT_ASSISTANT_NAME,
+):
     """Builds a fresh supervisor graph per request, its tools closed over
     this user's id so each sub-agent only ever touches this user's mailbox
     and calendar."""
     model = _get_model()
     today = _today_str()
-    agents = [build_agent(user_id, name, session_id) for name in AGENT_NAMES]
+    agents = [
+        build_agent(user_id, name, session_id, assistant_name) for name in AGENT_NAMES
+    ]
 
     # Custom handoff tools carrying task-specific descriptions (_ROUTING_HINTS)
     # instead of langgraph_supervisor's default "Ask agent 'X' for help" -
@@ -256,22 +325,14 @@ def build_supervisor(user_id: str, session_id: str | None = None):
         create_handoff_tool(agent_name=name, description=_ROUTING_HINTS[name])
         for name in AGENT_NAMES
     ]
-    agent_lines = "\n".join(f"- {name}: {hint}" for name, hint in _ROUTING_HINTS.items())
 
     workflow = create_supervisor(
         agents,
         model=model,
         tools=handoff_tools,
         pre_model_hook=_trim_history,
-        prompt=(
-            f"Today is {today}. You are a supervisor coordinating four agents:\n"
-            f"{agent_lines}\n"
-            "Route each user request to the right agent(s) and relay their results back concisely.\n"
-            "- If the user asks about a person, contact, colleague, investor, or relationship (e.g., '张明是谁？', '查一下张明', '谁负责AI'), ALWAYS hand off to mail_agent so it searches the user's contacts database.\n"
-            "- Never refuse with generic answers like 'I cannot access external databases or personal info' — you have access to the user's private database via mail_agent (search_contacts) and memos_agent (search_memos).\n"
-            "- For email requests that explicitly ask to send, the mail agent must call send_email so a confirmation action is created; never report that an email was sent unless the user has confirmed the action."
-            "\n- For memo requests, never claim a note was saved unless memos_agent returned a successful create_memo tool result."
-        ),
+        post_model_hook=verify_agent_claims,
+        prompt=_supervisor_prompt(assistant_name, today),
     )
 
     # create_supervisor installs START -> supervisor. Replace it with one
@@ -301,6 +362,40 @@ async def generate_session_title(message: str) -> str:
         {"role": "user", "content": message},
     ])
     return resp.content.strip().strip('"')
+
+
+def describe_team(
+    user_id: str,
+    session_id: str | None = None,
+    assistant_name: str = DEFAULT_ASSISTANT_NAME,
+) -> dict:
+    """Introspection for debugging: the supervisor prompt plus each domain
+    agent's system prompt and tool name/description, exactly as they'd be
+    sent to the model this request. Building the tool lists only closes
+    over user_id/session_id (no network or DB calls happen until a tool is
+    actually invoked), so this is safe and cheap to call on every request.
+    """
+    today = _today_str()
+    prompts = _agent_prompts(assistant_name, today)
+    return {
+        "model": settings.OPENAI_MODEL,
+        "assistant_name": assistant_name,
+        "supervisor": {
+            "system_prompt": _supervisor_prompt(assistant_name, today),
+        },
+        "agents": [
+            {
+                "name": name,
+                "routing_hint": _ROUTING_HINTS[name],
+                "system_prompt": prompts[name],
+                "tools": [
+                    {"name": t.name, "description": t.description}
+                    for t in _AGENT_TOOL_FACTORIES[name](user_id, session_id)
+                ],
+            }
+            for name in AGENT_NAMES
+        ],
+    }
 
 
 def make_graph(config: dict | None = None):

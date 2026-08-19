@@ -6,22 +6,32 @@ the current ReAct turn (including its tool-call chain), and prior turns that
 belong to the same domain.
 """
 
+import re
+import uuid
 from collections.abc import Callable
 
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest
-from langchain_core.messages import SystemMessage, trim_messages
+from langchain_core.messages import AIMessage, SystemMessage, trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
 
-from app.agents.routing import is_memo_write_request
+from app.agents.routing import is_contact_write_request, is_memo_write_request
 
 _MAX_AGENT_CONTEXT_TOKENS = 10_000
 _MAX_RELEVANT_TURNS = 4
+# Domain relevance is keyword/tool based, so it misclassifies anything phrased
+# outside its vocabulary - a github_agent daily report is "not mail", right up
+# until the user says "send that to him".  The turns immediately before the
+# current one are what the user is most likely referring to, so they are kept
+# for every agent regardless of domain; _MAX_AGENT_CONTEXT_TOKENS still bounds
+# the result.
+_MAX_RECENT_TURNS = 2
 
 _AGENT_TOOLS = {
     "mail_agent": {
-        "list_inbox", "search_contacts", "record_contact_fact", "extract_contact_memory", "search_emails", "read_email",
-        "send_email", "mark_email_read", "delete_email",
+        "list_inbox", "search_contacts", "search_memos",
+        "search_emails", "read_email", "send_email", "mark_email_read", "delete_email",
     },
+    "contact_agent": {"search_contacts", "create_contact", "record_contact_fact", "extract_contact_memory"},
     "calendar_agent": {
         "list_events", "list_events_on_day",
         "create_event", "delete_event", "accept_event", "decline_event",
@@ -31,7 +41,8 @@ _AGENT_TOOLS = {
 }
 
 _DOMAIN_KEYWORDS = {
-    "mail_agent": ("email", "mail", "inbox", "outlook", "邮件", "邮箱", "收件箱", "联系人", "是谁", "是谁？", "张明", "人脉", "同事", "投资人", "公司", "电话", "contact", "contacts", "person", "who is"),
+    "mail_agent": ("email", "mail", "inbox", "outlook", "邮件", "邮箱", "收件箱"),
+    "contact_agent": ("联系人", "是谁", "是谁？", "张明", "人脉", "同事", "投资人", "公司", "电话", "contact", "contacts", "person", "who is"),
     "calendar_agent": ("calendar", "event", "schedule", "meeting", "日历", "日程", "会议", "安排"),
     "memos_agent": ("memo", "note", "notes", "rag", "备忘", "笔记", "记录"),
     "github_agent": ("github", "commit", "commits", "日报", "工作报告", "work report"),
@@ -125,8 +136,16 @@ def make_agent_context_hook(agent_name: str) -> Callable[[dict], dict]:
     def project_context(state: dict) -> dict:
         messages = list(state.get("messages") or [])
         completed_turns, active_turn = _split_completed_turns(messages)
-        relevant_turns = [turn for turn in completed_turns if _turn_is_relevant(turn, agent_name)][-_MAX_RELEVANT_TURNS:]
-        historical_context = [message for turn in relevant_turns for message in _safe_text_messages(turn)]
+        relevant = [
+            index
+            for index, turn in enumerate(completed_turns)
+            if _turn_is_relevant(turn, agent_name)
+        ][-_MAX_RELEVANT_TURNS:]
+        recent = range(max(0, len(completed_turns) - _MAX_RECENT_TURNS), len(completed_turns))
+        keep = sorted(set(relevant) | set(recent))
+        historical_context = [
+            message for index in keep for message in _safe_text_messages(completed_turns[index])
+        ]
         brief = SystemMessage(
             content=(
                 f"Scoped task for {agent_name}: {_latest_task(active_turn)}\n"
@@ -198,7 +217,14 @@ def memo_tool_choice(messages: list) -> str:
     )
     if used_tool:
         return "none"
-    return "create_memo" if is_memo_write_request(_latest_task(active_turn)) else "required"
+    if is_memo_write_request(_latest_task(active_turn)):
+        return "create_memo"
+    # Deliberately "auto", not "required": the supervisor can hand off a
+    # question that has nothing to do with memos, and a forced tool call leaves
+    # the agent no way to say so - it has to invent a memo operation instead.
+    # Hallucinated "saved" claims are already covered by the forced create_memo
+    # above and by verify_memo_claims one layer up.
+    return "auto"
 
 
 class RequireMemosToolMiddleware(AgentMiddleware):
@@ -224,3 +250,146 @@ class RequireMemosToolMiddleware(AgentMiddleware):
 
     async def awrap_model_call(self, request, handler):
         return await handler(self._request(request))
+
+
+# Catches the supervisor claiming a memo was saved without ever calling the
+# memos_agent handoff tool. is_memo_write_request's routing bypass (see
+# routing.decide_route) only covers phrasing it recognizes; anything else
+# reaches the supervisor's own discretionary routing, which - like the tool
+# loop above - prompt text alone can't force to actually delegate.
+_MEMO_SAVE_CLAIM_RE = re.compile(
+    r"(?=.*(?:memo|memos|备忘录|笔记))"
+    r"(?=.*(?:已.{0,10}(?:保存|存|添加|记录|记住)|保存成功|添加成功|记录成功|"
+    r"saved|has\s+been\s+(?:added|saved)|added\s+(?:it\s+)?to\s+(?:your|my)\s+memo))",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def verify_memo_claims(state: dict) -> dict:
+    """Supervisor post_model_hook: if the reply claims a memo was saved but
+    no tool was called this turn, rewrite it into a forced transfer_to_memos_agent
+    handoff instead of letting the false claim reach the user.
+    RequireMemosToolMiddleware then guarantees memos_agent makes a real tool call.
+
+    # ponytail: text-pattern match, not intent understanding - a stale
+    # "I already saved that yesterday" recap could false-positive into an
+    # extra handoff. Upgrade to checking against actual memo state if that
+    # ever shows up in practice.
+    """
+    messages = state["messages"]
+    last = messages[-1]
+    if not isinstance(last, AIMessage) or last.tool_calls:
+        return {}
+    if not _MEMO_SAVE_CLAIM_RE.search(last.text):
+        return {}
+    forced = last.model_copy(
+        update={
+            "content": "",
+            "tool_calls": [
+                {
+                    "name": "transfer_to_memos_agent",
+                    "args": {},
+                    "id": f"forced_memo_verify_{uuid.uuid4().hex}",
+                }
+            ],
+        }
+    )
+    return {"messages": [forced]}
+
+
+def contact_tool_choice(messages: list) -> str:
+    """Return the enforced tool choice for the active contact-agent turn.
+
+    contact_agent also handles read-only lookups ("who is X"), so this only
+    forces a tool on an explicit add/create-contact request - otherwise
+    "auto", the same reasoning as memo_tool_choice above.
+    """
+    latest_human = next(
+        (index for index in range(len(messages) - 1, -1, -1) if _is_human(messages[index])),
+        0,
+    )
+    active_turn = messages[latest_human:]
+    contact_write_tools = {"create_contact", "record_contact_fact"}
+    used_tool = any(
+        _message_type(message) == "tool" and _message_name(message) in contact_write_tools
+        for message in active_turn
+    )
+    if used_tool:
+        return "none"
+    if is_contact_write_request(_latest_task(active_turn)):
+        return "create_contact"
+    return "auto"
+
+
+class RequireContactToolMiddleware(AgentMiddleware):
+    """Make one contact-write tool call mandatory on an explicit add/create
+    request, then stop the tool loop. Mirrors RequireMemosToolMiddleware."""
+
+    @property
+    def name(self) -> str:
+        return "require_contact_tool_on_write"
+
+    def _request(self, request: ModelRequest) -> ModelRequest:
+        messages = list(request.messages)
+        return request.override(tool_choice=contact_tool_choice(messages))
+
+    def wrap_model_call(self, request, handler):
+        return handler(self._request(request))
+
+    async def awrap_model_call(self, request, handler):
+        return await handler(self._request(request))
+
+
+# Catches the supervisor claiming a contact was added without ever calling the
+# contact_agent handoff tool - the same false-completion failure mode as
+# verify_memo_claims above, for is_contact_write_request's routing bypass.
+#
+# Three independent lookaheads instead of one proximity window: natural
+# Chinese completion claims put the "成功"/"已" marker and the action verb in
+# either order with a variable number of words between them (e.g. "已将罗剑
+# 的联系人信息成功添加"), so a single "已.{0,N}添加"-style window either
+# misses realistic phrasing or has to grow wide enough to start matching
+# unrelated sentences.
+_CONTACT_SAVE_CLAIM_RE = re.compile(
+    r"(?=.*(?:contact|联系人|通讯录))"
+    r"(?=.*(?:已|成功|has\s+been|successfully))"
+    r"(?=.*(?:添加|保存|创建|新建|add(?:ed)?|creat(?:e|ed)|sav(?:e|ed)))",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def verify_contact_claims(state: dict) -> dict:
+    """Supervisor post_model_hook: if the reply claims a contact was added but
+    no tool was called this turn, rewrite it into a forced transfer_to_contact_agent
+    handoff instead of letting the false claim reach the user.
+    RequireContactToolMiddleware then guarantees contact_agent makes a real tool call.
+    """
+    messages = state["messages"]
+    last = messages[-1]
+    if not isinstance(last, AIMessage) or last.tool_calls:
+        return {}
+    if not _CONTACT_SAVE_CLAIM_RE.search(last.text):
+        return {}
+    forced = last.model_copy(
+        update={
+            "content": "",
+            "tool_calls": [
+                {
+                    "name": "transfer_to_contact_agent",
+                    "args": {},
+                    "id": f"forced_contact_verify_{uuid.uuid4().hex}",
+                }
+            ],
+        }
+    )
+    return {"messages": [forced]}
+
+
+def verify_agent_claims(state: dict) -> dict:
+    """Supervisor post_model_hook: dispatch to every known false-completion
+    check (memo saves, contact adds) and force a real handoff on the first
+    one that matches."""
+    result = verify_memo_claims(state)
+    if result:
+        return result
+    return verify_contact_claims(state)

@@ -5470,6 +5470,193 @@
   .settings-commit-detail-actions .settings-btn { justify-content: center; }
 }
 
+/* Profile Card */
+.profile-card {
+  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-hover) 100%);
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background-color: var(--accent-primary);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.profile-details h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.profile-details p {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+  word-break: break-all;
+}
+
+/* Setting Field */
+.setting-field label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.settings-field-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: -4px 0 0 0;
+}
+
+.settings-text-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-medium);
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.settings-text-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.avatar-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.avatar-preset-tile {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  padding: 2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background-color: var(--bg-card);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.avatar-preset-tile img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-preset-tile:hover {
+  border-color: var(--border-medium);
+  transform: scale(1.05);
+}
+
+.avatar-preset-tile.selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+}
+
+.avatar-preset-tile-check {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  display: flex;
+  background-color: var(--accent-primary);
+  color: #fff;
+  border-radius: 50%;
+  border: 2px solid var(--bg-app);
+}
+
+.avatar-preset-tile:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.avatar-preset-tile:disabled:hover {
+  transform: none;
+}
+
+/* Theme Selector Cards */
+.theme-selector-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background-color: var(--bg-app);
+  border: 1.5px solid var(--border-light);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+}
+
+.theme-card:hover {
+  border-color: var(--border-medium);
+  color: var(--text-primary);
+}
+
+.theme-card.active {
+  background-color: var(--accent-light);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+/* GitHub Card */
+.main-github-card {
+  padding: 24px;
+}
+
+.github-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+}
+
+.github-card-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+}
+
+.github-card-title h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
 .github-status-indicator {
   display: inline-flex;
   align-items: center;
@@ -5545,15 +5732,6 @@
   margin: 0;
 }
 
-.repo-filter-controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
 .settings-search-wrapper {
   position: relative;
   display: flex;
@@ -5602,73 +5780,11 @@
   color: var(--text-primary);
 }
 
-.repo-selection-helpers {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-}
-
-.helper-link-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--accent-primary);
-  cursor: pointer;
-  font-weight: 500;
-  transition: var(--transition-fast);
-}
-
-.helper-link-btn:hover {
-  color: var(--accent-hover);
-  text-decoration: underline;
-}
-
-.helper-separator {
-  color: var(--text-muted);
-}
-
-/* Scrollable area for Repositories */
-.settings-repos-scrollable {
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  padding: 16px;
-  background-color: var(--bg-app);
-  max-height: 440px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-medium) transparent;
-}
-
-.settings-repos-scrollable::-webkit-scrollbar {
-  width: 6px;
-}
-.settings-repos-scrollable::-webkit-scrollbar-thumb {
-  background: var(--border-medium);
-  border-radius: 3px;
-}
-
-.settings-repo-section {
-  margin-bottom: 20px;
-}
-
-.settings-repo-section:last-child {
-  margin-bottom: 0;
-}
-
-.settings-repo-section-title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin: 0 0 10px 4px;
-}
-
 .settings-repo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 6px;
+  margin-bottom: 12px;
 }
 
 .settings-repo-chip {
@@ -5676,57 +5792,14 @@
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--accent-primary);
   border-radius: 6px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.settings-repo-chip:hover {
-  border-color: var(--border-medium);
-  background-color: var(--bg-card-hover);
-}
-
-.settings-repo-chip.is-selected {
-  border-color: var(--accent-primary);
   background-color: var(--accent-light);
 }
 
-.settings-repo-checkbox {
-  width: 13px;
-  height: 13px;
-  border: 1.5px solid var(--border-medium);
-  border-radius: 3px;
-  background-color: var(--bg-card);
-  transition: all var(--transition-fast);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.settings-repo-chip:hover .settings-repo-checkbox {
-  border-color: var(--text-muted);
-}
-
-.settings-repo-chip.is-selected .settings-repo-checkbox {
-  background-color: var(--accent-primary);
-  border-color: var(--accent-primary);
-}
-
-.settings-repo-checkbox::after {
-  content: "";
-  width: 3px;
-  height: 6px;
-  border: solid white;
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg) scale(0);
-  transition: transform 0.1s ease;
-}
-
-.settings-repo-chip.is-selected .settings-repo-checkbox::after {
-  transform: rotate(45deg) scale(1);
+.settings-repo-chip .settings-repo-name {
+  color: var(--accent-primary);
+  flex: 1;
 }
 
 .settings-repo-name {
@@ -5738,8 +5811,69 @@
   text-overflow: ellipsis;
 }
 
-.settings-repo-chip.is-selected .settings-repo-name {
+.repo-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
   color: var(--accent-primary);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.repo-remove-btn:hover {
+  background-color: var(--bg-card);
+}
+
+.repo-add-wrapper {
+  /* Deliberately not position:absolute - .settings-panel clips overflow for
+     its rounded corners, which would cut off a floating popover. Expanding
+     inline pushes the rest of the card down instead. */
+  display: block;
+}
+
+.repo-add-dropdown {
+  margin-top: 10px;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 10px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.repo-add-dropdown-list {
+  margin-top: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
+
+.repo-add-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.repo-add-option:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--accent-primary);
+}
+
+.repo-add-option .settings-repo-name {
+  color: inherit;
 }
 
 .repos-empty-state {
@@ -5809,6 +5943,11 @@
 .settings-btn:hover {
   background-color: var(--bg-card-hover);
   border-color: var(--text-secondary);
+}
+
+.settings-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .settings-btn.btn-primary {
@@ -6981,4 +7120,107 @@
   color: var(--text-secondary);
   white-space: pre-wrap;
   line-height: 1.5;
+}
+
+/* Settings > Agent Team debug view */
+.team-agent-card {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.team-agent-card:last-child {
+  margin-bottom: 0;
+}
+
+.team-agent-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.team-agent-header:hover {
+  background-color: var(--bg-card-hover);
+}
+
+.team-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.team-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.team-agent-name {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.team-agent-body {
+  padding: 0 14px 14px 36px;
+}
+
+.team-agent-subhead {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 12px 0 6px;
+}
+
+.team-agent-subhead:first-child {
+  margin-top: 0;
+}
+
+.team-prompt-pre {
+  margin: 0;
+  padding: 10px 12px;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.team-tool-item {
+  padding: 8px 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.team-tool-item:first-of-type {
+  border-top: none;
+}
+
+.team-tool-name {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.team-tool-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: pre-wrap;
+  line-height: 1.4;
 }

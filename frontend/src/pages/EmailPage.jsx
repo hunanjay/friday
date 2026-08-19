@@ -65,7 +65,9 @@ export default function EmailPage() {
     handleLogout,
     setIsSidebarCollapsed,
     mailAccounts,
-    msDisconnected
+    msDisconnected,
+    assistantName,
+    avatarUrl
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
@@ -754,7 +756,7 @@ export default function EmailPage() {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setAiDraft(data.draft);
-        showToast(t('email.doraDrafted'));
+        showToast(t('email.assistantDrafted', { name: assistantName }));
       } else {
         setAiDraft(isZh ? `出错了：${data.detail || '生成失败'}` : `Something went wrong: ${data.detail || 'failed'}`);
       }
@@ -1021,7 +1023,7 @@ export default function EmailPage() {
                     onClick={() => setIsDoraActive(!isDoraActive)}
                   >
                     <Sparkles size={16} />
-                    <span>{t('email.doraTitle')}</span>
+                    <span>{t('email.assistantTitle', { name: assistantName })}</span>
                   </button>
                 </div>
               </div>
@@ -1103,7 +1105,7 @@ export default function EmailPage() {
                 <div className="dora-panel-header">
                   <div className="dora-header-title">
                     <Sparkles size={16} className="dora-sparkle-icon" />
-                    <h4>{t('email.doraTitle')}</h4>
+                    <h4>{t('email.assistantTitle', { name: assistantName })}</h4>
                   </div>
                   <button className="close-dora-btn" onClick={() => setIsDoraActive(false)}>
                     <X size={16} />
@@ -1113,8 +1115,8 @@ export default function EmailPage() {
                 <div className="dora-avatar-section">
                   <div className="dora-image-wrapper">
                     <img
-                      src="/dora_assistant_avatar.png"
-                      alt="Dora AI virtual mascot"
+                      src={avatarUrl || '/dora_assistant_avatar.png'}
+                      alt={`${assistantName} AI virtual mascot`}
                       className="dora-3d-avatar"
                     />
                     <div className="dora-pulse-glow"></div>
@@ -1131,7 +1133,7 @@ export default function EmailPage() {
                       <textarea
                         value={aiInstruction}
                         onChange={(e) => setAiInstruction(e.target.value)}
-                        placeholder={t('email.intentPlaceholder')}
+                        placeholder={t('email.intentPlaceholder', { name: assistantName })}
                         rows="3"
                       />
                       <button
@@ -1149,7 +1151,7 @@ export default function EmailPage() {
                   {isDrafting && (
                     <div className="dora-draft-loading">
                       <span className="spinner"></span>
-                      <span>{t('email.doraWait')}</span>
+                      <span>{t('email.assistantWait', { name: assistantName })}</span>
                     </div>
                   )}
 
@@ -1163,10 +1165,11 @@ export default function EmailPage() {
                           body: aiDraft,
                         },
                       }}
-                      title={t('email.doraReplyTab')}
-                      statusLabel={t('email.doraDrafted')}
-                      confirmText={t('email.doraCopyDraft')}
+                      title={t('email.assistantReplyTab')}
+                      statusLabel={t('email.assistantDrafted', { name: assistantName })}
+                      confirmText={t('email.assistantCopyDraft')}
                       onConfirm={handleUseDraftAsReply}
+                      assistantName={assistantName}
                     />
                   )}
                 </div>

@@ -16,15 +16,16 @@ from app.agents.hitl import (
     resume_value_for,
 )
 from app.agents.message_visibility import (
+    final_reply_text,
     is_supervisor_stream_namespace,
     visible_conversation_parts,
     visible_message_parts,
 )
 from app.agents.routing import AGENT_NAMES, decide_route
-from app.agents.supervisor import build_supervisor, generate_session_title
+from app.agents.supervisor import build_supervisor, describe_team, generate_session_title
 from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
-from app.infrastructure.db.repositories import chat_sessions, hitl_audit
+from app.infrastructure.db.repositories import chat_sessions, hitl_audit, user_settings
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,15 @@ async def draft(body: dict, user_id: str = Depends(get_user_id)):
     if not email_id or not intent:
         raise HTTPException(status_code=400, detail="email_id and intent are required")
     return {"draft": await draft_reply(user_id, email_id, intent, my_name)}
+
+
+@router.get("/team_info")
+async def team_info(user_id: str = Depends(get_user_id)):
+    """Debug/introspection: the supervisor's prompt plus each domain agent's
+    system prompt and tool name/description, exactly as they're sent to the
+    model on the next real request from this user."""
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    return describe_team(user_id, assistant_name=assistant_name)
 
 
 @router.get("/sessions")
@@ -116,7 +126,8 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
     """Returns the conversation history for a session, read from the LangGraph
     checkpoint stored in Postgres.  Only HumanMessages and final AI text
     responses are returned - tool calls and tool results are filtered out so
-    the frontend only shows what the user typed and what Dora actually replied.
+    the frontend only shows what the user typed and what the assistant actually
+    replied.
 
     Shape: [{id, sender, text, timestamp}] - matches the message objects
     ChatPage already renders, so no frontend schema change is needed.
@@ -125,7 +136,8 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    supervisor = build_supervisor(user_id, session_id)
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    supervisor = build_supervisor(user_id, session_id, assistant_name)
     config = {"configurable": {"thread_id": session_id}}
     state = await supervisor.aget_state(config)
     raw_messages = (state.values or {}).get("messages", [])
@@ -152,7 +164,7 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
             results.append({
                 "id": str(msg_id) if msg_id else f"a_{len(results)}",
                 "sender": "bot",
-                "senderName": "Dora",
+                "senderName": assistant_name,
                 "text": content,
                 "timestamp": "",
             })
@@ -168,7 +180,7 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
         results.append({
             "id": f"hitl_{interrupt.id}",
             "sender": "bot",
-            "senderName": "Dora",
+            "senderName": assistant_name,
             "text": _paused_reply(latest_user_text),
             "timestamp": "",
         })
@@ -185,7 +197,8 @@ async def list_actions(session_id: str, user_id: str = Depends(get_user_id)):
     session = await chat_sessions.get_session(user_id, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    graph = build_supervisor(user_id, session_id)
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    graph = build_supervisor(user_id, session_id, assistant_name)
     state = await graph.aget_state({"configurable": {"thread_id": session_id}})
     return {"actions": await _visible_actions(user_id, session_id, state.interrupts)}
 
@@ -200,7 +213,8 @@ async def _decide_action(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     config = {"configurable": {"thread_id": session_id}}
-    graph = build_supervisor(user_id, session_id)
+    assistant_name = await user_settings.get_assistant_name(user_id)
+    graph = build_supervisor(user_id, session_id, assistant_name)
 
     async with session_turn_lock(session_id):
         state = await graph.aget_state(config)
@@ -374,6 +388,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     route = decide_route(message)
     routed_agent = route.agent_name
     routed_message = route.message
+    assistant_name = await user_settings.get_assistant_name(user_id)
 
     async def locked_event_generator():
         config = {
@@ -382,8 +397,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 "entry_agent": routed_agent,
             }
         }
-        assistant_chunks: list[str] = []
-        graph = build_supervisor(user_id, session_id)
+        graph = build_supervisor(user_id, session_id, assistant_name)
         user_message = {"role": "user", "content": routed_message}
         if route.source == "slash_command":
             # Persist the explicit route for UI rendering. The model adapter
@@ -405,7 +419,6 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                     if chunk_content is None and isinstance(chunk, dict):
                         chunk_content = chunk.get("content")
                     if isinstance(chunk_content, str) and chunk_content:
-                        assistant_chunks.append(chunk_content)
                         yield f"data: {json.dumps({'chunk': chunk_content})}\n\n"
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
@@ -429,15 +442,29 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
         state = await graph.aget_state(config)
         pending_actions = pending_actions_from_interrupts(state.interrupts, session_id)
         public_actions = await _visible_actions(user_id, session_id, state.interrupts)
-        if pending_actions and not assistant_chunks:
-            safe_reply = _paused_reply(routed_message)
-            assistant_chunks.append(safe_reply)
-            yield f"data: {json.dumps({'chunk': safe_reply})}\n\n"
 
-        if assistant_chunks:
+        # What the user ends up seeing never comes from the streamed chunks:
+        # those are a typing effect that can lag, duplicate, or stream a leg of
+        # the graph that never becomes the answer.  The rendered reply is always
+        # this projection - the same one GET /sessions/{id}/messages replays -
+        # so the live view and a later refresh cannot show different text.
+        # A paused turn has no final answer yet, so it keeps the same placeholder
+        # that endpoint reconstructs for each pending interrupt.
+        final_text = (
+            _paused_reply(routed_message)
+            if pending_actions
+            else final_reply_text((state.values or {}).get("messages", []))
+        )
+        # Empty means "no authoritative answer to show", never "clear the
+        # bubble": overwriting with "" would wipe text the user already watched
+        # stream in and leave nothing behind.
+        if final_text:
+            yield f"data: {json.dumps({'final_message': final_text})}\n\n"
+
+        if final_text:
             try:
                 preview = await chat_sessions.update_session_preview(
-                    user_id, session_id, "".join(assistant_chunks)
+                    user_id, session_id, final_text
                 )
                 yield f"data: {json.dumps({'preview': preview})}\n\n"
             except Exception:

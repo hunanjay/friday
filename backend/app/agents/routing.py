@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-AGENT_NAMES = ("mail_agent", "calendar_agent", "memos_agent", "github_agent")
+AGENT_NAMES = ("mail_agent", "contact_agent", "calendar_agent", "memos_agent", "github_agent")
 
 _TAG_RE = re.compile(r"^/([\w-]+)\s+(.*)", re.DOTALL)
 EMAIL_ADDRESS_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
@@ -30,11 +30,19 @@ _CALENDAR_FOLLOWUP_MUTATION_RE = re.compile(
     r")",
     re.IGNORECASE | re.DOTALL,
 )
+_CONTACT_WRITE_RE = re.compile(
+    r"(?:"
+    r"(?:create|add|save)\s+(?:a\s+)?(?:new\s+)?contact|"
+    r"新建联系人|添加联系人|创建联系人|新增联系人|加个联系人|保存联系人"
+    r")",
+    re.IGNORECASE | re.DOTALL,
+)
 _MEMO_WRITE_RE = re.compile(
     r"(?:"
     r"(?:帮我|请|给我|替我|把.{0,80})?"
     r"(?:记录下来|记下来|记录一下|记一下|保存下来|保存一下|存下来|记到备忘录|保存到备忘录|记住)|"
-    r"(?:save|record|write|note)\s+(?:this|that|it|down|to\s+(?:my\s+)?(?:memo|notes?))"
+    r"(?:加|添加|加入)(?:到|入)?\s*(?:memos?|备忘录)|"
+    r"(?:save|record|write|note|add)\s+(?:this|that|it|down|to\s+(?:my\s+)?(?:memo|notes?))"
     r")",
     re.IGNORECASE | re.DOTALL,
 )
@@ -77,15 +85,21 @@ def is_memo_write_request(message: str) -> bool:
     return bool(_MEMO_WRITE_RE.search(message))
 
 
+def is_contact_write_request(message: str) -> bool:
+    """Recognize an explicit request to create/add a new structured contact."""
+    return bool(_CONTACT_WRITE_RE.search(message))
+
+
 def decide_route(message: str) -> RouteDecision:
     """Apply routing precedence consistently for every chat request.
 
     1. An explicit slash command always wins.
     2. An explicit email-send request is routed to the mail agent so it creates
        an approval action.
-    3. Explicit calendar mutations go directly to the calendar agent.
-    4. Explicit memo writes go directly to the memos agent.
-    5. All other requests go to the LangGraph supervisor.
+    3. An explicit new-contact request goes directly to the contact agent.
+    4. Explicit calendar mutations go directly to the calendar agent.
+    5. Explicit memo writes go directly to the memos agent.
+    6. All other requests go to the LangGraph supervisor.
     """
     tagged = _TAG_RE.match(message.strip())
     tagged_agent = tagged.group(1).replace("-", "_") if tagged else None
@@ -97,6 +111,8 @@ def decide_route(message: str) -> RouteDecision:
         )
     if is_email_send_request(message):
         return RouteDecision(message=message, agent_name="mail_agent", source="email_send")
+    if is_contact_write_request(message):
+        return RouteDecision(message=message, agent_name="contact_agent", source="contact_write")
     if is_calendar_mutation_request(message):
         return RouteDecision(message=message, agent_name="calendar_agent", source="calendar_mutation")
     if is_memo_write_request(message):

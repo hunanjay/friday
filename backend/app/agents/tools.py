@@ -255,6 +255,79 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         )
         return f"Email moved to Deleted Items: {subject or email_id}."
 
+    return [
+        list_inbox,
+        search_contacts,
+        _make_search_memos_tool(user_id),
+        search_emails,
+        read_email,
+        send_email,
+        mark_email_read,
+        delete_email,
+    ]
+
+
+def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
+    search_contacts = _make_search_contacts_tool(user_id)
+
+    @tool
+    async def create_contact(
+        name: str,
+        company: str = "",
+        phone: str = "",
+        email: str = "",
+        location: str = "",
+        job_title: str = "",
+    ) -> str:
+        """Create a new contact, or fill in fields on an existing one, from
+        structured details the user explicitly gave.
+
+        WHEN TO USE:
+        Use when the user explicitly asks to add/create/save a new contact and
+        gives structured details (name plus any of company, phone, email,
+        location, job title). Do NOT use this for a single casual fact about
+        an existing contact (e.g. "note that Zhang Ming likes tea") — use
+        `record_contact_fact` for that instead.
+
+        PARAMETERS:
+        - `name` (str, REQUIRED): The contact's full name.
+        - `company`, `phone`, `email`, `location`, `job_title` (str, optional):
+          Only the fields the user actually gave. Leave blank if not given —
+          never invent a value.
+        """
+        from app.services.contact_service import ContactService
+
+        clean_name = name.strip()
+        if not clean_name:
+            return "Error: name is required to create a contact."
+
+        existing = await ContactService.get_contacts(user_id=user_id, query=clean_name)
+        match = next(
+            (c for c in existing if c["name"].strip().lower() == clean_name.lower()), None
+        )
+        if match:
+            updated = await ContactService.update_contact(
+                user_id=user_id,
+                contact_id=match["id"],
+                company=company or None,
+                phone=phone or None,
+                email=email or None,
+                location=location or None,
+                job_title=job_title or None,
+            )
+            return f"Updated existing contact '{updated['name']}' (id: {updated['id']})."
+
+        created = await ContactService.create_contact(
+            user_id=user_id,
+            name=clean_name,
+            company=company,
+            phone=phone,
+            email=email,
+            location=location,
+            job_title=job_title,
+        )
+        return f"Created new contact '{created['name']}' (id: {created['id']})."
+
     @tool
     async def record_contact_fact(
         contact_name: str,
@@ -338,15 +411,10 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
             return f"Failed to extract contact memory: {str(exc)}"
 
     return [
-        list_inbox,
         search_contacts,
+        create_contact,
         record_contact_fact,
         extract_contact_memory,
-        search_emails,
-        read_email,
-        send_email,
-        mark_email_read,
-        delete_email,
     ]
 
 
@@ -601,16 +669,15 @@ async def _rewrite_search_query(user_query: str) -> str:
     return user_query
 
 
-def make_memos_tools(user_id: str) -> list:
-    @tool
-    async def list_memos(top: int = 20) -> str:
-        """List the user's most recently updated/pinned memos (not a search -
-        no relevance ranking). Use this for open-ended requests like "show me
-        my memos" where there's no specific question to search for yet."""
-        memos = (await memos_db.list_memos(user_id))[:max(1, min(top, 50))]
-        if not memos:
-            return "The user has no memos yet."
-        return "\n".join(_format_memo_row(m) for m in memos)
+def _make_search_memos_tool(user_id: str):
+    """Read-only memo search, shared by memos_agent and mail_agent.
+
+    mail_agent needs it to quote something the user already wrote down - "send
+    him my daily report" is a mail task whose *content* lives in memos.  Without
+    it the agent has no way to fetch that text and composes a hollow body
+    instead.  This mirrors search_contacts, which mail_agent already borrows
+    from the contacts domain for the same reason.
+    """
 
     @tool
     async def search_memos(query: str, limit: int = 5) -> str:
@@ -651,7 +718,26 @@ def make_memos_tools(user_id: str) -> list:
             logging.exception("Postgres DB fallback failed in search_memos")
             return "No memos matched that search."
 
-    return [list_memos, _make_create_memo_tool(user_id), search_memos, _make_search_contacts_tool(user_id)]
+    return search_memos
+
+
+def make_memos_tools(user_id: str) -> list:
+    @tool
+    async def list_memos(top: int = 20) -> str:
+        """List the user's most recently updated/pinned memos (not a search -
+        no relevance ranking). Use this for open-ended requests like "show me
+        my memos" where there's no specific question to search for yet."""
+        memos = (await memos_db.list_memos(user_id))[:max(1, min(top, 50))]
+        if not memos:
+            return "The user has no memos yet."
+        return "\n".join(_format_memo_row(m) for m in memos)
+
+    return [
+        list_memos,
+        _make_create_memo_tool(user_id),
+        _make_search_memos_tool(user_id),
+        _make_search_contacts_tool(user_id),
+    ]
 
 
 _GITHUB_NOT_CONNECTED = (
