@@ -75,7 +75,9 @@ _ROUTING_HINTS = {
     "mail_agent": (
         "Route here for anything about the user's email/inbox, contacts, or people/relationships: "
         "looking up who someone is (e.g. '张明是谁', '查一下张明', 'who is Zhang Ming'), finding contact info, "
-        "searching contacts/memory facts, listing/reading emails, sending new emails, marking read/unread, or deleting existing ones."
+        "searching contacts/memory facts, prepping for or getting advice about interacting with a named "
+        "person (e.g. '我想约张明谈合作，有什么需要注意的', 'what should I know before meeting Sarah'), "
+        "listing/reading emails, sending new emails, marking read/unread, or deleting existing ones."
     ),
     "calendar_agent": (
         "Route here for anything about scheduling: listing, creating, or deleting "
@@ -202,8 +204,10 @@ def build_agent(user_id: str, name: str, session_id: str | None = None):
                 "search_memos(query) (answer a question from memos), create_memo(title, "
                 "content, category) (save something new), search_contacts(query) (look up a "
                 "person's identity, company, job title, tags, and memory facts).\n"
-                "When asked about any person, contact, investor, colleague, or relationship "
-                "(e.g. '张明是谁', '张明买了什么车', '谁喜欢喝普洱茶'), call search_contacts, not "
+                "When asked about any person, contact, investor, colleague, or relationship — "
+                "including who they are, facts about them, or prepping for/getting advice about "
+                "interacting with them (e.g. '张明是谁', '张明买了什么车', '谁喜欢喝普洱茶', '我想约张明谈合作，"
+                "有什么需要注意的') — call search_contacts, not create_memo or "
                 "search_memos — memos are the user's own notes, not facts about other people. "
                 "Every contact fact returned by search_contacts carries a 'source:' marker — "
                 "cite it when you state the fact, and never invent a contact fact that the tool "
