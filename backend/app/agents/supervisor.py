@@ -11,8 +11,8 @@ from langgraph_supervisor import create_handoff_tool, create_supervisor
 
 from app.agents.checkpointer import get_checkpointer
 from app.agents.context import (
-    RequireContactToolMiddleware,
-    RequireMemosToolMiddleware,
+    WRITE_GUARD_AGENTS,
+    RequireWriteToolMiddleware,
     ScopedContextMiddleware,
     verify_agent_claims,
 )
@@ -91,7 +91,10 @@ _ROUTING_HINTS = {
     "contact_agent": (
         "Route here for anything about people/relationships: looking up who someone is "
         "(e.g. '张明是谁', '查一下张明', 'who is Zhang Ming'), finding contact info, searching "
-        "contacts/memory facts, or explicitly adding/creating a new contact."
+        "contacts/memory facts, explicitly adding/creating a new contact, or the user simply "
+        "recounting something a known/recently-mentioned person said or did (e.g. '昨天我和他聊天, "
+        "听他说他考了个证书', 'she just got promoted') — route these here too, even when phrased as "
+        "a pronoun reference or a casual story rather than an explicit question."
     ),
     "calendar_agent": (
         "Route here for anything about scheduling: listing, creating, or deleting "
@@ -99,7 +102,8 @@ _ROUTING_HINTS = {
     ),
     "memos_agent": (
         "Route here when the user wants to save an idea/note, or find or recall "
-        "something they previously wrote down."
+        "something they previously wrote down — but not a fact about a specific person, "
+        "which belongs to contact_agent instead."
     ),
     "github_agent": (
         "Route here when the user asks for a work report, daily report, 日报, "
@@ -274,10 +278,8 @@ def build_agent(
     hitl = make_hitl_middleware({item.name for item in tools})
     if hitl:
         middleware.append(hitl)
-    if name == "contact_agent":
-        middleware.append(RequireContactToolMiddleware())
-    if name == "memos_agent":
-        middleware.append(RequireMemosToolMiddleware())
+    if name in WRITE_GUARD_AGENTS:
+        middleware.append(RequireWriteToolMiddleware(name))
 
     return create_agent(
         model,
@@ -296,6 +298,7 @@ def _supervisor_prompt(assistant_name: str, today: str) -> str:
         f"{agent_lines}\n"
         "Route each user request to the right agent(s) and relay their results back concisely.\n"
         "- If the user asks about a person, contact, colleague, investor, or relationship (e.g., '张明是谁？', '查一下张明', '谁负责AI'), ALWAYS hand off to contact_agent so it searches the user's contacts database.\n"
+        "- If the user just mentions something a known or recently-discussed person said/did/experienced (even via a pronoun like 他/她/ta, with no explicit question), hand off to contact_agent, not memos_agent, so the fact gets attached to that person.\n"
         "- Never refuse with generic answers like 'I cannot access external databases or personal info' — you have access to the user's private database via contact_agent (search_contacts) and memos_agent (search_memos).\n"
         "- For email requests that explicitly ask to send, the mail agent must call send_email so a confirmation action is created; never report that an email was sent unless the user has confirmed the action."
         "\n- For memo requests, never claim a note was saved unless memos_agent returned a successful create_memo tool result."

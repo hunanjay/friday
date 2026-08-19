@@ -9,12 +9,13 @@ belong to the same domain.
 import re
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest
 from langchain_core.messages import AIMessage, SystemMessage, trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
 
-from app.agents.routing import is_contact_write_request, is_memo_write_request
+from app.agents.routing import is_contact_lookup_request, is_contact_write_request, is_memo_write_request
 
 _MAX_AGENT_CONTEXT_TOKENS = 10_000
 _MAX_RELEVANT_TURNS = 4
@@ -203,60 +204,105 @@ class ScopedContextMiddleware(AgentMiddleware):
         return await handler(self._request(request))
 
 
-def memo_tool_choice(messages: list) -> str:
-    """Return the enforced tool choice for the active memo-agent turn."""
+# ---------------------------------------------------------------------------
+# Provider quirks
+#
+# Everything in this section exists only because the configured LLM endpoint
+# does not honor the OpenAI tool-calling contract. Grep this header before
+# changing OPENAI_MODEL / OPENAI_BASE_URL - if the new endpoint behaves, all of
+# it can be deleted.
+#
+# Measured against glm-4-flash via https://open.bigmodel.cn/api/paas/v4/
+# (2026-08-19). Four known quirks:
+#
+#  1. tool_choice naming one specific function is silently ignored (only
+#     "required"/"auto"/"none" are honored).      -> _guard_tool_choice never
+#     returns a tool name, only "required".
+#  2. A trailing ToolMessage for a tool the model does not have bound (the
+#     supervisor's transfer_to_* handoff) disables tool_choice entirely.
+#     -> _strip_foreign_tool_pairs
+#  3. Several prior plain-text AI replies in history erode tool_choice
+#     ="required": the model copies the prose-only pattern instead of calling
+#     a tool.                                     -> _drop_historical_ai_text
+#  4. A `name` field on replayed messages returns HTTP 400.
+#     -> _ProxyCompatChatOpenAI in supervisor.py (left there because it belongs
+#        to model construction, not message shaping).
+#
+# Quirks 1-3 were each verified by replaying an identical prompt with and
+# without the trigger. Note that neither ModelFallbackMiddleware (fires only on
+# exceptions) nor ContextEditingMiddleware (only blanks tool *results* past a
+# token threshold) addresses these - both were checked and rejected.
+# ---------------------------------------------------------------------------
+
+
+def _tool_call_names(message) -> set[str]:
+    calls = message.get("tool_calls") if isinstance(message, dict) else getattr(message, "tool_calls", None)
+    return {call.get("name") for call in (calls or []) if isinstance(call, dict) and call.get("name")}
+
+
+def _strip_foreign_tool_pairs(messages: list, bound_tool_names: set[str]) -> list:
+    """Drop an AIMessage's tool call(s) and their matching ToolMessage(s) when
+    none of them are in this agent's own bound tool set - e.g. the
+    supervisor's transfer_to_X handoff call and its result. (Quirk 2 above.)
+
+    The sub-agent doesn't need to see how it got here, so drop the pair
+    instead of tripping over it.
+    """
+    foreign_call_ids: set[str] = set()
+    kept = []
+    for message in messages:
+        if _message_type(message) == "ai":
+            names = _tool_call_names(message)
+            if names and not (names & bound_tool_names):
+                calls = message.get("tool_calls") if isinstance(message, dict) else getattr(message, "tool_calls", None)
+                foreign_call_ids.update(call.get("id") for call in calls if isinstance(call, dict) and call.get("id"))
+                continue
+        if _message_type(message) == "tool":
+            call_id = message.get("tool_call_id") if isinstance(message, dict) else getattr(message, "tool_call_id", None)
+            if call_id in foreign_call_ids:
+                continue
+        kept.append(message)
+    return kept
+
+
+def _drop_historical_ai_text(messages: list) -> list:
+    """Drop plain-text AI replies from completed turns; keep the human turns
+    and the full active turn. (Quirk 3 above.)
+
+    Historical AI text isn't needed to decide what to write; resolving who
+    "他"/"she" refers to only needs the human turns, which this keeps intact.
+    """
     latest_human = next(
         (index for index in range(len(messages) - 1, -1, -1) if _is_human(messages[index])),
         0,
     )
-    active_turn = messages[latest_human:]
-    memo_tools = {"list_memos", "search_memos", "create_memo", "search_contacts"}
-    used_tool = any(
-        _message_type(message) == "tool" and _message_name(message) in memo_tools
-        for message in active_turn
-    )
-    if used_tool:
-        return "none"
-    if is_memo_write_request(_latest_task(active_turn)):
-        return "create_memo"
-    # Deliberately "auto", not "required": the supervisor can hand off a
-    # question that has nothing to do with memos, and a forced tool call leaves
-    # the agent no way to say so - it has to invent a memo operation instead.
-    # Hallucinated "saved" claims are already covered by the forced create_memo
-    # above and by verify_memo_claims one layer up.
-    return "auto"
+    historical = [message for message in messages[:latest_human] if _message_type(message) != "ai"]
+    return [*historical, *messages[latest_human:]]
 
 
-class RequireMemosToolMiddleware(AgentMiddleware):
-    """Make one memo tool call mandatory, then stop the tool loop.
-
-    Prompt instructions alone are not an execution guarantee: a model can
-    still answer "saved" without calling ``create_memo``. On the first model
-    call of a user turn this middleware requires a tool (and selects
-    ``create_memo`` for explicit save requests). Once a memo tool result exists
-    in that turn, tools are disabled so the agent can only report the result.
-    """
-
-    @property
-    def name(self) -> str:
-        return "require_one_memos_tool"
-
-    def _request(self, request: ModelRequest) -> ModelRequest:
-        messages = list(request.messages)
-        return request.override(tool_choice=memo_tool_choice(messages))
-
-    def wrap_model_call(self, request, handler):
-        return handler(self._request(request))
-
-    async def awrap_model_call(self, request, handler):
-        return await handler(self._request(request))
-
+# ---------------------------------------------------------------------------
+# Write guards
+#
+# Prompt instructions alone are not an execution guarantee: the model can
+# answer "saved" without ever calling the write tool. Each guarded domain gets
+# the same two-part treatment, differing only by the policy in _WRITE_GUARDS:
+#
+#   - in the sub-agent: force a tool call until a write tool has actually run
+#     this turn (_guard_tool_choice + RequireWriteToolMiddleware)
+#   - in the supervisor: if the reply claims a write happened with no tool call
+#     at all, rewrite it into a real handoff (_verify_claims)
+#
+# These are heuristics, not guarantees. The structural alternative is the
+# hitl.py approach, where the graph checkpoint is the only execution authority
+# and the tool physically cannot run unapproved - see
+# docs/agent-architecture-review.md.
+# ---------------------------------------------------------------------------
 
 # Catches the supervisor claiming a memo was saved without ever calling the
 # memos_agent handoff tool. is_memo_write_request's routing bypass (see
 # routing.decide_route) only covers phrasing it recognizes; anything else
-# reaches the supervisor's own discretionary routing, which - like the tool
-# loop above - prompt text alone can't force to actually delegate.
+# reaches the supervisor's own discretionary routing, which prompt text alone
+# can't force to actually delegate.
 _MEMO_SAVE_CLAIM_RE = re.compile(
     r"(?=.*(?:memo|memos|备忘录|笔记))"
     r"(?=.*(?:已.{0,10}(?:保存|存|添加|记录|记住)|保存成功|添加成功|记录成功|"
@@ -264,86 +310,6 @@ _MEMO_SAVE_CLAIM_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-
-def verify_memo_claims(state: dict) -> dict:
-    """Supervisor post_model_hook: if the reply claims a memo was saved but
-    no tool was called this turn, rewrite it into a forced transfer_to_memos_agent
-    handoff instead of letting the false claim reach the user.
-    RequireMemosToolMiddleware then guarantees memos_agent makes a real tool call.
-
-    # ponytail: text-pattern match, not intent understanding - a stale
-    # "I already saved that yesterday" recap could false-positive into an
-    # extra handoff. Upgrade to checking against actual memo state if that
-    # ever shows up in practice.
-    """
-    messages = state["messages"]
-    last = messages[-1]
-    if not isinstance(last, AIMessage) or last.tool_calls:
-        return {}
-    if not _MEMO_SAVE_CLAIM_RE.search(last.text):
-        return {}
-    forced = last.model_copy(
-        update={
-            "content": "",
-            "tool_calls": [
-                {
-                    "name": "transfer_to_memos_agent",
-                    "args": {},
-                    "id": f"forced_memo_verify_{uuid.uuid4().hex}",
-                }
-            ],
-        }
-    )
-    return {"messages": [forced]}
-
-
-def contact_tool_choice(messages: list) -> str:
-    """Return the enforced tool choice for the active contact-agent turn.
-
-    contact_agent also handles read-only lookups ("who is X"), so this only
-    forces a tool on an explicit add/create-contact request - otherwise
-    "auto", the same reasoning as memo_tool_choice above.
-    """
-    latest_human = next(
-        (index for index in range(len(messages) - 1, -1, -1) if _is_human(messages[index])),
-        0,
-    )
-    active_turn = messages[latest_human:]
-    contact_write_tools = {"create_contact", "record_contact_fact"}
-    used_tool = any(
-        _message_type(message) == "tool" and _message_name(message) in contact_write_tools
-        for message in active_turn
-    )
-    if used_tool:
-        return "none"
-    if is_contact_write_request(_latest_task(active_turn)):
-        return "create_contact"
-    return "auto"
-
-
-class RequireContactToolMiddleware(AgentMiddleware):
-    """Make one contact-write tool call mandatory on an explicit add/create
-    request, then stop the tool loop. Mirrors RequireMemosToolMiddleware."""
-
-    @property
-    def name(self) -> str:
-        return "require_contact_tool_on_write"
-
-    def _request(self, request: ModelRequest) -> ModelRequest:
-        messages = list(request.messages)
-        return request.override(tool_choice=contact_tool_choice(messages))
-
-    def wrap_model_call(self, request, handler):
-        return handler(self._request(request))
-
-    async def awrap_model_call(self, request, handler):
-        return await handler(self._request(request))
-
-
-# Catches the supervisor claiming a contact was added without ever calling the
-# contact_agent handoff tool - the same false-completion failure mode as
-# verify_memo_claims above, for is_contact_write_request's routing bypass.
-#
 # Three independent lookaheads instead of one proximity window: natural
 # Chinese completion claims put the "成功"/"已" marker and the action verb in
 # either order with a variable number of words between them (e.g. "已将罗剑
@@ -358,26 +324,163 @@ _CONTACT_SAVE_CLAIM_RE = re.compile(
 )
 
 
-def verify_contact_claims(state: dict) -> dict:
-    """Supervisor post_model_hook: if the reply claims a contact was added but
-    no tool was called this turn, rewrite it into a forced transfer_to_contact_agent
-    handoff instead of letting the false claim reach the user.
-    RequireContactToolMiddleware then guarantees contact_agent makes a real tool call.
+@dataclass(frozen=True)
+class _WriteGuard:
+    """One domain's policy for forcing its write tool to actually run.
+
+    ``default_choice`` is the whole difference between the two domains:
+
+    - memos_agent defaults to "auto" because the supervisor legitimately hands
+      it read-only recall ("找一下我之前写的X"); only explicit save phrasing
+      forces a tool.
+    - contact_agent defaults to "required" because the supervisor only routes
+      person/relationship turns there, so a turn that isn't a lookup question
+      is a fact to write. Its `is_lookup_request` carves the questions back out.
     """
-    messages = state["messages"]
-    last = messages[-1]
+
+    agent: str
+    gate_tools: frozenset[str]
+    is_write_request: Callable[[str], bool]
+    claim_re: re.Pattern
+    default_choice: str
+    is_lookup_request: Callable[[str], bool] | None = None
+
+
+_WRITE_GUARDS: dict[str, _WriteGuard] = {
+    "memos_agent": _WriteGuard(
+        agent="memos_agent",
+        gate_tools=frozenset({"list_memos", "search_memos", "create_memo", "search_contacts"}),
+        is_write_request=is_memo_write_request,
+        claim_re=_MEMO_SAVE_CLAIM_RE,
+        default_choice="auto",
+    ),
+    "contact_agent": _WriteGuard(
+        agent="contact_agent",
+        gate_tools=frozenset({"create_contact", "record_contact_fact"}),
+        is_write_request=is_contact_write_request,
+        is_lookup_request=is_contact_lookup_request,
+        claim_re=_CONTACT_SAVE_CLAIM_RE,
+        default_choice="required",
+    ),
+}
+
+WRITE_GUARD_AGENTS = frozenset(_WRITE_GUARDS)
+
+
+def _guard_tool_choice(guard: _WriteGuard, messages: list) -> str:
+    """Return the enforced tool_choice for this guard's active turn.
+
+    Never returns a specific tool name - only "required"/"auto"/"none" - see
+    quirk 1 above. Which write tool to use is left to the system prompt.
+    """
+    latest_human = next(
+        (index for index in range(len(messages) - 1, -1, -1) if _is_human(messages[index])),
+        0,
+    )
+    active_turn = messages[latest_human:]
+    if any(
+        _message_type(message) == "tool" and _message_name(message) in guard.gate_tools
+        for message in active_turn
+    ):
+        # A tool already ran this turn: stop forcing so the agent can report it.
+        return "none"
+    task = _latest_task(active_turn)
+    # ponytail: both predicates are regex heuristics (see routing.py), so an
+    # unrecognized question phrasing can be mis-forced into a tool call.
+    # Upgrade to LLM intent classification if that shows up in practice.
+    if guard.is_lookup_request is not None and guard.is_lookup_request(task):
+        return "auto"
+    if guard.is_write_request(task):
+        return "required"
+    return guard.default_choice
+
+
+class RequireWriteToolMiddleware(AgentMiddleware):
+    """Force one write tool call per turn for a guarded domain, then stop.
+
+    Also applies the message-shaping workarounds for quirks 2 and 3, without
+    which the forced tool_choice is silently ignored by the current endpoint.
+    """
+
+    def __init__(self, agent: str):
+        super().__init__()
+        self.guard = _WRITE_GUARDS[agent]
+
+    @property
+    def name(self) -> str:
+        return f"require_write_tool_{self.guard.agent}"
+
+    def _request(self, request: ModelRequest) -> ModelRequest:
+        messages = _strip_foreign_tool_pairs(list(request.messages), _AGENT_TOOLS[self.guard.agent])
+        choice = _guard_tool_choice(self.guard, messages)
+        if choice not in ("auto", "none"):
+            messages = _drop_historical_ai_text(messages)
+        if not any(_is_human(message) for message in messages):
+            # Defensive floor: a payload with no human turn at all isn't a
+            # legitimate exchange and some providers 400 on it (seen live
+            # during an unbounded verify-retry loop - see _MAX_VERIFY_RETRIES).
+            # Fall back to the untouched messages rather than send that.
+            return request.override(tool_choice=choice)
+        return request.override(messages=messages, tool_choice=choice)
+
+    def wrap_model_call(self, request, handler):
+        return handler(self._request(request))
+
+    async def awrap_model_call(self, request, handler):
+        return await handler(self._request(request))
+
+
+# A stuck sub-agent (its tool_choice forcing silently ignored - see the
+# Provider quirks note above) can keep producing the same false "done" claim
+# forever: each retry hands off, the sub-agent answers in prose again, this
+# hook fires again. Verified live (2026-08-19): with no cap this looped
+# dozens of times and eventually crashed the request rather than terminate.
+_MAX_VERIFY_RETRIES = 2
+
+
+def _verify_retry_count(guard: _WriteGuard, messages: list) -> int:
+    latest_human = next(
+        (index for index in range(len(messages) - 1, -1, -1) if _is_human(messages[index])),
+        0,
+    )
+    prefix = f"forced_{guard.agent}_verify_"
+    count = 0
+    for message in messages[latest_human:]:
+        if _message_type(message) != "ai":
+            continue
+        calls = message.get("tool_calls") if isinstance(message, dict) else getattr(message, "tool_calls", None)
+        if any((call.get("id") or "").startswith(prefix) for call in (calls or []) if isinstance(call, dict)):
+            count += 1
+    return count
+
+
+def _verify_claims(guard: _WriteGuard, state: dict) -> dict:
+    """Supervisor post_model_hook: if the reply claims this domain's write
+    happened but no tool was called at all, rewrite it into a forced handoff
+    rather than letting the false claim reach the user.
+    RequireWriteToolMiddleware then makes the sub-agent call a real tool.
+
+    # ponytail: text-pattern match, not intent understanding - a stale
+    # "I already saved that yesterday" recap could false-positive into an
+    # extra handoff. Upgrade to checking actual domain state if it shows up.
+    """
+    last = state["messages"][-1]
     if not isinstance(last, AIMessage) or last.tool_calls:
         return {}
-    if not _CONTACT_SAVE_CLAIM_RE.search(last.text):
+    if not guard.claim_re.search(last.text):
+        return {}
+    if _verify_retry_count(guard, state["messages"]) >= _MAX_VERIFY_RETRIES:
+        # Give up forcing and let this (possibly false) claim through rather
+        # than loop forever - the alternative to a wrong "done" is a hang.
         return {}
     forced = last.model_copy(
         update={
             "content": "",
             "tool_calls": [
                 {
-                    "name": "transfer_to_contact_agent",
+                    "name": f"transfer_to_{guard.agent}",
                     "args": {},
-                    "id": f"forced_contact_verify_{uuid.uuid4().hex}",
+                    "id": f"forced_{guard.agent}_verify_{uuid.uuid4().hex}",
                 }
             ],
         }
@@ -386,10 +489,27 @@ def verify_contact_claims(state: dict) -> dict:
 
 
 def verify_agent_claims(state: dict) -> dict:
-    """Supervisor post_model_hook: dispatch to every known false-completion
-    check (memo saves, contact adds) and force a real handoff on the first
-    one that matches."""
-    result = verify_memo_claims(state)
-    if result:
-        return result
-    return verify_contact_claims(state)
+    """Supervisor post_model_hook: run every domain's false-completion check
+    and force a real handoff on the first one that matches."""
+    for guard in _WRITE_GUARDS.values():
+        result = _verify_claims(guard, state)
+        if result:
+            return result
+    return {}
+
+
+# Names kept for existing callers and tests; the policy lives in _WRITE_GUARDS.
+def memo_tool_choice(messages: list) -> str:
+    return _guard_tool_choice(_WRITE_GUARDS["memos_agent"], messages)
+
+
+def contact_tool_choice(messages: list) -> str:
+    return _guard_tool_choice(_WRITE_GUARDS["contact_agent"], messages)
+
+
+def verify_memo_claims(state: dict) -> dict:
+    return _verify_claims(_WRITE_GUARDS["memos_agent"], state)
+
+
+def verify_contact_claims(state: dict) -> dict:
+    return _verify_claims(_WRITE_GUARDS["contact_agent"], state)

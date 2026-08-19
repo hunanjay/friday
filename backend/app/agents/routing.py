@@ -46,6 +46,11 @@ _MEMO_WRITE_RE = re.compile(
     r")",
     re.IGNORECASE | re.DOTALL,
 )
+_CONTACT_LOOKUP_RE = re.compile(
+    r"(?:是谁|谁(?:是|喜欢|负责|在|有)|查一下|查下|查询|搜索|找一下|介绍一下|"
+    r"who\s+is|which\s+(?:one|contact|person)|search\s+for|find\s+.*contact|\?|？)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,11 @@ def is_memo_write_request(message: str) -> bool:
 def is_contact_write_request(message: str) -> bool:
     """Recognize an explicit request to create/add a new structured contact."""
     return bool(_CONTACT_WRITE_RE.search(message))
+
+
+def is_contact_lookup_request(message: str) -> bool:
+    """Recognize a question about a person, as opposed to a statement about one."""
+    return bool(_CONTACT_LOOKUP_RE.search(message))
 
 
 def decide_route(message: str) -> RouteDecision:

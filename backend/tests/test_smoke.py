@@ -732,7 +732,9 @@ check(
 check("mail context keeps active tool chain intact", any(isinstance(message, ToolMessage) and message.name == "list_inbox" for message in mail_context))
 check(
     "memo save request forces create_memo",
-    memo_tool_choice([{"role": "user", "content": "帮我记录下来吧"}]) == "create_memo",
+    # "required", not the specific tool name: naming one function is silently
+    # ignored by the current LLM endpoint (see context.py "Provider quirks").
+    memo_tool_choice([{"role": "user", "content": "帮我记录下来吧"}]) == "required",
 )
 check(
     "memo read request leaves the tool choice open",
@@ -1099,9 +1101,12 @@ check(
 )
 
 check(
-    "contact tool_choice forces create_contact on an explicit write turn with no tool call yet",
+    "contact tool_choice forces a tool call on an explicit write turn with no tool call yet",
+    # "required", not the specific tool name: naming one specific function is
+    # silently ignored by this deployment's OpenAI-compatible proxy (verified
+    # live), while "required" is honored.
     contact_tool_choice([HumanMessage(content="create a new contact for me, name 罗剑")])
-    == "create_contact",
+    == "required",
 )
 check(
     "contact tool_choice defers to auto once a contact-write tool already ran this turn",
