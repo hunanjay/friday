@@ -130,6 +130,7 @@
     "emailDeleted": "Email moved to Deleted Items after your confirmation.",
     "agents": {
       "mail_agent": { "label": "Mail", "desc": "Search, read, and send email" },
+      "contact_agent": { "label": "Contacts", "desc": "Find and add contacts" },
       "calendar_agent": { "label": "Calendar", "desc": "Schedule and manage events" },
       "memos_agent": { "label": "Memos", "desc": "Save and search notes" },
       "github_agent": { "label": "Daily Report", "desc": "Generate a report from GitHub commits" }

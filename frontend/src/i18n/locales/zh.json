@@ -130,6 +130,7 @@
     "emailDeleted": "您确认后，邮件已移至“已删除”。",
     "agents": {
       "mail_agent": { "label": "邮件", "desc": "查找、阅读、发送邮件" },
+      "contact_agent": { "label": "联系人", "desc": "查找、添加联系人" },
       "calendar_agent": { "label": "日历", "desc": "安排和管理日程" },
       "memos_agent": { "label": "便签", "desc": "保存和查找笔记" },
       "github_agent": { "label": "日报", "desc": "根据 GitHub 提交生成日报" }

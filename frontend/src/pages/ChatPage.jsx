@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X } from '../components/common/Icons';
+import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 import ApprovalCard from '../components/common/ApprovalCard';
 import {
@@ -15,7 +15,7 @@ import { parseAgentCommand, parseAgentPrefix } from '../utils/agentCommand';
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Mirrors the sub-agent names in backend/app/agents/supervisor.py.
-const AGENT_ICONS = { mail_agent: Mail, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
+const AGENT_ICONS = { mail_agent: Mail, contact_agent: UserPlus, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
 const AGENT_IDS = Object.keys(AGENT_ICONS);
 const isActionResolved = status => Boolean(status && status !== 'pending');
 

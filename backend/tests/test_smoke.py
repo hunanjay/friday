@@ -630,6 +630,15 @@ check(
     "memos agent still exposes its own read and write tools",
     {"list_memos", "search_memos", "create_memo"} <= _returned_tool_names("make_memos_tools"),
 )
+check(
+    "contact agent exposes its own read and write tools",
+    {"search_contacts", "create_contact", "record_contact_fact", "extract_contact_memory"}
+    <= _returned_tool_names("make_contact_tools"),
+)
+check(
+    "structured contact writes moved off the mail agent",
+    "create_contact" not in _returned_tool_names("make_mail_tools"),
+)
 from app.agents.context import _AGENT_TOOLS  # noqa: E402
 
 check(
@@ -1061,6 +1070,94 @@ _unrelated_reply = AIMessage(content="不客气！")
 check(
     "an unrelated plain-text reply is left untouched",
     verify_memo_claims({"messages": [_unrelated_reply]}) == {},
+)
+
+
+# ---------------------------------------------------------------------------
+# 14b. contact agent routing and claim verification
+# ---------------------------------------------------------------------------
+
+section("14b. contact agent routing and claim verification")
+
+from app.agents.context import _CONTACT_SAVE_CLAIM_RE, contact_tool_choice, verify_contact_claims  # noqa: E402
+from app.agents.routing import AGENT_NAMES, is_contact_write_request  # noqa: E402
+
+check("contact_agent is a known agent", "contact_agent" in AGENT_NAMES)
+
+contact_route = decide_route("can you create a new contact for me? name: 罗剑")
+check(
+    "explicit new-contact request routes directly to contact_agent",
+    contact_route.agent_name == "contact_agent" and contact_route.source == "contact_write",
+)
+check(
+    "Chinese new-contact phrasing is also recognized",
+    is_contact_write_request("帮我新建联系人，姓名张明"),
+)
+check(
+    "a plain contact lookup is not treated as a write request",
+    not is_contact_write_request("张明是谁？"),
+)
+
+check(
+    "contact tool_choice forces create_contact on an explicit write turn with no tool call yet",
+    contact_tool_choice([HumanMessage(content="create a new contact for me, name 罗剑")])
+    == "create_contact",
+)
+check(
+    "contact tool_choice defers to auto once a contact-write tool already ran this turn",
+    contact_tool_choice(
+        [
+            HumanMessage(content="create a new contact for me, name 罗剑"),
+            ToolMessage(content="Created new contact '罗剑' (id: 1).", name="create_contact", tool_call_id="t1"),
+        ]
+    )
+    == "none",
+)
+check(
+    "contact tool_choice stays auto for a plain lookup",
+    contact_tool_choice([HumanMessage(content="张明是谁？")]) == "auto",
+)
+
+check(
+    "contact claim regex matches a hallucinated Chinese add confirmation",
+    bool(_CONTACT_SAVE_CLAIM_RE.search("已将罗剑的联系人信息成功添加")),
+)
+check(
+    "contact claim regex matches an English add confirmation",
+    bool(_CONTACT_SAVE_CLAIM_RE.search("The contact information for Luo Jian has been successfully added.")),
+)
+check(
+    "contact claim regex ignores unrelated replies",
+    not _CONTACT_SAVE_CLAIM_RE.search("今天天气不错，有什么我可以帮您的吗？"),
+)
+check(
+    "contact claim regex ignores contact mentions without a save claim",
+    not _CONTACT_SAVE_CLAIM_RE.search("你想让我添加张明的联系人信息吗？"),
+)
+
+_hallucinated_contact_reply = AIMessage(
+    content="The contact information for 罗剑 has been successfully added.", id="ai-2"
+)
+_forced_contact = verify_contact_claims({"messages": [_hallucinated_contact_reply]})
+check(
+    "a hallucinated contact-add claim with no tool call is rewritten into a forced handoff",
+    bool(_forced_contact.get("messages"))
+    and _forced_contact["messages"][0].tool_calls
+    and _forced_contact["messages"][0].tool_calls[0]["name"] == "transfer_to_contact_agent",
+)
+check(
+    "a real contact handoff call is left untouched",
+    verify_contact_claims(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "transfer_to_contact_agent", "args": {}, "id": "call-1"}],
+                )
+            ]
+        }
+    )
+    == {},
 )
 
 

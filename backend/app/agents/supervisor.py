@@ -10,10 +10,21 @@ from langgraph.graph import START
 from langgraph_supervisor import create_handoff_tool, create_supervisor
 
 from app.agents.checkpointer import get_checkpointer
-from app.agents.context import RequireMemosToolMiddleware, ScopedContextMiddleware, verify_memo_claims
+from app.agents.context import (
+    RequireContactToolMiddleware,
+    RequireMemosToolMiddleware,
+    ScopedContextMiddleware,
+    verify_agent_claims,
+)
 from app.agents.hitl import make_hitl_middleware
 from app.agents.routing import AGENT_NAMES
-from app.agents.tools import make_calendar_tools, make_github_tools, make_mail_tools, make_memos_tools
+from app.agents.tools import (
+    make_calendar_tools,
+    make_contact_tools,
+    make_github_tools,
+    make_mail_tools,
+    make_memos_tools,
+)
 from app.core.config import settings
 from app.infrastructure.db.repositories.user_settings import DEFAULT_ASSISTANT_NAME
 
@@ -74,9 +85,13 @@ def _today_str() -> str:
 # api/agent.py comment on the "/agent_name" tag bypass).
 _ROUTING_HINTS = {
     "mail_agent": (
-        "Route here for anything about the user's email/inbox, contacts, or people/relationships: "
-        "looking up who someone is (e.g. '张明是谁', '查一下张明', 'who is Zhang Ming'), finding contact info, "
-        "searching contacts/memory facts, listing/reading emails, sending new emails, marking read/unread, or deleting existing ones."
+        "Route here for anything about the user's email/inbox: listing/reading emails, "
+        "sending new emails, marking read/unread, or deleting existing ones."
+    ),
+    "contact_agent": (
+        "Route here for anything about people/relationships: looking up who someone is "
+        "(e.g. '张明是谁', '查一下张明', 'who is Zhang Ming'), finding contact info, searching "
+        "contacts/memory facts, or explicitly adding/creating a new contact."
     ),
     "calendar_agent": (
         "Route here for anything about scheduling: listing, creating, or deleting "
@@ -160,19 +175,15 @@ def build_agent(
             middleware=middleware_for(tools),
             system_prompt=(
                 name_line +
-                "You handle the user's email and Personal Contact Relationship Brain. "
-                "When asked about any person, contact, investor, colleague, or relationship (e.g. '张明是谁', '查一下张明', '谁喜欢喝普洱茶'), "
-                "ALWAYS call search_contacts(query) first to look up their identity, company, job title, tags, and memory facts. "
-                "Never claim you don't know or don't have access to personal information without calling search_contacts first. "
-                "When recording a casual memory fact, use record_contact_fact. "
-                "Every contact fact returned by search_contacts carries a 'source:' marker — cite it when you state the fact, "
-                "and never invent a contact fact that the tool did not return. "
+                "You handle the user's email. "
                 "When the user asks you to send something they already wrote down - their "
                 "日报/daily report, notes, a summary - call search_memos FIRST and build the "
                 "email body from what it returns. Never send a placeholder body such as "
                 "'please find the report attached': you cannot attach anything, so the "
                 "report text itself must be in the body. If search_memos finds nothing, say "
                 "so and ask, instead of inventing content. "
+                "If the user names a recipient by name rather than email address, call "
+                "search_contacts(query) to resolve it before sending; never invent an address. "
                 "For emails: listing, searching, and reading messages, "
                 "show subjects as the provided internal Friday links; in user-visible email lists, "
                 "show the linked subject, sender, preview, and date when available, but never expose "
@@ -186,6 +197,29 @@ def build_agent(
                 "pause it. Never claim completion until the resumed tool result confirms it. "
                 "If a ToolMessage says the user rejected a call or it was not executed, stop: "
                 "do not call that tool or any other mutation tool again in the same turn."
+            ),
+        )
+    if name == "contact_agent":
+        tools = make_contact_tools(user_id, session_id)
+        middleware = middleware_for(tools)
+        middleware.append(RequireContactToolMiddleware())
+        return create_agent(
+            model,
+            tools=tools,
+            name="contact_agent",
+            middleware=middleware,
+            system_prompt=(
+                name_line +
+                "You manage the user's Personal Contact Relationship Brain. "
+                "When asked about any person, contact, investor, colleague, or relationship (e.g. '张明是谁', '查一下张明', '谁喜欢喝普洱茶'), "
+                "ALWAYS call search_contacts(query) first to look up their identity, company, job title, tags, and memory facts. "
+                "Never claim you don't know or don't have access to personal information without calling search_contacts first. "
+                "When the user explicitly asks to add/create/save a new contact with structured details "
+                "(name plus company/phone/email/location/job title), call create_contact — never claim a "
+                "contact was added without calling it. When recording a single casual fact about an existing "
+                "contact, use record_contact_fact instead. "
+                "Every contact fact returned by search_contacts carries a 'source:' marker — cite it when you state the fact, "
+                "and never invent a contact fact that the tool did not return."
             ),
         )
     if name == "calendar_agent":
@@ -293,7 +327,7 @@ def build_supervisor(
         model=model,
         tools=handoff_tools,
         pre_model_hook=_trim_history,
-        post_model_hook=verify_memo_claims,
+        post_model_hook=verify_agent_claims,
         prompt=(
             f"You are {assistant_name}, the user's assistant. Mention your name only "
             f"when the user asks who you are. Never reply with your name by itself - "
