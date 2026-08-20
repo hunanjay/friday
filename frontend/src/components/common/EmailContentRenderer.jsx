@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { mailMessageUrl } from '../../utils/mailApi';
 
 const INJECTED_STYLE_ATTRIBUTE = 'data-email-content-renderer-style';
 const MAX_IFRAME_WIDTH = 2400;
-const API_URL = import.meta.env.VITE_API_URL || '';
 const INLINE_IMAGE_CACHE_MAX_ENTRIES = 40;
 const INLINE_IMAGE_CACHE_MAX_BYTES = 20 * 1024 * 1024;
 const inlineImageCache = new Map();
@@ -45,7 +45,7 @@ const loadInlineImage = (messageId, attachmentId, authToken) => {
   if (existingRequest) return existingRequest;
 
   const request = fetch(
-    `${API_URL}/api/graph/mail/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/download`,
+    mailMessageUrl(messageId, `/attachments/${encodeURIComponent(attachmentId)}/download`),
     { headers: { Authorization: `Bearer ${authToken}` } }
   )
     .then(response => {
