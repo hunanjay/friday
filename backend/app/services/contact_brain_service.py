@@ -1,10 +1,10 @@
 import json
 import logging
-import os
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
+from app.core.config import settings
+from app.core.llm import make_chat_model
 from app.infrastructure.db.repositories import contacts as contacts_repo
 
 logger = logging.getLogger(__name__)
@@ -42,16 +42,7 @@ class ContactBrainService:
         Calls LLM to extract structured profile facts & tags from raw text,
         then updates/inserts into PostgreSQL normalized tables (`contacts`, `contact_profiles`, `contact_tags`, `contact_interactions`).
         """
-        api_key = os.environ.get("OPENAI_API_KEY")
-        base_url = os.environ.get("OPENAI_BASE_URL")
-        model_name = os.environ.get("DRAFT_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
-
-        llm = ChatOpenAI(
-            api_key=api_key or "placeholder",
-            base_url=base_url,
-            model=model_name,
-            temperature=0.1,
-        )
+        llm = make_chat_model(model=settings.DRAFT_MODEL, temperature=0.1)
 
         try:
             res = await llm.ainvoke([

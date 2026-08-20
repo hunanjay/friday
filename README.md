@@ -1,266 +1,92 @@
 <div align="center">
 
-# Friday (Dora)
-### Self-Hostable Personal AI Workspace & Multi-Agent Copilot
+# Friday
 
-  <p align="center">
-    An open-source, bilingual (zh/en) personal workspace integrating <b>Outlook Mail</b>, <b>Calendar</b>, <b>Qdrant-powered RAG Memos</b>, and <b>GitHub Work Analytics</b> through an explicit multi-agent orchestration architecture. Currently in active alpha.
-  </p>
+### 你的 AI 关系大脑
 
-  <p align="center">
-    <a href="https://github.com/hunanjay/friday/actions/workflows/ci.yml"><img src="https://github.com/hunanjay/friday/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://github.com/hunanjay/friday/issues"><img src="https://img.shields.io/github/issues/hunanjay/friday" alt="Issues"></a>
-    <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.139.0-009688.svg?logo=fastapi&logoColor=white" alt="FastAPI"></a>
-    <a href="https://langchain-ai.github.io/langgraph/"><img src="https://img.shields.io/badge/LangGraph-1.2.7-FF6F00.svg?logo=langchain&logoColor=white" alt="LangGraph"></a>
-    <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19.0-61DAFB.svg?logo=react&logoColor=black" alt="React 19"></a>
-    <a href="https://qdrant.tech/"><img src="https://img.shields.io/badge/Qdrant-Hybrid_Vector_DB-DC2626.svg?logo=qdrant&logoColor=white" alt="Qdrant"></a>
-    <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
-  </p>
+让每一次邮件往来、会议记录和随手想法，都成为下一次更好沟通的底气。
 
-  <p align="center">
-    <a href="./DEPLOY.md">📦 部署指南</a>
-    &nbsp;·&nbsp;
-    <a href="./CONTRIBUTING.md">🤝 贡献规范</a>
-    &nbsp;·&nbsp;
-    <a href="./SECURITY.md">🛡️ 安全策略</a>
-    &nbsp;·&nbsp;
-    <a href="./TODO.md">🛣️ Roadmap</a>
-    &nbsp;·&nbsp;
-    <a href="https://github.com/hunanjay/friday/issues">🐛 报告 Bug</a>
-  </p>
+[English](./README_EN.md)
+
+[开始部署](./DEPLOY.md) · [产品方向](./docs/产品定位.md) · [贡献项目](./CONTRIBUTING.md) · [反馈问题](https://github.com/hunanjay/friday/issues)
+
+[![CI](https://github.com/hunanjay/friday/actions/workflows/ci.yml/badge.svg)](https://github.com/hunanjay/friday/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 </div>
 
 ---
 
-## 📖 Overview
+## 你不该靠记忆和表格来维护关系
 
-**Friday** (branded in UI as **Dora**) is an open-source, self-hostable personal productivity workspace in active alpha. Built on **FastAPI**, a **LangGraph multi-agent supervisor pattern**, and **React 19**, it connects Microsoft Graph and GitHub with personal knowledge management through Qdrant RAG. Its agent layer applies explicit routing and bounded, domain-specific context instead of sharing an unbounded cross-domain conversation history.
+重要的人越来越多，真正重要的细节却很容易消失：对方最近在忙什么、上次聊到哪里、何时该跟进、怎样开口才自然。传统通讯录只保存姓名和电话；传统 CRM 又要求你不停填表，最后往往变成一座没人更新的数据库。
 
-> **Project status: Alpha.** APIs, database schemas, and deployment details may change. Use a test Microsoft tenant/account when evaluating the project, and review its integration permissions before using sensitive data.
+Friday 是一个可自托管的个人 AI 工作空间，核心是帮助你建立并使用自己的**关系大脑**。它把邮件、日历、联系人、笔记和日常对话放在同一个工作台，让信息自然沉淀，让下一步行动更清楚。
 
-Design goals include **explicit control-flow scoping**, **deterministic agent routing**, **reusable write approval**, and **stateful multi-agent turn persistence**.
+> **项目状态：Alpha。** Friday 正在快速迭代，适合希望参与产品共创的早期用户。连接生产账号前，请先了解所需权限并评估自己的数据使用要求。
 
----
+## Friday 能帮你做什么
 
-## 🏗️ System Architecture
+### 记住每段关系，而不是只记住联系方式
 
-The workspace separates client-side presentation, agent orchestration, and persistent storage integrations.
+连接 Outlook 通讯录，或直接粘贴聊天记录、会议纪要和随手记。Friday 会将其中值得保留的信息整理为联系人档案、标签和时间线。你可以随时查看、编辑或删除这些内容，保持信息由你掌控。
 
-```mermaid
-graph TD
-    subgraph ClientLayer ["Client Layer (Presentation & Auth)"]
-        FE["React 19 + Vite SPA (Port 3005)"]
-        CTX["WorkspaceContext (State Engine)"]
-        SupaAuth["Supabase Auth (Microsoft Entra Provider)"]
-    end
+### 用一句话找到对的人和上下文
 
-    subgraph AgentRuntime ["Agent Orchestration Runtime (FastAPI + LangGraph)"]
-        SSE["SSE Streaming Endpoint (/api/agent/chat)"]
-        SupAgent["LangGraph Supervisor Router"]
-        
-        subgraph SubAgents ["Specialized Domain Sub-Agents"]
-            MailA["Mail Agent (Outlook)"]
-            CalA["Calendar Agent (Teams/Events)"]
-            MemoA["Memos Agent (RAG)"]
-            GHA["GitHub Agent (Analytics)"]
-        end
+不必翻邮箱、聊天记录和备忘录。直接问 Friday：
 
-        Gate["LangChain HumanInTheLoopMiddleware"]
-    end
+- “帮我找最近在融资的医疗行业联系人。”
+- “我上次和王总聊到了什么？”
+- “下周去北京，哪些人值得约见？”
 
-    subgraph PersistenceLayer ["Persistence & External Services Layer"]
-        Postgres[(PostgreSQL / langgraph-checkpoint)]
-        QdrantDB[(Qdrant Vector DB / FastEmbed)]
-        MSGraph["Microsoft Graph API (OAuth2)"]
-        GHAPI["GitHub REST API"]
-    end
+它会从你的工作内容与关系记忆中找回线索，帮你在行动前快速进入状态。
 
-    FE -->|Authenticate| SupaAuth
-    FE -->|SSE Event Stream| SSE
-    SSE --> SupAgent
-    
-    SupAgent -->|Deterministic / LLM Routing| SubAgents
-    MailA <-->|Email Read/Draft| MSGraph
-    CalA <-->|Event Read/Write| MSGraph
-    GHA <-->|Activity Logs| GHAPI
-    MemoA <-->|Hybrid Vector Search| QdrantDB
-    
-    SubAgents -->|Persist Turn Checkpoints| Postgres
-    SubAgents -->|Tool Call| Gate
-    Gate -->|LangGraph interrupt| Postgres
-    FE -->|Command resume: approve/reject| Gate
-    Gate -->|Approved Tool Execution| MSGraph
-```
+### 把日常沟通变成可执行的下一步
 
----
+在同一个工作台里处理邮件、查看日历、记录备忘和待办。你可以让 Friday 起草回复、梳理会前要点、记录想法或安排事项；涉及发送邮件、修改日程等操作时，它会先展示内容，等待你确认后再执行。
 
-## ⚙️ Core Technical Capabilities
+### 让输入顺着你的习惯发生
 
-### 1. Multi-Agent Supervisor & Deterministic Routing Pipeline
-- **Orchestration**: Implements `langgraph-supervisor` to coordinate four isolated domain-specific sub-agents (`mail_agent`, `calendar_agent`, `memos_agent`, `github_agent`).
-- **Routing Policy**: A single explicit policy applies slash-command routing first, deterministic email-send routing second, then falls back to the supervisor. This keeps the public entry paths consistent while preserving shared state checkpoints.
-- **Context Management**: Conversation turns are persisted in PostgreSQL via `langgraph-checkpoint-postgres`. The supervisor receives a 20k-token trimmed history; each domain agent receives a 10k-token scoped task brief, its current tool-call chain, and only relevant same-domain prior turns.
+Friday 不要求你重新学习一套录入流程。邮件往来、联系人同步、聊天内容与笔记，都可以成为关系记忆的来源。重点不是“填了多少资料”，而是当你需要时，能否得到可靠且有用的提醒与答案。
 
-### 2. LangChain Human-in-the-Loop (HITL)
-For policy-controlled agent write operations:
-- Domain agents use LangChain's official `HumanInTheLoopMiddleware` with `interrupt_on` policies for email and calendar mutations.
-- The middleware pauses the actual tool call before execution and persists the interrupt in the existing PostgreSQL LangGraph checkpoint.
-- The frontend renders the interrupt through a trusted local preview adapter. Decisions invoke `/api/agent/actions/{id}/decisions/{decision}`, which resumes the same graph thread with `Command(resume=...)`.
-- Only an approved resume reaches the original tool implementation. Rejection produces a tool error result and the write is skipped.
-- Resolved card snapshots are stored in a presentation-only audit table so confirmed cards survive refreshes; this table never authorizes or executes a tool.
+## 一个典型的使用过程
 
-Lower-risk local writes such as memo creation remain outside the mandatory gate by policy. Direct user actions in first-party pages are also separate from model-triggered approvals.
+1. 连接邮箱和通讯录，或导入一段已有的聊天记录。
+2. Friday 为联系人建立基础档案，并持续归纳关键事实与互动脉络。
+3. 在准备会议、跟进机会或回复邮件时，用自然语言询问、检索和起草。
+4. 审阅后确认重要动作，让沟通既高效也始终由你做主。
 
-### 3. Hybrid RAG Knowledge Engine
-- **Vector Infrastructure**: Powered by **Qdrant** combined with **FastEmbed** ONNX embeddings.
-- **Hybrid Retrieval**: Merges dense semantic vector similarity with BM25 keyword matching for high-precision personal memo retrieval.
+## 为哪些人而做
 
-### 4. OAuth Identity & Token Lifecycle
-- **Identity Provider**: Supabase Auth coupled with Microsoft Entra (Azure AD) OAuth2.
-- **Silent Refresh Protocol**: Server-side token store (`token_store.py`) handles token refresh cycles out-of-band via `httpx` async connection pools, maintaining un-interrupted Graph API access without client-side credential exposure.
+- **销售与商务人员**：在每次跟进前快速回忆客户背景、合作进度和可聊的话题。
+- **投资人和创业者**：把分散的人脉信息串起来，减少错过关键关系与机会。
+- **管理者与高管**：在高频会议和沟通中保留上下文，让关系维护更从容。
+- **重视长期关系的知识工作者**：把零散的互动转化为可检索、可延续的个人记忆。
+
+## 现在已包含
+
+| 场景 | 你可以做什么 |
+| --- | --- |
+| 关系管理 | 同步和管理联系人，查看 AI 整理的档案、标签与互动记忆。 |
+| 邮件与日程 | 在工作台查看邮件和日历，并在确认后执行关键沟通操作。 |
+| AI 对话 | 用自然语言查询人脉、邮件、日程和笔记，获得下一步建议。 |
+| 个人工作台 | 集中查看待办、便签和需要留意的工作信息。 |
+| 个性化 | 支持中英文界面，并可设置助手名称、形象和表达风格。 |
+
+## 接下来
+
+我们正在把 Friday 从“帮你找回信息”推进到“主动帮你维护关系”：更合适的联系时机提醒、会前准备、跨来源检索，以及更完整的关系维护建议都会陆续到来。完整方向见 [产品路线图](./TODO.md)。
+
+## 开始使用
+
+Friday 是开源、可自托管的项目。部署需要准备自己的账号与服务配置；详细步骤、环境要求和常见问题请查看 [部署指南](./DEPLOY.md)。
+
+如果你想参与产品共创、提交改进或报告问题，欢迎阅读 [贡献规范](./CONTRIBUTING.md)、[安全策略](./SECURITY.md)，或直接在 [GitHub Issues](https://github.com/hunanjay/friday/issues) 留言。
+
+## 隐私与控制
+
+关系数据很私密，因此 Friday 的原则很简单：你决定接入哪些数据，也决定哪些动作可以发生。项目支持自托管；涉及发送邮件、修改日程等重要操作时，系统会先请求你的确认。请在使用前审阅所连接服务的权限与自己的部署配置。
 
 ---
 
-## 📂 Project Structure
-
-```
-friday/
-├── backend/                        # FastAPI & LangGraph Backend Service
-│   ├── app/
-│   │   ├── agents/                 # Multi-agent graph & tool definitions
-│   │   │   ├── hitl.py             # Official HITL policy & UI adapter
-│   │   │   ├── supervisor.py       # Single-entry LangGraph supervisor router
-│   │   │   └── tools.py            # Agent tool schemas
-│   │   ├── api/                    # REST & SSE API endpoints
-│   │   │   ├── agent.py            # Chat streaming & action confirmation
-│   │   │   └── auth.py             # Microsoft Graph token exchange
-│   │   ├── infrastructure/         # External integrations & Persistence
-│   │   │   ├── db/                 # Postgres connection pools & token stores
-│   │   │   ├── graph/client.py     # Microsoft Graph Async HTTP client
-│   │   │   └── vector_store.py     # Qdrant RAG client
-│   │   └── main.py                 # Application lifecycle & middleware
-│   ├── requirements.txt            # Python dependencies
-│   └── Dockerfile
-├── frontend/                       # React 19 Frontend SPA
-│   ├── src/
-│   │   ├── components/             # Reusable UI components & Action Widgets
-│   │   ├── context/                # Global WorkspaceContext & ThemeContext
-│   │   ├── i18n/                   # react-i18next locale files (zh/en)
-│   │   ├── pages/                  # Page routes (Email, Calendar, Chat, Memos)
-│   │   └── router/                 # React Router configuration
-│   └── vite.config.js              # Vite build configuration
-├── supabase/                       # Supabase configuration & migrations
-├── TODO.md                         # Product Roadmap & Technical Backlog
-└── README.md
-```
-
----
-
-## ⚡ Quick Start
-
-### Prerequisites
-- **Python**: `3.11` or higher
-- **Node.js**: `v18.0` or higher
-- **PostgreSQL**: `v14+` with binary psycopg pool support
-- **Qdrant**: Local vector engine or Qdrant Cloud cluster
-
-### 1. Environment Configuration
-
-Copy environment template files in both `backend` and `frontend` directories:
-
-```bash
-# Backend Environment Setup
-cp backend/.env.example backend/.env
-
-# Frontend Environment Setup
-cp frontend/.env.example frontend/.env
-```
-
-Key environment variables to populate in `backend/.env`:
-- `OPENAI_API_KEY` & `OPENAI_BASE_URL`
-- `EMBEDDING_MODEL` & `EMBEDDING_DIMENSIONS` (for 智谱 use `embedding-3` and `1536`)
-- `AZURE_CLIENT_ID` & `AZURE_CLIENT_SECRET`
-- `SUPABASE_URL` & `SUPABASE_SERVICE_ROLE_KEY`
-- `CHECKPOINT_DB_URL`
-- `QDRANT_URL` & `QDRANT_API_KEY`
-
-### 2. Backend Installation & Execution
-
-```bash
-cd backend
-
-# Create & activate virtual environment
-python -m venv .venv
-source .venv/bin/activate   # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run development server (Port 8005)
-uvicorn app.main:app --reload --port 8005
-```
-
-*For Agent Graph debugging, execute `langgraph dev` within `backend/` to open LangGraph Studio.*
-
-### 3. Frontend Installation & Execution
-
-```bash
-cd frontend
-
-# Install Node modules
-npm install
-
-# Start Vite dev server (Port 3005)
-npm run dev
-```
-
-Navigate to `http://localhost:3005` in your browser.
-
----
-
-### Quality Checks
-
-```bash
-# Backend smoke tests
-cd backend
-.venv/bin/python tests/test_smoke.py
-
-# Frontend lint, tests, and production build
-cd frontend
-npm run lint
-npm test
-npm run build
-```
-
-GitHub Actions runs these checks for every push and pull request.
-
----
-
-## 🛣️ Development Roadmap
-
-Refer to [TODO.md](./TODO.md) or [GitHub Issue #1](https://github.com/hunanjay/friday/issues/1) for full feature specifications.
-
-- [x] **Core Orchestration**: LangGraph Supervisor + Checkpoint Persistence
-- [x] **Integrations**: Microsoft Graph API (Mail/Calendar) & GitHub REST API
-- [x] **RAG Subsystem**: Qdrant + FastEmbed Hybrid Search
-- [x] **HITL Gate**: LangChain HumanInTheLoopMiddleware + durable LangGraph interrupts
-- [ ] 🚧 **[In Development] Invoice & Expense Automation**: Multimodal invoice OCR, auto-duplication checks, and expense report generation.
-- [ ] 📅 **Proactive Autonomous Briefings**: Scheduled daily morning/evening summaries.
-- [ ] 🔍 **Universal RAG Indexing**: Cross-domain semantic search spanning Emails, Calendar, and Memos.
-
----
-
-## 🔒 Security & Privacy Architecture
-
-- **Token Safety**: Microsoft OAuth Refresh Tokens are stored exclusively server-side in PostgreSQL with encryption at rest and are never returned to the client DOM.
-- **Input Sanitization**: Email HTML body content is sanitized via an internal `html_sanitizer` module to prevent prompt injection and XSS vectors.
-- **State Machine Atomicity**: Pending destructive actions use database-level transactional locks to eliminate race conditions and dual-execution exploits.
-
----
-
-## 📜 License
-
-This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
-
-Copyright (c) 2026 Logan Jian (hunanjay)
+Friday is an open-source, self-hostable AI relationship workspace. It helps you turn everyday communication into useful context, so you can remember people better and follow up with confidence.

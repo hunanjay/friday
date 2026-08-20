@@ -28,7 +28,7 @@ os.environ.setdefault("SUPABASE_URL", "https://sbqgivaqomoyobfamwxt.supabase.co"
 os.environ.setdefault("SUPABASE_ANON_KEY", "sb_publishable_placeholder_for_test")
 os.environ.setdefault("CHECKPOINT_DB_URL", "postgresql://friday:friday@localhost:5438/friday")
 
-from app.agents.tools import make_mail_tools
+from app.agents.tools import make_contact_tools
 from app.infrastructure.db.repositories import contacts as contacts_repo
 from app.services.contact_brain_service import ContactBrainService
 from app.services.contact_service import ContactService
@@ -151,7 +151,7 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
         mock_ai_message = MagicMock()
         mock_ai_message.content = f"```json\n{import_json_str(mock_llm_json_response)}\n```"
 
-        with patch("app.services.contact_brain_service.ChatOpenAI") as mock_chat_cls, \
+        with patch("app.services.contact_brain_service.make_chat_model") as mock_chat_cls, \
              patch("app.infrastructure.db.repositories.contacts.list_contacts", new_callable=AsyncMock) as mock_list_contacts, \
              patch("app.infrastructure.db.repositories.contacts.create_contact", new_callable=AsyncMock) as mock_create_contact, \
              patch("app.infrastructure.db.repositories.contacts.add_contact_profile", new_callable=AsyncMock) as mock_add_profile, \
@@ -170,9 +170,10 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
                 "email": "zhangming@huachuang.com",
                 "company": "华创资本"
             }
-            mock_add_profile.side_effect = lambda user_id, contact_id, dimension, category, fact_key, fact_value: {
+            mock_add_profile.side_effect = lambda user_id, contact_id, dimension, category, fact_key, fact_value, **_provenance: {
                 "id": f"fact-{fact_key}", "dimension": dimension, "category": category, "fact_key": fact_key, "fact_value": fact_value
             }
+            mock_add_interaction.return_value = {"id": "interaction-1"}
             mock_get_contact.return_value = {
                 "id": "cid-zhangming-100",
                 "name": "张明",
@@ -205,20 +206,30 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
     # =========================================================================
     async def test_3_four_dimension_profiles_crud(self):
         """Test adding, listing, and deleting atomic facts in 4 dimensions."""
-        with patch("app.infrastructure.db.repositories.contacts._db_pool") as mock_pool_getter:
+        with (
+            patch("app.infrastructure.db.repositories.contacts._db_pool") as mock_pool_getter,
+            patch(
+                "app.infrastructure.db.repositories.contacts._index_docs",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.infrastructure.db.repositories.contacts._unindex",
+                new_callable=AsyncMock,
+            ),
+        ):
             mock_pool = MagicMock()
             mock_conn = AsyncMock()
             mock_cur = AsyncMock()
 
             # Simulate return of fetchone / fetchall
             mock_cur.fetchone.return_value = (
-                "fact-id-1", "private", "preference", "tea_preference", "喜欢喝普洱茶", 1.0, None
+                "fact-id-1", "private", "preference", "tea_preference", "喜欢喝普洱茶", 1.0, None, "manual", None
             )
             mock_cur.fetchall.return_value = [
-                ("fact-id-1", "private", "preference", "tea_preference", "喜欢喝普洱茶", 1.0, None),
-                ("fact-id-2", "business", "demand", "target_scale", "寻找A轮融资", 1.0, None),
-                ("fact-id-3", "dynamic", "event", "next_meeting", "周三下午2点", 1.0, None),
-                ("fact-id-4", "basic", "family", "hometown", "湖南长沙", 1.0, None),
+                ("fact-id-1", "private", "preference", "tea_preference", "喜欢喝普洱茶", 1.0, None, "manual", None),
+                ("fact-id-2", "business", "demand", "target_scale", "寻找A轮融资", 1.0, None, "manual", None),
+                ("fact-id-3", "dynamic", "event", "next_meeting", "周三下午2点", 1.0, None, "manual", None),
+                ("fact-id-4", "basic", "family", "hometown", "湖南长沙", 1.0, None, "manual", None),
             ]
 
             mock_conn.execute.return_value = mock_cur
@@ -299,8 +310,8 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
     # =========================================================================
     async def test_5_agent_tools_contact_brain(self):
         """Test the 3 LangChain Agent tools that interact with Personal Contact Brain."""
-        mail_tools = make_mail_tools(self.test_user_id)
-        tools_dict = {t.name: t for t in mail_tools}
+        contact_tools = make_contact_tools(self.test_user_id)
+        tools_dict = {t.name: t for t in contact_tools}
 
         self.assertIn("search_contacts", tools_dict)
         self.assertIn("record_contact_fact", tools_dict)
@@ -314,6 +325,7 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.contact_service.ContactService.get_contacts", new_callable=AsyncMock) as mock_get_contacts:
             mock_get_contacts.return_value = [
                 {
+                    "id": "cid-zhangming",
                     "name": "张明",
                     "email": "zhangming@huachuang.com",
                     "company": "华创资本",

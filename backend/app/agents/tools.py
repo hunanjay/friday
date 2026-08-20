@@ -1,6 +1,7 @@
 import logging
 import os
 from datetime import timedelta
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -331,28 +332,26 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
     @tool
     async def record_contact_fact(
         contact_name: str,
-        dimension: str,
-        category: str,
+        dimension: Literal["basic", "business", "private", "dynamic"],
+        category: Literal[
+            "preference", "pain_point", "demand", "family", "anniversary", "event", "other"
+        ],
         fact_key: str,
         fact_value: str,
     ) -> str:
         """Record a single explicit memory fact for a contact into the Personal Relationship Brain.
 
-        WHEN TO USE:
-        Use ONLY when the user gives a single, explicit fact update about a contact in casual conversation
-        (e.g., "Note down that Zhang Ming likes Pu'er tea", "Zhang Ming just bought an AITO M9 car").
-        Do NOT use for long chat logs or raw multi-sentence text — use `extract_contact_memory` instead.
+        Use for a single fact stated in conversation (e.g. "Zhang Ming likes Pu'er tea",
+        "Zhang Ming just bought an AITO M9"). For long chat logs or raw multi-sentence
+        text, use `extract_contact_memory` instead.
 
-        PARAMETERS:
-        - `contact_name` (str, REQUIRED): Contact's full name or name used in conversation. If not found in DB, a new contact will be auto-created.
-        - `dimension` (str, REQUIRED): MUST be strictly one of:
-            * 'basic': Static personal info (hometown, school, birthday)
-            * 'business': Professional context (company size, investment focus, tech stack, budget)
-            * 'private': Personal habits/lifestyle (diet, coffee/tea preference, vehicle, family, health)
-            * 'dynamic': Recent events/activities (travel plans, recent purchases, upcoming meetings)
-        - `category` (str, REQUIRED): MUST be one of: 'preference', 'pain_point', 'demand', 'family', 'anniversary', 'event', 'other'.
-        - `fact_key` (str, REQUIRED): Short snake_case identifier (e.g., 'tea_preference', 'car_model', 'travel_destination').
-        - `fact_value` (str, REQUIRED): The actual fact content (e.g., 'Likes hot Pu'er tea', 'AITO M9', 'San Francisco next Tuesday').
+        - `contact_name`: full name or the name used in conversation. Auto-created if unknown.
+        - `dimension`: basic = static personal info (hometown, school, birthday);
+          business = professional context (company size, investment focus, budget);
+          private = habits/lifestyle (diet, drink preference, vehicle, family, health);
+          dynamic = recent or upcoming events (travel, purchases, exams, meetings).
+        - `fact_key`: short snake_case identifier, e.g. 'tea_preference', 'car_model'.
+        - `fact_value`: the fact itself, e.g. "Likes hot Pu'er tea".
         """
         from app.infrastructure.db.repositories import contacts as contacts_repo
         from app.services.contact_service import ContactService
@@ -366,26 +365,21 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
             contact_id = new_c["id"]
             cname = new_c["name"]
 
-        # Normalize and validate dimension against strict whitelist
-        dim_clean = dimension.strip().lower()
-        if dim_clean not in ("basic", "business", "private", "dynamic"):
-            dim_clean = "private"
-
-        cat_clean = category.strip().lower()
-        if cat_clean not in ("preference", "pain_point", "demand", "family", "anniversary", "event", "other"):
-            cat_clean = "other"
-
+        # dimension/category are Literal-typed, so an out-of-vocabulary value is
+        # rejected by the tool schema before this body runs. Previously they were
+        # plain `str` and a bad value was silently coerced to private/other, which
+        # wrote the fact into the wrong dimension with no error anywhere.
         fact = await contacts_repo.add_contact_profile(
             user_id=user_id,
             contact_id=contact_id,
-            dimension=dim_clean,
-            category=cat_clean,
+            dimension=dimension,
+            category=category,
             fact_key=fact_key.strip(),
             fact_value=fact_value.strip(),
             source_type="chat",
             source_id=session_id,
         )
-        return f"Successfully recorded memory fact for {cname}: [{dim_clean} / {cat_clean}] {fact_key} = {fact_value} (fact_id: {fact['id']})."
+        return f"Successfully recorded memory fact for {cname}: [{dimension} / {category}] {fact_key} = {fact_value} (fact_id: {fact['id']})."
 
     @tool
     async def extract_contact_memory(text: str) -> str:

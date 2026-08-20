@@ -31,100 +31,14 @@ def visible_message_parts(message) -> tuple[str, str, str | None] | None:
     return message_type, content, message_id
 
 
-def is_duplicate_agent_reply(
-    previous: tuple[str, str, str | None] | None,
-    current: tuple[str, str, str | None],
-) -> bool:
-    """Hide the supervisor echo of an immediately preceding agent answer.
-
-    A supervisor handoff persists both the domain agent's final AI message and
-    the supervisor's relay.  They have different LangGraph ids but can carry
-    identical visible text, which otherwise becomes two Dora messages after a
-    history reload.  User turns still delimit replies, so intentionally
-    repeated answers in separate turns are preserved.
-    """
-    if not previous:
-        return False
-    previous_type, previous_content, _ = previous
-    current_type, current_content, _ = current
-    return (
-        previous_type == current_type == "ai"
-        and " ".join(previous_content.split()) == " ".join(current_content.split())
-    )
-
-
 def is_supervisor_stream_namespace(checkpoint_ns: str) -> bool:
-    """Only stream the top-level supervisor model, not a nested sub-agent.
-
-    langgraph_supervisor wires every agent node back to the supervisor
-    unconditionally, so even a directly routed turn (routing.py's slash /
-    email / calendar / memo bypass) ends with a supervisor relay.  That relay
-    is the message that gets persisted as the answer, so it is also the only
-    one worth streaming.
-
-    This is a typing-effect filter, not the source of truth: what finally
-    renders is always final_reply_text below.
-    """
-    parts = checkpoint_ns.split("|")
-    return (
-        len(parts) == 2
-        and parts[0].startswith("supervisor:")
-        and parts[1].startswith("agent:")
-    )
-
-
-def _message_name(message) -> str | None:
-    if isinstance(message, dict):
-        return message.get("name")
-    return getattr(message, "name", None)
+    """Only stream the top-level parent model, not a nested sub-agent."""
+    return "|" not in checkpoint_ns and checkpoint_ns.startswith("model:")
 
 
 def visible_conversation_parts(messages: list) -> list[tuple[str, str, str | None]]:
-    """Project checkpoint messages into one user-visible answer per handoff turn.
-
-    LangGraph Supervisor persists both a domain agent's answer and its own
-    final relay.  If a turn contains a named supervisor reply, that is the
-    authoritative UI answer; the nested agent reply is execution trace.  A
-    turn that never reached the supervisor keeps its domain-agent answer.
-    """
-    results: list[tuple[str, str, str | None]] = []
-    pending_ai: list[tuple[tuple[str, str, str | None], str | None]] = []
-
-    def flush_ai() -> None:
-        if not pending_ai:
-            return
-        supervisor_replies = [parts for parts, name in pending_ai if name == "supervisor"]
-        # A supervisor can produce intermediate text between handoffs and then
-        # a final relay. Only the last visible supervisor reply is authoritative
-        # for the turn. If there is no supervisor reply (a standalone agent
-        # graph), keep that agent's last response.
-        parts = supervisor_replies[-1] if supervisor_replies else pending_ai[-1][0]
-        previous = results[-1] if results else None
-        if not is_duplicate_agent_reply(previous, parts):
-            results.append(parts)
-        pending_ai.clear()
-
-    for message in messages:
-        parts = visible_message_parts(message)
-        if not parts:
-            continue
-        if parts[0] == "human":
-            flush_ai()
-            previous = results[-1] if results else None
-            # The old Command(goto=...) entry bug could reduce the same input
-            # twice before any AI response. Collapse only adjacent identical
-            # human messages; repeated requests in separate turns remain.
-            is_adjacent_duplicate = bool(
-                previous
-                and previous[0] == "human"
-                and " ".join(previous[1].split()) == " ".join(parts[1].split())
-            )
-            if not is_adjacent_duplicate:
-                results.append(parts)
-        else:
-            pending_ai.append((parts, _message_name(message)))
-    flush_ai()
-    return results
+    """Project the isolated parent checkpoint into visible chat messages."""
+    return [parts for message in messages if (parts := visible_message_parts(message))]
 
 
 def final_reply_text(messages: list) -> str:

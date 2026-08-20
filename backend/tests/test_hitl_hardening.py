@@ -112,7 +112,7 @@ class TestApprovedExecutionResult(unittest.TestCase):
             tool_call_id="call-new",
             status="success",
         )
-        self.assertIsNone(approved_tool_error(self.interrupt, [], [result]))
+        self.assertIsNone(approved_tool_error(self.interrupt, [result]))
 
     def test_error_tool_message_marks_execution_failed(self):
         result = ToolMessage(
@@ -122,19 +122,17 @@ class TestApprovedExecutionResult(unittest.TestCase):
             status="error",
         )
         self.assertEqual(
-            approved_tool_error(self.interrupt, [], [result]),
+            approved_tool_error(self.interrupt, [result]),
             "Microsoft account is not connected",
         )
 
     def test_missing_tool_result_is_not_reported_as_success(self):
-        self.assertIn("verifiable", approved_tool_error(self.interrupt, [], []))
+        self.assertIn("verifiable", approved_tool_error(self.interrupt, []))
 
     def test_nested_tool_event_counts_as_execution_result(self):
         self.assertIsNone(
             approved_tool_error(
                 self.interrupt,
-                [],
-                [],
                 [
                     {
                         "name": "send_email",
