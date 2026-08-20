@@ -6,6 +6,7 @@ import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info } from 
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
 import EmailAttachments from '../components/common/EmailAttachments';
 import ApprovalCard from '../components/common/ApprovalCard';
+import { mailMessageUrl } from '../utils/mailApi';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 const THREAD_PREFETCH_DELAY_MS = 300;
@@ -446,7 +447,7 @@ export default function EmailPage() {
 
       const sendBase = mailApiBase(composeChannel);
       const res = replyToEmailId
-        ? await fetch(`${API_URL}/api/mail/${encodeURIComponent(replyToEmailId)}/reply`, {
+        ? await fetch(mailMessageUrl(replyToEmailId, '/reply'), {
             method: 'POST',
             headers: { Authorization: `Bearer ${authToken}` },
             body: formData,
@@ -506,7 +507,7 @@ export default function EmailPage() {
       return next;
     });
 
-    fetch(`${API_URL}/api/mail/${encodeURIComponent(id)}`, {
+    fetch(mailMessageUrl(id), {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${authToken}` },
     }).catch(() => {});
@@ -521,11 +522,11 @@ export default function EmailPage() {
         isConversation: true,
       };
     }
-    // Single message: email id already carries the account (imap:{account}:{mailbox}:{uid}),
-    // so it routes through /api/mail/{email_id} - no account prefix needed.
+    // Single message: the email id itself carries the provider (and, for IMAP,
+    // the account), so mailMessageUrl picks the base - no account prefix needed.
     return {
       key: `message:${channel}:${threadRow.id}`,
-      url: `${API_URL}/api/mail/${encodeURIComponent(threadRow.id)}`,
+      url: mailMessageUrl(threadRow.id),
       isConversation: false,
     };
   };
@@ -630,7 +631,7 @@ export default function EmailPage() {
     unreadInboxIds.forEach(id => {
       handleMarkEmailRead(id, true);
       adjustInboxUnread(-1);
-      fetch(`${API_URL}/api/mail/${encodeURIComponent(id)}/read`, {
+      fetch(mailMessageUrl(id, '/read'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ is_read: true }),
@@ -702,10 +703,7 @@ export default function EmailPage() {
     const fetchKey = `${targetEmailProvider}:${targetEmailId}`;
     if (targetFetchKeyRef.current === fetchKey) return;
     targetFetchKeyRef.current = fetchKey;
-    const url = targetEmailProvider === MICROSOFT
-      ? `${API_URL}/api/graph/mail/${encodeURIComponent(targetEmailId)}`
-      : `${API_URL}/api/mail/${encodeURIComponent(targetEmailId)}`;
-    fetch(url, { headers: { Authorization: `Bearer ${authToken}` } })
+    fetch(mailMessageUrl(targetEmailId), { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async res => {
         if (!res.ok) throw new Error(`Failed to load linked email (${res.status})`);
         return res.json();
@@ -1080,7 +1078,6 @@ export default function EmailPage() {
                           {msg.hasAttachments && (
                             <EmailAttachments
                               messageId={msg.id}
-                              provider={msg.provider || MICROSOFT}
                               hasAttachments={msg.hasAttachments}
                               authToken={authToken}
                               initialAttachments={msg.attachments}
