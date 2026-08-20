@@ -105,6 +105,7 @@ def _trim_history(state: dict, _runtime=None) -> dict:
 
 
 _trim_history_middleware = before_model(_trim_history)
+_PARENT_MODEL_ENTRY = "_trim_history.before_model"
 
 
 def _name_line(assistant_name: str) -> str:
@@ -266,13 +267,13 @@ def _delegation_tool(name: str, subagent) -> BaseTool:
 
 
 def _parent_entry(state: dict) -> str:
-    """Run a pre-seeded slash-command tool call before the parent model."""
+    """Choose one entry path: a seeded slash tool or the model middleware."""
     last = state["messages"][-1]
     if isinstance(last, AIMessage) and last.tool_calls:
         names = {call.get("name") for call in last.tool_calls}
         if names & {f"delegate_to_{name}" for name in AGENT_NAMES}:
             return "tools"
-    return "model"
+    return _PARENT_MODEL_ENTRY
 
 
 def build_supervisor(
@@ -301,12 +302,15 @@ def build_supervisor(
     )
     workflow = parent.builder
     # create_agent returns a compiled graph, but its builder remains reusable.
-    # We compile a fresh copy after replacing the default START -> model edge.
+    # Because this agent has a before_model middleware, its default entry is
+    # START -> _trim_history.before_model (not START -> model). Remove that
+    # exact edge before adding the slash-command conditional entry; otherwise
+    # both paths run and a second parent model can answer before tools finish.
     workflow.compiled = False
-    workflow.edges.discard((START, "model"))
+    workflow.edges.discard((START, _PARENT_MODEL_ENTRY))
     workflow.set_conditional_entry_point(
         _parent_entry,
-        path_map=["model", "tools"],
+        path_map=[_PARENT_MODEL_ENTRY, "tools"],
     )
     return workflow.compile(checkpointer=get_checkpointer())
 

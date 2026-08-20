@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, backend_dir)
@@ -23,9 +24,11 @@ from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from langgraph.types import Command  # noqa: E402
 
 from app.agents.supervisor import (  # noqa: E402
+    _PARENT_MODEL_ENTRY,
     _delegation_tool,
     _parent_entry,
     _trim_history_middleware,
+    build_supervisor,
 )
 
 
@@ -88,6 +91,21 @@ class TestSubagentIsolation(unittest.IsolatedAsyncioTestCase):
             ]
         }
         self.assertEqual(_parent_entry(state), "tools")
+
+    async def test_regular_request_enters_history_middleware(self):
+        state = {"messages": [HumanMessage(content="List my latest emails.")]}
+        self.assertEqual(_parent_entry(state), _PARENT_MODEL_ENTRY)
+
+    async def test_parent_graph_has_exactly_one_conditional_start_path(self):
+        fake_model = _ToolCallingFakeModel(responses=[AIMessage(content="unused")])
+        with patch("app.agents.supervisor._get_model", return_value=fake_model):
+            graph = build_supervisor("single-entry-test-user")
+
+        start_edges = [edge for edge in graph.get_graph().edges if edge.source == "__start__"]
+        self.assertEqual(
+            {(edge.target, edge.conditional) for edge in start_edges},
+            {(_PARENT_MODEL_ENTRY, True), ("tools", True)},
+        )
 
     async def test_nested_hitl_interrupt_resumes_through_parent(self):
         executions = []

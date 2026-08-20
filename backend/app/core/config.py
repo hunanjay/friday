@@ -34,7 +34,7 @@ def resolve_llm_provider(environ: Mapping[str, str] | None = None) -> LLMProvide
             base_url=base_url,
             model=env.get("QWEN_MODEL") or "qwen3.6-flash",
             enable_thinking=False,
-            embedding_model=env.get("QWEN_EMBEDDING_MODEL") or "text-embedding-v4",
+            embedding_model=env.get("QWEN_EMBEDDING_MODEL") or "qwen3.7-text-embedding",
             embedding_base_url=env.get("QWEN_EMBEDDING_BASE_URL") or base_url,
             embedding_api_key=env.get("QWEN_EMBEDDING_API_KEY") or api_key,
         )
