@@ -25,7 +25,7 @@ class TestLLMProviderConfig(unittest.TestCase):
         self.assertEqual(config.provider, "qwen")
         self.assertEqual(config.model, "qwen3.6-flash")
         self.assertFalse(config.enable_thinking)
-        self.assertEqual(config.embedding_model, "text-embedding-v4")
+        self.assertEqual(config.embedding_model, "qwen3.7-text-embedding")
         self.assertEqual(config.embedding_api_key, "qwen-secret")
 
     def test_zhipu_profile_selects_free_flash_defaults(self):

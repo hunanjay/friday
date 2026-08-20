@@ -67,6 +67,10 @@ def _get_dense() -> OpenAIEmbeddings:
             dimensions=_DENSE_SIZE,
             base_url=_embedding_base_url(),
             api_key=settings.EMBEDDING_API_KEY,
+            # OpenAI-compatible providers such as Qwen expect an array of
+            # strings. LangChain otherwise tokenizes unknown model names and
+            # sends arrays of token IDs, which qwen3.7-text-embedding rejects.
+            check_embedding_ctx_length=False,
             request_timeout=60.0,
             max_retries=3,
         )

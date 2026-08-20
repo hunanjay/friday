@@ -247,7 +247,7 @@ check("custom pending-action state machine is gone",
 
 supervisor_source = (backend_dir / "app/agents/supervisor.py").read_text()
 check("supervisor graph has one conditional entry path",
-      'workflow.edges.discard((START, "model"))' in supervisor_source
+      'workflow.edges.discard((START, _PARENT_MODEL_ENTRY))' in supervisor_source
       and "workflow.set_conditional_entry_point" in supervisor_source)
 
 from langchain.agents.middleware import HumanInTheLoopMiddleware  # noqa: E402
