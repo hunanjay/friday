@@ -1,6 +1,24 @@
 /* eslint-disable react-refresh/only-export-components */
 import React from 'react';
-import { Calendar, Mail, Trash } from './Icons';
+import { useNavigate } from 'react-router-dom';
+import { Calendar, Edit3, Mail, Trash } from './Icons';
+
+function SignatureBlock({ signature, t }) {
+  const navigate = useNavigate();
+  return (
+    <p className="approval-email-signature">
+      {signature}
+      <button
+        type="button"
+        className="approval-email-signature-edit"
+        title={t('email.editSignature')}
+        onClick={() => navigate('/settings#signature')}
+      >
+        <Edit3 size={13} />
+      </button>
+    </p>
+  );
+}
 
 /**
  * Uncontrolled on purpose: `value` is only the initial text, so typing never
@@ -62,7 +80,7 @@ function EmailPreview({ payload, action, t, onEdit }) {
               saved signature at send time. Shown so the card is the whole
               email the recipient will get, not just the part the agent wrote. */}
           {signature && !payload.body?.trimEnd().endsWith(signature) && (
-            <p className="approval-email-signature">{signature}</p>
+            <SignatureBlock signature={signature} t={t} />
           )}
         </div>
       )}
@@ -89,7 +107,7 @@ function EmailForwardPreview({ payload, action, t, onEdit }) {
       <div className="approval-email-body">
         <Editable as="p" value={payload.comment} onChange={edit('comment')} />
         {signature && !payload.comment?.trimEnd().endsWith(signature) && (
-          <p className="approval-email-signature">{signature}</p>
+          <SignatureBlock signature={signature} t={t} />
         )}
         <p className="approval-email-note">{t('email.forwardCarriesOriginal')}</p>
       </div>
