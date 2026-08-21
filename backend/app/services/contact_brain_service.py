@@ -24,8 +24,8 @@ EXTRACTION_SYSTEM_PROMPT = """你是一个高水平的 AI 关系大脑提取专�
   "tags": ["标签1", "标签2", "标签3"],
   "profiles": [
     {
-      "dimension": "basic|business|private|dynamic",
-      "category": "preference|pain_point|demand|family|anniversary|event|other",
+      "dimension": "优先复用 basic|business|private|dynamic，都不合适时才自拟一个 snake_case 维度名",
+      "category": "优先复用 preference|pain_point|demand|family|anniversary|event|other，都不合适时才自拟",
       "fact_key": "事实键描述，如 diet_preference, business_scale",
       "fact_value": "事实具体内容，如 喜欢喝普洱茶，年营业额5000万"
     }

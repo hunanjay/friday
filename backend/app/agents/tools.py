@@ -1,7 +1,6 @@
 import logging
 import os
 from datetime import timedelta
-from typing import Literal
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -332,27 +331,33 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
     @tool
     async def record_contact_fact(
         contact_name: str,
-        dimension: Literal["basic", "business", "private", "dynamic"],
-        category: Literal[
-            "preference", "pain_point", "demand", "family", "anniversary", "event", "other"
-        ],
+        dimension: str,
+        category: str,
         fact_key: str,
         fact_value: str,
     ) -> str:
         """Record a single explicit memory fact for a contact into the Personal Relationship Brain.
 
-        Use for a single fact stated in conversation (e.g. "Zhang Ming likes Pu'er tea",
-        "Zhang Ming just bought an AITO M9"). For long chat logs or raw multi-sentence
+        Use for a single fact stated in conversation (e.g. "she likes Pu'er tea",
+        "he just bought a new car"). For long chat logs or raw multi-sentence
         text, use `extract_contact_memory` instead.
 
         - `contact_name`: full name or the name used in conversation. Auto-created if unknown.
-        - `dimension`: basic = static personal info (hometown, school, birthday);
+        - `dimension`: which drawer of the profile this belongs in. Prefer an existing
+          one - basic = static personal info (hometown, school, birthday);
           business = professional context (company size, investment focus, budget);
           private = habits/lifestyle (diet, drink preference, vehicle, family, health);
-          dynamic = recent or upcoming events (travel, purchases, exams, meetings).
+          dynamic = recent or upcoming events (travel, purchases, exams, meetings) -
+          and only coin a new one when the fact fits none of them. This tool's
+          result lists the vocabulary already in use; reuse a label from it rather
+          than a near-duplicate.
+        - `category`: what kind of fact it is, e.g. preference, demand, family,
+          anniversary, event. Same rule: reuse before coining.
         - `fact_key`: short snake_case identifier, e.g. 'tea_preference', 'car_model'.
         - `fact_value`: the fact itself, e.g. "Likes hot Pu'er tea".
         """
+        if not (fact_value or "").strip():
+            return "Error: fact_value cannot be empty."
         from app.infrastructure.db.repositories import contacts as contacts_repo
         from app.services.contact_service import ContactService
 
@@ -365,10 +370,10 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
             contact_id = new_c["id"]
             cname = new_c["name"]
 
-        # dimension/category are Literal-typed, so an out-of-vocabulary value is
-        # rejected by the tool schema before this body runs. Previously they were
-        # plain `str` and a bad value was silently coerced to private/other, which
-        # wrote the fact into the wrong dimension with no error anywhere.
+        # The vocabulary is open, so the old Literal typing is gone. What kept the
+        # original bug (a bad value silently coerced to private/other) from coming
+        # back is add_contact_profile normalizing the label and storing what it
+        # was given, instead of this layer guessing.
         fact = await contacts_repo.add_contact_profile(
             user_id=user_id,
             contact_id=contact_id,
@@ -379,7 +384,13 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
             source_type="chat",
             source_id=session_id,
         )
-        return f"Successfully recorded memory fact for {cname}: [{dimension} / {category}] {fact_key} = {fact_value} (fact_id: {fact['id']})."
+        vocab = await contacts_repo.get_fact_vocabulary(user_id)
+        return (
+            f"Successfully recorded memory fact for {cname}: "
+            f"[{fact['dimension']} / {fact['category']}] {fact_key} = {fact_value} (fact_id: {fact['id']}). "
+            f"Dimensions now in use: {', '.join(vocab['dimensions'])}. "
+            f"Categories now in use: {', '.join(vocab['categories'])}."
+        )
 
     @tool
     async def extract_contact_memory(text: str) -> str:

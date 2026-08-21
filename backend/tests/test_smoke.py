@@ -856,18 +856,26 @@ check(
     "contacts_db.init_schema()" in main_source_fresh,
 )
 
-# ── 13-J. 纯逻辑单元测试：fact dimension 白名单校验 ──────────────────────────
-VALID_DIMENSIONS = {"basic", "business", "private", "dynamic"}
+# ── 13-J. 纯逻辑单元测试：fact 维度/分类标签归一化 ───────────────────────────
+# The vocabulary is open now, so the question is no longer "is this label
+# allowed" but "does the same label always fold to the same bucket".
+# Importing the repository pulls in app.core.security, which builds a Supabase
+# client at import time; CI leaves these unset.
+for _var, _stub in (
+    ("SUPABASE_URL", "https://test.supabase.co"),
+    ("SUPABASE_ANON_KEY", "test-anon-key"),
+    ("SUPABASE_SERVICE_ROLE_KEY", "test-service-key"),
+):
+    os.environ[_var] = os.environ.get(_var) or _stub
 
-def _validate_dimension(dim: str) -> bool:
-    return dim in VALID_DIMENSIONS
+from app.infrastructure.db.repositories.contacts import normalize_facet  # noqa: E402
 
-check("valid dimension 'basic' passes",    _validate_dimension("basic"))
-check("valid dimension 'business' passes", _validate_dimension("business"))
-check("valid dimension 'private' passes",  _validate_dimension("private"))
-check("valid dimension 'dynamic' passes",  _validate_dimension("dynamic"))
-check("invalid dimension 'unknown' fails", not _validate_dimension("unknown"))
-check("empty string dimension fails",      not _validate_dimension(""))
+check("a built-in dimension is unchanged",   normalize_facet("business", "basic") == "business")
+check("case and spacing fold together",      normalize_facet("Dynamic Status", "basic") == "dynamic_status")
+check("hyphens fold like spaces",            normalize_facet("pain-point", "other") == "pain_point")
+check("a coined dimension survives",         normalize_facet("hobby", "basic") == "hobby")
+check("empty falls back rather than writing an empty bucket", normalize_facet("  ", "basic") == "basic")
+check("None falls back too",                 normalize_facet(None, "other") == "other")
 
 
 # ---------------------------------------------------------------------------
