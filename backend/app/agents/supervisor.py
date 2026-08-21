@@ -59,7 +59,9 @@ def _today_str() -> str:
 _ROUTING_HINTS = {
     "mail_agent": (
         "Route here for anything about the user's email/inbox: listing/reading emails, "
-        "sending new emails, marking read/unread, or deleting existing ones."
+        "sending new emails, marking read/unread, or deleting existing ones. This "
+        "includes sending something the user already wrote down, such as a saved "
+        "report or note, which this agent retrieves itself."
     ),
     "contact_agent": (
         "Route here for anything about people/relationships: looking up who someone is "
@@ -82,8 +84,10 @@ _ROUTING_HINTS = {
         "specific person, which belongs to contact_agent instead."
     ),
     "github_agent": (
-        "Route here when the user asks for a work report, daily report, 日报, "
-        "or a summary of today's GitHub commit activity."
+        "Route here when the user wants a work report, daily report, or 日报 to be "
+        "*generated* from today's GitHub commit activity. Not when they refer to a "
+        "report they already wrote or saved (e.g. '把我写的日报发给…') — that content "
+        "lives in memos and the request belongs to whichever agent acts on it."
     ),
 }
 

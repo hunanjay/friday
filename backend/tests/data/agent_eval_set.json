@@ -227,7 +227,11 @@
         "create_memo",
         "list_todays_commits"
       ],
-      "rubric": "邮件正文里是日报的实际内容，没有声称有附件、也没有写占位符。"
+      "rubric": "邮件正文里是日报的实际内容，没有声称有附件、也没有写占位符。",
+      "allow_agents": [
+        "memos_agent",
+        "contact_agent"
+      ]
     },
     {
       "id": "list_day_events",
