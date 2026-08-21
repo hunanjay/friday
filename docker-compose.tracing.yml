@@ -1,0 +1,21 @@
+# Turns the upstream Langfuse services (pulled in via `include` in
+# docker-compose.yml) into an opt-in profile, so a plain `docker compose up`
+# still starts only db + backend. The Langfuse stack is ~2.2 GB of RAM and
+# ClickHouse idles at real CPU, which is not worth paying for unless you are
+# actually reading traces.
+#
+#   docker compose --profile tracing up -d     # start tracing
+#   docker compose --profile tracing stop      # stop it, keep the data
+services:
+  langfuse-web:
+    profiles: ["tracing"]
+  langfuse-worker:
+    profiles: ["tracing"]
+  clickhouse:
+    profiles: ["tracing"]
+  minio:
+    profiles: ["tracing"]
+  redis:
+    profiles: ["tracing"]
+  postgres:
+    profiles: ["tracing"]
