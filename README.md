@@ -1,6 +1,6 @@
 <div align="center">
 
-# Friday
+# Friday （[在线体验](https://friday.loganjian.top)一下吧）
 
 ### 你的 AI 关系大脑
 
