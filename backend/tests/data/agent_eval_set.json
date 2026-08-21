@@ -63,7 +63,7 @@
         "list_events_on_day",
         "create_memo"
       ],
-      "rubric": "直接回答日期是 2026-08-20 或等价说法。"
+      "rubric": "直接回答今天的日期，和上面给出的 Today 一致。"
     },
     {
       "id": "save_a_note",
@@ -245,7 +245,7 @@
         "create_event",
         "delete_event"
       ],
-      "rubric": "列出明天日程的标题和时间，正文里不出现 AAMk 开头的事件 id。"
+      "rubric": "列出明天日程的标题和时间，且日期要和明天一致；正文里不出现 AAMk 开头的事件 id。"
     },
     {
       "id": "create_event",
@@ -262,7 +262,7 @@
       "forbid_tools": [
         "create_memo"
       ],
-      "rubric": "确认按 2026-08-21 15:00 到 16:00 建了这个会。"
+      "rubric": "确认在明天下午 3 点到 4 点建了这个会，日期要和明天一致。"
     },
     {
       "id": "delete_event_lists_first",
@@ -316,6 +316,44 @@
         "create_event"
       ],
       "rubric": "回复必须是英文，因为用户最后一句用的是英文。"
+    },
+    {
+      "id": "stay_at_friend_place",
+      "kind": "contacts",
+      "turns": [
+        "我去了周子丰家暂住，他住在坂田地铁站C口附近，步梯5楼，然后房租1500 我感觉有点小了对于两个人来说，他的邮箱号是13886406671@163.com"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "record_contact_fact"
+      ],
+      "forbid_tools": [
+        "create_memo"
+      ],
+      "rubric": "必须说清这些信息记到了周子丰这个联系人名下，而不是含糊地说“已记录”。"
+    },
+    {
+      "id": "recall_friend_address",
+      "kind": "contacts",
+      "turns": [
+        "周子丰住哪来着？"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "search_contacts"
+      ],
+      "forbid_tools": [
+        "create_contact",
+        "create_memo"
+      ],
+      "tool_results": {
+        "search_contacts": "周子丰 - 13886406671@163.com\n  facts: [basic / other] address = 坂田地铁站C口附近，步梯5楼 [source: 2026-08-21 chat]; [private / other] rent = 1500，两个人住有点小 [source: 2026-08-21 chat]"
+      },
+      "rubric": "基于检索结果说出坂田地铁站C口附近、步梯5楼；查不到就说查不到，绝不能编造地址。"
     }
   ]
 }

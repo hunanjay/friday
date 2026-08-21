@@ -18,8 +18,10 @@ import argparse
 import asyncio
 import html
 import json
+import os
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -33,29 +35,77 @@ load_dotenv(BACKEND_DIR / ".env")
 EVAL_SET = Path(__file__).parent / "data" / "agent_eval_set.json"
 ASSISTANT_NAME = "Dora"
 
-# What each stubbed tool returns. Shaped like the real tool output because the
-# agent's next step is chosen from it; a case can override any of these.
+# What each stubbed tool returns. The eval only replaces tool *bodies*, so the
+# canned text mirrors the real formatters (_format_email_row, format_event_rows,
+# _format_memo_row, _format_contact in app/agents/tools.py) - the agent picks its
+# next step from this text, and a different shape would make it behave
+# differently here than it does in production. A case can override any entry.
+#
+# Dates are relative to the day the eval runs: absolute dates in a goldset rot
+# overnight and show up as failures that are really just staleness.
+def _tz():
+    import zoneinfo
+
+    return zoneinfo.ZoneInfo(os.environ.get("TIMEZONE", "Asia/Shanghai"))
+
+
+TODAY = datetime.now(_tz()).date()
+TOMORROW = TODAY + timedelta(days=1)
+
 CANNED = {
-    "list_inbox": "1. [季度预算确认](#) - 李娜 <lina@example.com> - 想跟你确认下周的预算数字 - 2026-08-20 09:12 (id: AAMkAGI1)\n2. [周会纪要](#) - 王强 <wq@example.com> - 附上昨天的纪要 - 2026-08-19 17:40 (id: AAMkAGI2)",
-    "search_emails": "1. [季度预算确认](#) - 李娜 <lina@example.com> - 2026-08-20 09:12 (id: AAMkAGI1)",
+    "list_inbox": (
+        f"- [UNREAD] id=AAMkAGI1 from=lina@example.com subject=[季度预算确认](/email/AAMkAGI1?folder=inbox) "
+        f"received={TODAY}T09:12:00Z preview='想跟你确认下周的预算数字'\n"
+        f"- id=AAMkAGI2 from=wq@example.com subject=[周会纪要](/email/AAMkAGI2?folder=inbox) "
+        f"received={TODAY}T08:40:00Z preview='附上昨天的纪要'"
+    ),
+    "search_emails": (
+        f"- id=AAMkAGI1 from=lina@example.com subject=[季度预算确认](/email/AAMkAGI1?folder=inbox) "
+        f"received={TODAY}T09:12:00Z preview='想跟你确认下周的预算数字'"
+    ),
     "read_email": "From: 李娜 <lina@example.com>\nSubject: 季度预算确认\n\n下周的预算数字麻烦确认一下。",
     "mark_email_read": "Marked as read.",
     "send_email": "Email sent.",
     "delete_email": "Moved to Deleted Items.",
-    "search_contacts": "李娜 (Li Na) - 明远科技 产品总监 - lina@example.com - 138-0000-1111\n  facts: 喜欢喝普洱茶 [source: 2026-05-11 chat log]; 负责下半年定价项目 [source: 2026-07-02 note]",
+    "search_contacts": (
+        "=== Contact: 李娜 ===\n"
+        "Email: lina@example.com | Phone: 138-0000-1111 | Company: 明远科技 | "
+        "Job Title: 产品总监 | Location: 深圳\n"
+        "[private / preference] tea_preference = 喜欢喝普洱茶 (source: chat)\n"
+        "[business / demand] pricing_project = 负责下半年定价项目 (source: note)"
+    ),
     "create_contact": "Contact saved.",
-    "record_contact_fact": "Fact recorded.",
+    "record_contact_fact": (
+        "Successfully recorded memory fact. "
+        "Dimensions now in use: basic, business, dynamic, private. "
+        "Categories now in use: event, other, preference."
+    ),
     "extract_contact_memory": "Extracted 1 profile, 2 facts.",
-    "list_events": "1. [产品评审](#) - 2026-08-21 10:00-11:00 - 会议室 A (id: AAMkEV1)",
-    "list_events_on_day": "1. [产品评审](#) - 2026-08-21 10:00-11:00 - 会议室 A (id: AAMkEV1)",
+    "list_events": (
+        f"- internal_event_id=AAMkEV1 subject=[产品评审](/calendar/AAMkEV1) "
+        f"start={TOMORROW}T10:00:00 end={TOMORROW}T11:00:00 location='会议室 A'"
+    ),
+    "list_events_on_day": (
+        f"- internal_event_id=AAMkEV1 subject=[产品评审](/calendar/AAMkEV1) "
+        f"start={TOMORROW}T10:00:00 end={TOMORROW}T11:00:00 location='会议室 A'"
+    ),
     "create_event": "Event created.",
     "delete_event": "Event deleted.",
     "accept_event": "Accepted.",
     "decline_event": "Declined.",
-    "list_memos": "1. 定价思路 (ideas) - 按席位收费, 团队版打包 - updated 2026-08-14\n2. Daily Report - 2026-08-19 (work) - updated 2026-08-19",
-    "search_memos": "1. 定价思路 (ideas)\n按席位收费，团队版打包，年付九折。\n2. Daily Report - 2026-08-19 (work)\n- 修复邮件路由\n- 更新向量模型",
+    "list_memos": (
+        "- id=m1 category=ideas title='定价思路': '按席位收费，团队版打包，年付九折。'\n"
+        f"- id=m2 category=work title='Daily Report - {TODAY}': '修复邮件路由；更新向量模型'"
+    ),
+    "search_memos": (
+        "- id=m1 category=ideas title='定价思路': '按席位收费，团队版打包，年付九折。'\n"
+        f"- id=m2 category=work title='Daily Report - {TODAY}': '修复邮件路由；更新向量模型'"
+    ),
     "create_memo": "Memo saved.",
-    "list_todays_commits": "friday: fix(mail): route per-message calls by email id\nfriday: refactor(agents): isolate subagents and centralize model providers",
+    "list_todays_commits": (
+        "friday: fix(mail): route per-message calls by email id\n"
+        "friday: refactor(agents): isolate subagents and centralize model providers"
+    ),
 }
 
 JUDGE_SYSTEM = (
@@ -71,6 +121,20 @@ JUDGE_SYSTEM = (
 # --------------------------------------------------------------------------
 # scoring - pure functions, unit-tested in test_agent_eval_harness.py
 # --------------------------------------------------------------------------
+def format_chain(tool_calls: list[dict], with_args: bool = True) -> str:
+    """agent.tool(arg=value, ...) for each call, arguments truncated."""
+    if not tool_calls:
+        return "(no tools)"
+    parts = []
+    for call in tool_calls:
+        text = f"{call['agent']}.{call['tool']}"
+        if with_args and call.get("args"):
+            args = ", ".join(f"{k}={str(v)[:60]!r}" for k, v in call["args"].items())
+            text += f"({args})"
+        parts.append(text)
+    return " -> ".join(parts)
+
+
 def score_case(case: dict, trace: dict) -> dict:
     """case + one run's trace -> per-case verdict."""
     agents = set(trace["agents"])
@@ -185,8 +249,9 @@ async def run_case(case: dict, judge_model) -> dict:
 
 
 async def _judge(model, case: dict, trace: dict) -> dict:
-    chain = " -> ".join(f"{c['agent']}.{c['tool']}" for c in trace["tool_calls"]) or "(none)"
+    chain = format_chain(trace["tool_calls"])
     prompt = (
+        f"Today is {TODAY} ({TODAY.strftime('%A')}).\n\n"
         f"User said: {case['turns'][-1]}\n\n"
         f"Expectation: {case['rubric']}\n\n"
         f"Tools the assistant called: {chain}\n\n"
@@ -236,7 +301,7 @@ def render_html(cases: list[dict], traces: list[dict], scored: list[dict], meta:
             problems.append("unwanted write: " + ", ".join(s["forbidden_called"]))
         if s["judge_pass"] is False:
             problems.append("judge: " + trace.get("judge", {}).get("reason", ""))
-        chain = " → ".join(f"{c['agent']}.{c['tool']}" for c in trace["tool_calls"]) or "(no tools)"
+        chain = format_chain(trace["tool_calls"])
         rows.append(
             f'<details class="case {"ok" if s["ok"] else "fail"}">'
             f'<summary><span class="dot"></span><code>{e(case["id"])}</code>'
