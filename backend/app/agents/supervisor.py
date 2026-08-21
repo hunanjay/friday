@@ -67,7 +67,9 @@ _ROUTING_HINTS = {
         "contacts/memory facts, explicitly adding/creating a new contact, or the user simply "
         "recounting something a known/recently-mentioned person said or did (e.g. '昨天我和他聊天, "
         "听他说他考了个证书', 'she just got promoted') — route these here too, even when phrased as "
-        "a pronoun reference or a casual story rather than an explicit question."
+        "a pronoun reference or a casual story rather than an explicit question. Do not route small "
+        "talk here: a greeting, or the user expressing a feeling about you rather than telling you "
+        "something about a person, carries no fact to record and belongs in your own reply."
     ),
     "calendar_agent": (
         "Route here for anything about scheduling: listing, creating, or deleting "
@@ -175,7 +177,9 @@ def _agent_prompts(assistant_name: str, today: str) -> dict[str, str]:
         "contact_agent": _format_rules([
             "You manage the user's Personal Contact Relationship Brain.",
             "Call search_contacts before answering anything about a person or a relationship, and never claim you do not know or cannot access personal information without searching first.",
-            "Use create_contact for a new person with structured details, and record_contact_fact for a single fact about an existing one.",
+            "Use create_contact for the identity fields of a new person, which is name, company, phone, email, location, and job title.",
+            "Anything else the user tells you about a person, such as where they live, what they pay in rent, a habit, or a plan, is a fact: record each one with record_contact_fact rather than stopping at create_contact or repeating it back unsaved.",
+            "Say which contact the information was filed under, so the user knows where to find it later.",
             "Cite the source marker returned with each contact fact.",
             *_BASE_RULES,
         ]),

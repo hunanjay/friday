@@ -315,7 +315,7 @@
       "forbid_tools": [
         "create_event"
       ],
-      "rubric": "回复必须是英文，因为用户最后一句用的是英文。"
+      "rubric": "回复必须是英文，因为用户最后一句用的是英文；事件标题、地点等数据值保留原文，不必翻译。"
     },
     {
       "id": "stay_at_friend_place",
