@@ -2400,6 +2400,12 @@
   border-bottom-right-radius: 2px;
 }
 
+/* Default .markdown-link color matches --accent-primary, which is the
+   bubble's own background - override so links stay legible here. */
+.user-bubble .markdown-link {
+  color: #FFFFFF;
+}
+
 .other-bubble {
   background-color: var(--bg-card);
   color: var(--text-primary);
@@ -2875,7 +2881,7 @@
 
 .chat-input-wrapper {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
   background-color: var(--bg-app);
   border: 1px solid var(--border-light);
@@ -2922,17 +2928,6 @@
   background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
 }
 
-.attachment-btn {
-  padding: 8px;
-  color: var(--text-secondary);
-  display: flex;
-  border-radius: 8px;
-}
-
-.attachment-btn:hover {
-  background-color: var(--border-light);
-}
-
 .chat-input-wrapper textarea {
   flex: 1 1 160px;
   min-width: 0;
@@ -2943,6 +2938,8 @@
   font-size: 0.95rem;
   line-height: 1.4;
   height: auto;
+  max-height: 240px;
+  overflow-y: auto;
   box-shadow: none !important;
 }
 

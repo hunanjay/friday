@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Send, Paperclip, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
+import { Send, StopIcon, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 import ApprovalCard from '../components/common/ApprovalCard';
 import {
@@ -43,6 +43,7 @@ export default function ChatPage() {
   // State updates are asynchronous; this ref closes the small window where a
   // double click can invoke handleSend twice before the button re-renders.
   const isSendingRef = useRef(false);
+  const abortControllerRef = useRef(null);
   const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -139,6 +140,15 @@ export default function ChatPage() {
     }
     setInputText(value);
   };
+
+  // Grow the composer upward as the user types multiple lines, capped by the
+  // max-height set in CSS (after which the textarea scrolls internally).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [inputText]);
 
   // Fetch conversation history from the LangGraph checkpoint whenever the
   // active thread changes. This replaces localStorage as the source of truth,
@@ -333,6 +343,8 @@ export default function ChatPage() {
     setThreadMessages(prev => [...prev, botMsg]);
     
     setIsTyping(true);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const res = await fetch(`${API_URL}/api/agent/chat`, {
@@ -342,6 +354,7 @@ export default function ChatPage() {
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({ message: sentText, session_id: sessionId }),
+        signal: controller.signal,
       });
 
       if (res.status === 401) {
@@ -476,15 +489,24 @@ export default function ChatPage() {
       }
 
     } catch (error) {
-      console.error('Stream reading error', error);
-      const errMsg = isZh
-        ? '无法连接到助手服务，请稍后再试。'
-        : "Couldn't reach the assistant service, please try again later.";
-      setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: errMsg } : m));
+      if (error.name === 'AbortError') {
+        // User-initiated stop, not a failure - keep whatever text already streamed in.
+      } else {
+        console.error('Stream reading error', error);
+        const errMsg = isZh
+          ? '无法连接到助手服务，请稍后再试。'
+          : "Couldn't reach the assistant service, please try again later.";
+        setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: errMsg } : m));
+      }
     } finally {
       isSendingRef.current = false;
       setIsTyping(false);
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleStop = () => {
+    abortControllerRef.current?.abort();
   };
 
   const handleKeyDown = (e) => {
@@ -719,7 +741,7 @@ export default function ChatPage() {
                                   {t(`chat.agents.${msg.agent_name}.label`)}
                                 </span>
                               )}
-                              <p className="markdown-p">{msg.text}</p>
+                              <StreamingMarkdown content={msg.text} isBotTyping={false} />
                             </>
                           ) : (
                             <StreamingMarkdown
@@ -824,9 +846,6 @@ export default function ChatPage() {
                     </button>
                   </span>
                 )}
-                <button type="button" className="attachment-btn" title="Attach file" onClick={() => alert(t('chat.attachmentsSimulated'))}>
-                  <Paperclip size={18} />
-                </button>
                 <textarea
                   ref={inputRef}
                   value={inputText}
@@ -835,15 +854,27 @@ export default function ChatPage() {
                   placeholder={t('chat.inputPlaceholderAI', { name: assistantName })}
                   rows="1"
                 />
-                <button
-                  type="submit"
-                  className="send-msg-btn"
-                  disabled={isTyping || !inputText.trim()}
-                  title={t('chat.sendMessage')}
-                  aria-label={t('chat.sendMessage')}
-                >
-                  <Send size={16} />
-                </button>
+                {isTyping ? (
+                  <button
+                    type="button"
+                    className="send-msg-btn"
+                    onClick={handleStop}
+                    title={t('chat.stopGenerating')}
+                    aria-label={t('chat.stopGenerating')}
+                  >
+                    <StopIcon size={16} />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="send-msg-btn"
+                    disabled={!inputText.trim()}
+                    title={t('chat.sendMessage')}
+                    aria-label={t('chat.sendMessage')}
+                  >
+                    <Send size={16} />
+                  </button>
+                )}
               </div>
               <span className="chat-send-hint">{t('chat.sendHint')}</span>
             </form>
