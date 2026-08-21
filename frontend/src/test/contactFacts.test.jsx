@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FactGroup, SourceBadge } from '../pages/ContactsPage';
+import { factDimensionOrder } from '../pages/contactDimensions';
 
 const ORIGIN = {
   'i-1': { id: 'i-1', event_date: '2026-08-01T10:00:00Z', summary: '微信聊天记录提炼' },
@@ -75,5 +76,22 @@ describe('FactGroup', () => {
     renderGroup({ onDelete });
     fireEvent.click(screen.getAllByRole('button')[1]);
     expect(onDelete).toHaveBeenCalledWith('f-2');
+  });
+});
+
+describe('factDimensionOrder', () => {
+  it('keeps the built-in dimensions in a fixed order even when empty', () => {
+    expect(factDimensionOrder({})).toEqual(['basic', 'business', 'private', 'dynamic']);
+  });
+
+  it('renders a dimension the agent coined rather than dropping its facts', () => {
+    const order = factDimensionOrder({ hobby: [{ id: 1 }], business: [{ id: 2 }] });
+    expect(order).toContain('hobby');
+    expect(order.indexOf('hobby')).toBeGreaterThan(order.indexOf('dynamic'));
+  });
+
+  it('lists coined dimensions in a stable order and never twice', () => {
+    const order = factDimensionOrder({ zeta: [], hobby: [], basic: [] });
+    expect(order).toEqual(['basic', 'business', 'private', 'dynamic', 'hobby', 'zeta']);
   });
 });
