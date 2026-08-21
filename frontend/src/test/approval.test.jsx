@@ -9,6 +9,54 @@ import {
 } from '../components/common/approvalPlacement';
 
 describe('ApprovalCard', () => {
+  it('shows the saved signature under the draft without making it editable', () => {
+    const onDecision = vi.fn();
+    const action = {
+      action_type: 'mail.send',
+      payload: { to: 'a@b.com', subject: 'Hi', body: 'Original' },
+      presentation: { renderer: 'email', editable: true, signature: 'Best,\nJane' },
+      decisions: [
+        { id: 'approve', outcome: 'approve', label_key: 'chat.confirmSend', style: 'primary' },
+      ],
+    };
+    const { rerender } = render(<ApprovalCard action={action} onDecision={onDecision} />);
+    expect(screen.getByText('Best,\nJane', { collapseWhitespace: false })).toBeInTheDocument();
+    // The signature is display only - approving must not send it as an edit.
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    expect(onDecision).toHaveBeenCalledWith('approve', {});
+
+    // A body the user already signed must not show the signature twice.
+    rerender(
+      <ApprovalCard
+        action={{ ...action, payload: { ...action.payload, body: 'Original\n\nBest,\nJane' } }}
+        onDecision={onDecision}
+      />,
+    );
+    expect(screen.queryByText('Best,\nJane', { collapseWhitespace: false })).not.toBeInTheDocument();
+  });
+
+  it('sends inline edits to the email draft along with the approval', () => {
+    const onDecision = vi.fn();
+    render(
+      <ApprovalCard
+        action={{
+          action_type: 'mail.send',
+          payload: { to: 'a@b.com', subject: 'Hi', body: 'Original' },
+          presentation: { renderer: 'email', editable: true },
+          decisions: [
+            { id: 'approve', outcome: 'approve', label_key: 'chat.confirmSend', style: 'primary' },
+          ],
+        }}
+        onDecision={onDecision}
+      />,
+    );
+    const body = screen.getByText('Original');
+    body.innerText = 'Edited body';
+    fireEvent.input(body);
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    expect(onDecision).toHaveBeenCalledWith('approve', { body: 'Edited body' });
+  });
+
   it('renders the registered calendar preview and server-provided decisions', () => {
     const onDecision = vi.fn();
     render(
@@ -37,7 +85,7 @@ describe('ApprovalCard', () => {
     expect(screen.getByText('Architecture review')).toBeInTheDocument();
     expect(screen.getByText('Room 3')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and create' }));
-    expect(onDecision).toHaveBeenCalledWith('approve');
+    expect(onDecision).toHaveBeenCalledWith('approve', {});
   });
 
   it('keeps legacy draft cards compatible', () => {

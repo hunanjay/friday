@@ -26,6 +26,8 @@ export default function SettingsPage() {
     handleVerifyMailAccount,
     handleRefreshMailAccounts,
     assistantName,
+    signature = '',
+    handleUpdateSignature,
     handleUpdateAssistantName,
     avatarUrl,
     avatarPresets,
@@ -46,6 +48,8 @@ export default function SettingsPage() {
   const [verifyingMailId, setVerifyingMailId] = useState(null);
   const [assistantNameDraft, setAssistantNameDraft] = useState(assistantName);
   const [isSavingAssistantName, setIsSavingAssistantName] = useState(false);
+  const [signatureDraft, setSignatureDraft] = useState(signature);
+  const [isSavingSignature, setIsSavingSignature] = useState(false);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const addRepoRef = useRef(null);
@@ -100,6 +104,10 @@ export default function SettingsPage() {
     setAssistantNameDraft(assistantName);
   }, [assistantName]);
 
+  useEffect(() => {
+    setSignatureDraft(signature);
+  }, [signature]);
+
   // Sync selection state from context when ready
   useEffect(() => {
     if (githubRepos?.selected) {
@@ -142,6 +150,18 @@ export default function SettingsPage() {
       showToast(isZh ? '更新失败' : 'Failed to update assistant name');
     } finally {
       setIsSavingAssistantName(false);
+    }
+  };
+
+  const handleSaveSignature = async () => {
+    setIsSavingSignature(true);
+    try {
+      await handleUpdateSignature(signatureDraft.trim());
+      showToast(isZh ? '邮件签名已保存' : 'Email signature saved');
+    } catch {
+      showToast(isZh ? '保存失败' : 'Failed to save signature');
+    } finally {
+      setIsSavingSignature(false);
     }
   };
 
@@ -501,6 +521,36 @@ export default function SettingsPage() {
                 ? '支持 163 / QQ / Gmail / iCloud / Outlook（IMAP+SMTP）及自定义服务器，凭据加密存储。'
                 : '163 / QQ / Gmail / iCloud / Outlook (IMAP+SMTP) and custom servers. Credentials are encrypted at rest.'}
             </p>
+            <div className="settings-panel">
+              <div className="settings-field-row settings-field-row-stacked">
+                <div>
+                  <div className="settings-field-label">{isZh ? '邮件签名' : 'Email Signature'}</div>
+                  <div className="settings-field-hint">
+                    {isZh
+                      ? '附加在每封发出邮件的末尾，对所有邮箱账号和 AI 代发都生效。留空即关闭。'
+                      : 'Appended to every email you send, from any bound account and from the assistant. Leave empty to turn it off.'}
+                  </div>
+                </div>
+                <div className="settings-signature-editor">
+                  <textarea
+                    className="settings-text-input settings-textarea"
+                    value={signatureDraft}
+                    maxLength={1000}
+                    rows={4}
+                    onChange={(e) => setSignatureDraft(e.target.value)}
+                    placeholder={isZh ? '此致\n张三\n产品经理 · Friday' : 'Best regards,\nJane Doe\nProduct Manager, Friday'}
+                  />
+                  <button
+                    type="button"
+                    className="settings-btn"
+                    disabled={isSavingSignature || signatureDraft.trim() === signature}
+                    onClick={handleSaveSignature}
+                  >
+                    {isSavingSignature ? (isZh ? '保存中...' : 'Saving...') : (isZh ? '保存' : 'Save')}
+                  </button>
+                </div>
+              </div>
+            </div>
             <div className="settings-panel">
               {mailAccounts.length === 0 ? (
                 <div className="github-disconnected-prompt">

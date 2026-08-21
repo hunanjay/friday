@@ -1,7 +1,6 @@
 import logging
 import os
 from datetime import timedelta
-from typing import Literal
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -10,6 +9,7 @@ from langchain_core.tools import tool
 from app.agents.calendar_dates import resolve_calendar_day
 from app.agents.internal_links import markdown_internal_link
 from app.infrastructure.db.repositories import memos as memos_db
+from app.services.mail_compose import parse_recipients, render_body
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
 from app.tools.graph_client import graph_delete, graph_get, graph_get_paginated, graph_patch, graph_post
@@ -215,10 +215,15 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         )
 
     @tool
-    async def send_email(to: str, subject: str, body: str) -> str:
-        """Send an email with final recipient, subject, and body. This tool is
-        guarded by LangChain HITL middleware and only runs after approval."""
-        html_body = body.replace("\r\n", "\n").replace("\n", "<br>")
+    async def send_email(to: str, subject: str, body: str, cc: str = "") -> str:
+        """Send an email with final recipients, subject, and body. Separate
+        several addresses with commas, in `to` or in `cc`. This tool is guarded
+        by LangChain HITL middleware and only runs after approval."""
+        to_addrs = parse_recipients(to)
+        cc_addrs = parse_recipients(cc)
+        if not to_addrs:
+            return "No valid recipient address was given, so nothing was sent."
+        html_body = await render_body(user_id, body)
         await _graph_mutation(
             graph_post(
                 user_id,
@@ -227,13 +232,43 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
                     "message": {
                         "subject": subject,
                         "body": {"contentType": "HTML", "content": html_body},
-                        "toRecipients": [{"emailAddress": {"address": to}}],
+                        "toRecipients": [{"emailAddress": {"address": a}} for a in to_addrs],
+                        "ccRecipients": [{"emailAddress": {"address": a}} for a in cc_addrs],
                     },
                     "saveToSentItems": True,
                 },
             )
         )
-        return f"Email sent to {to}."
+        return f"Email sent to {', '.join(to_addrs + cc_addrs)}."
+
+    @tool
+    async def forward_email(email_id: str, to: str, comment: str = "", cc: str = "") -> str:
+        """Forward an existing email, by id, to other people. Graph carries the
+        original body and its attachments, so `comment` is only the note added
+        on top - never retype the original. Guarded by HITL: it runs only after
+        approval."""
+        to_addrs = parse_recipients(to)
+        if not to_addrs:
+            return "No valid recipient address was given, so nothing was forwarded."
+        await _graph_mutation(
+            graph_post(
+                user_id,
+                f"/me/messages/{quote(email_id)}/forward",
+                {
+                    "message": {
+                        "body": {
+                            "contentType": "HTML",
+                            "content": await render_body(user_id, comment),
+                        },
+                        "ccRecipients": [
+                            {"emailAddress": {"address": a}} for a in parse_recipients(cc)
+                        ],
+                    },
+                    "toRecipients": [{"emailAddress": {"address": a}} for a in to_addrs],
+                },
+            )
+        )
+        return f"Email forwarded to {', '.join(to_addrs)}."
 
     @tool
     async def mark_email_read(email_id: str, is_read: bool = True) -> str:
@@ -263,6 +298,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         search_emails,
         read_email,
         send_email,
+        forward_email,
         mark_email_read,
         delete_email,
     ]
@@ -332,27 +368,33 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
     @tool
     async def record_contact_fact(
         contact_name: str,
-        dimension: Literal["basic", "business", "private", "dynamic"],
-        category: Literal[
-            "preference", "pain_point", "demand", "family", "anniversary", "event", "other"
-        ],
+        dimension: str,
+        category: str,
         fact_key: str,
         fact_value: str,
     ) -> str:
         """Record a single explicit memory fact for a contact into the Personal Relationship Brain.
 
-        Use for a single fact stated in conversation (e.g. "Zhang Ming likes Pu'er tea",
-        "Zhang Ming just bought an AITO M9"). For long chat logs or raw multi-sentence
+        Use for a single fact stated in conversation (e.g. "she likes Pu'er tea",
+        "he just bought a new car"). For long chat logs or raw multi-sentence
         text, use `extract_contact_memory` instead.
 
         - `contact_name`: full name or the name used in conversation. Auto-created if unknown.
-        - `dimension`: basic = static personal info (hometown, school, birthday);
+        - `dimension`: which drawer of the profile this belongs in. Prefer an existing
+          one - basic = static personal info (hometown, school, birthday);
           business = professional context (company size, investment focus, budget);
           private = habits/lifestyle (diet, drink preference, vehicle, family, health);
-          dynamic = recent or upcoming events (travel, purchases, exams, meetings).
+          dynamic = recent or upcoming events (travel, purchases, exams, meetings) -
+          and only coin a new one when the fact fits none of them. This tool's
+          result lists the vocabulary already in use; reuse a label from it rather
+          than a near-duplicate.
+        - `category`: what kind of fact it is, e.g. preference, demand, family,
+          anniversary, event. Same rule: reuse before coining.
         - `fact_key`: short snake_case identifier, e.g. 'tea_preference', 'car_model'.
         - `fact_value`: the fact itself, e.g. "Likes hot Pu'er tea".
         """
+        if not (fact_value or "").strip():
+            return "Error: fact_value cannot be empty."
         from app.infrastructure.db.repositories import contacts as contacts_repo
         from app.services.contact_service import ContactService
 
@@ -365,10 +407,10 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
             contact_id = new_c["id"]
             cname = new_c["name"]
 
-        # dimension/category are Literal-typed, so an out-of-vocabulary value is
-        # rejected by the tool schema before this body runs. Previously they were
-        # plain `str` and a bad value was silently coerced to private/other, which
-        # wrote the fact into the wrong dimension with no error anywhere.
+        # The vocabulary is open, so the old Literal typing is gone. What kept the
+        # original bug (a bad value silently coerced to private/other) from coming
+        # back is add_contact_profile normalizing the label and storing what it
+        # was given, instead of this layer guessing.
         fact = await contacts_repo.add_contact_profile(
             user_id=user_id,
             contact_id=contact_id,
@@ -379,7 +421,13 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
             source_type="chat",
             source_id=session_id,
         )
-        return f"Successfully recorded memory fact for {cname}: [{dimension} / {category}] {fact_key} = {fact_value} (fact_id: {fact['id']})."
+        vocab = await contacts_repo.get_fact_vocabulary(user_id)
+        return (
+            f"Successfully recorded memory fact for {cname}: "
+            f"[{fact['dimension']} / {fact['category']}] {fact_key} = {fact_value} (fact_id: {fact['id']}). "
+            f"Dimensions now in use: {', '.join(vocab['dimensions'])}. "
+            f"Categories now in use: {', '.join(vocab['categories'])}."
+        )
 
     @tool
     async def extract_contact_memory(text: str) -> str:

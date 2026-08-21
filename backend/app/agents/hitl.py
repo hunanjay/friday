@@ -9,8 +9,12 @@ from langgraph.types import Interrupt
 
 HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
     "send_email": {
-        "allowed_decisions": ["approve", "reject"],
+        "allowed_decisions": ["approve", "edit", "reject"],
         "description": "Review and approve this email before it is sent.",
+    },
+    "forward_email": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": "Review and approve forwarding this email.",
     },
     "delete_email": {
         "allowed_decisions": ["approve", "reject"],
@@ -34,8 +38,23 @@ HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Fields the user may set on the card even when the model left them out of the
+# tool call - without this, "keys already present" would make cc editable only
+# on the drafts that happened to have one.
+_EDITABLE_FIELDS: dict[str, frozenset[str]] = {
+    "send_email": frozenset({"to", "cc", "subject", "body"}),
+    "forward_email": frozenset({"to", "cc", "comment"}),
+}
+
 _ACTION_UI = {
     "send_email": ("mail.send", "email", "chat.reviewEmail", "chat.approvalStatusSent", "chat.confirmSend"),
+    "forward_email": (
+        "mail.forward",
+        "email_forward",
+        "chat.reviewForward",
+        "chat.approvalStatusSent",
+        "chat.confirmForward",
+    ),
     "delete_email": (
         "mail.move_to_trash",
         "email_delete",
@@ -87,6 +106,7 @@ def interrupt_to_action(
     *,
     status: str = "pending",
     anchor_message_id: str | None = None,
+    signature: str = "",
 ) -> dict:
     value = interrupt.value if isinstance(interrupt.value, dict) else {}
     requests = value.get("action_requests") or []
@@ -134,6 +154,10 @@ def interrupt_to_action(
         "status": status,
         "presentation": {
             "renderer": renderer,
+            "editable": "edit" in allowed and len(requests) == 1,
+            # The signature is appended to the body at send time, so the card
+            # has to carry it or it would preview an email nobody will receive.
+            "signature": signature if renderer in {"email", "email_forward"} else "",
             "title_key": title_key,
             "subtitle_key": "chat.approvalRequired",
             "pending_status_key": "chat.approvalStatusPending",
@@ -153,18 +177,24 @@ def interrupt_to_action(
 def pending_actions_from_interrupts(
     interrupts: tuple[Interrupt, ...],
     session_id: str,
+    signature: str = "",
 ) -> list[dict]:
     return [
         interrupt_to_action(
             item,
             session_id,
             anchor_message_id=f"hitl_{item.id}",
+            signature=signature,
         )
         for item in interrupts
     ]
 
 
-def resume_value_for(interrupt: Interrupt, decision: str) -> dict:
+def resume_value_for(
+    interrupt: Interrupt,
+    decision: str,
+    edited_args: dict | None = None,
+) -> dict:
     value = interrupt.value if isinstance(interrupt.value, dict) else {}
     configs = value.get("review_configs") or []
     if decision not in {"approve", "reject"}:
@@ -172,9 +202,32 @@ def resume_value_for(interrupt: Interrupt, decision: str) -> dict:
     for config in configs:
         if decision not in (config.get("allowed_decisions") or []):
             raise ValueError(f"Decision {decision!r} is not allowed for this action")
-    count = len(value.get("action_requests") or [])
+    requests = value.get("action_requests") or []
+    count = len(requests)
     if not count:
         raise ValueError("Interrupt contains no action requests")
+    if decision == "approve" and edited_args:
+        if count != 1:
+            raise ValueError("Editing is only supported for a single action")
+        for config in configs:
+            if "edit" not in (config.get("allowed_decisions") or []):
+                raise ValueError("This action cannot be edited")
+        original = dict(requests[0].get("args") or {})
+        # Only the tool's own fields may be set - the client must not be able to
+        # introduce tool arguments that do not exist.
+        editable = set(original) | _EDITABLE_FIELDS.get(requests[0].get("name"), frozenset())
+        unknown = set(edited_args) - editable
+        if unknown:
+            raise ValueError(f"Unknown editable fields: {', '.join(sorted(unknown))}")
+        args = {**original, **edited_args}
+        return {
+            "decisions": [
+                {
+                    "type": "edit",
+                    "edited_action": {"name": requests[0].get("name"), "args": args},
+                }
+            ]
+        }
     if decision == "approve":
         decisions = [{"type": "approve"} for _ in range(count)]
     else:

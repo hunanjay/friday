@@ -21,19 +21,25 @@ def _normalize_bytes(content) -> bytes:
 def build_message(
     *,
     from_addr: str,
-    to: str,
+    to: str | list[str],
     subject: str,
     html_body: str,
     attachments: list[dict] | None = None,
     references: list[str] | None = None,
     in_reply_to: str | None = None,
     msg_id: str | None = None,
+    cc: list[str] | None = None,
 ) -> bytes:
     """组装 MIME 邮件并返回原始 bytes。回复时传 references/in_reply_to
-    让收件方及我们自己的线程键能归组。"""
+    让收件方及我们自己的线程键能归组。
+
+    密送不在这里：Bcc 只走信封收件人（见 send_mail 的 recipients），
+    写进邮件头会让其他收件人看见。"""
     msg = EmailMessage()
     msg["From"] = from_addr
-    msg["To"] = to
+    msg["To"] = ", ".join(to) if isinstance(to, list) else to
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg["Subject"] = subject
     msg["Date"] = email.utils.formatdate(localtime=True)
     if msg_id:

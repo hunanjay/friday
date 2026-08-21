@@ -10,6 +10,7 @@
 import datetime
 import email
 import email.utils
+import html as html_lib
 from email.header import decode_header, make_header
 from html.parser import HTMLParser
 
@@ -45,7 +46,7 @@ class _TextExtractor(HTMLParser):
         return " ".join(self.parts)
 
 
-def _decode_header_value(value: str | None) -> str:
+def decode_header_value(value: str | None) -> str:
     if not value:
         return ""
     try:
@@ -56,14 +57,14 @@ def _decode_header_value(value: str | None) -> str:
 
 def _get_recipient(addr: str) -> dict:
     name, address = email.utils.parseaddr(addr)
-    return {"emailAddress": {"name": _decode_header_value(name) or "", "address": address}}
+    return {"emailAddress": {"name": decode_header_value(name) or "", "address": address}}
 
 
 def _get_addresses(header_value: str | None) -> list[dict]:
     if not header_value:
         return []
     return [
-        {"emailAddress": {"name": _decode_header_value(name) or "", "address": address}}
+        {"emailAddress": {"name": decode_header_value(name) or "", "address": address}}
         for name, address in email.utils.getaddresses([header_value])
     ]
 
@@ -99,7 +100,7 @@ def _get_attachments(msg: email.message.Message) -> list[dict]:
         filename = part.get_filename()
         if not filename:
             continue
-        filename = _decode_header_value(filename)
+        filename = decode_header_value(filename)
         disposition = (part.get("Content-Disposition") or "").lower()
         content_id = part.get("Content-ID")
         payload = part.get_payload(decode=True) or b""
@@ -117,7 +118,7 @@ def _get_attachments(msg: email.message.Message) -> list[dict]:
 def to_graph_message(raw: bytes, account_id: str, mailbox: str, uid: int, seen_ids: set[str], full: bool = False) -> dict:
     msg = email.message_from_bytes(raw)
 
-    subject = _decode_header_value(msg.get("Subject"))
+    subject = decode_header_value(msg.get("Subject"))
     sender = _get_recipient(msg.get("From", ""))
     date_str = msg.get("Date")
     try:
@@ -172,3 +173,33 @@ def to_graph_message(raw: bytes, account_id: str, mailbox: str, uid: int, seen_i
         }
         result["attachments"] = attachments
     return result
+
+
+def body_html(msg: email.message.Message) -> str:
+    """The message body as HTML, escaping a plain-text-only original so its
+    angle brackets survive being embedded in a forwarded HTML body."""
+    html, plain = _body_parts(msg)
+    if html:
+        return html
+    return html_lib.escape(plain or "").replace("\n", "<br>")
+
+
+def attachment_payloads(msg: email.message.Message) -> list[dict]:
+    """Attachments with their bytes, in the shape the SMTP builder takes.
+
+    `_get_attachments` deliberately reports metadata only, since listing a
+    mailbox must not decode every file; forwarding needs the content itself.
+    """
+    payloads = []
+    for part in msg.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+        filename = part.get_filename()
+        if not filename:
+            continue
+        payloads.append({
+            "name": decode_header_value(filename),
+            "contentType": part.get_content_type() or "application/octet-stream",
+            "content": part.get_payload(decode=True) or b"",
+        })
+    return payloads

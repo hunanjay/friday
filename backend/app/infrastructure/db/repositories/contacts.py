@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS contact_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL,
     contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-    dimension TEXT NOT NULL,  -- 'basic', 'business', 'private', 'dynamic'
+    dimension TEXT NOT NULL,  -- open vocabulary; see repositories.contacts.BUILTIN_DIMENSIONS
     category TEXT NOT NULL,   -- 'preference', 'pain_point', 'demand', 'family', 'anniversary', 'event'
     fact_key TEXT NOT NULL,   -- 'diet_preference', 'children_education', etc.
     fact_value TEXT NOT NULL,
@@ -361,6 +361,41 @@ async def get_contact_profiles(user_id: str, contact_id: str) -> list[dict]:
     ]
 
 
+# The four built-in dimensions. Not a whitelist - the agent may coin a new one
+# when a fact fits none of these - but a fact written under a coined dimension
+# must still land in the same bucket every time, hence normalize_facet below.
+BUILTIN_DIMENSIONS = ("basic", "business", "private", "dynamic")
+
+
+def normalize_facet(value: str | None, fallback: str) -> str:
+    """Fold a dimension/category label to one canonical spelling.
+
+    The vocabulary is open, so 'Dynamic Status', 'dynamic status' and
+    'dynamic_status' would otherwise become three separate buckets holding one
+    fact each. Case and separators are collapsed here, at the single write path
+    every caller goes through; genuine synonyms are a prompt problem, not this
+    function's job.
+    """
+    folded = "_".join((value or "").strip().lower().replace("-", " ").replace("_", " ").split())
+    return folded or fallback
+
+
+async def get_fact_vocabulary(user_id: str) -> dict[str, list[str]]:
+    """Dimensions and categories this user's facts already use, so the agent can
+    reuse a label instead of coining a near-duplicate of it."""
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            "SELECT DISTINCT dimension, category FROM contact_profiles WHERE user_id = %s",
+            (user_id,),
+        )
+        rows = await cur.fetchall()
+
+    return {
+        "dimensions": sorted({r[0] for r in rows if r[0]} | set(BUILTIN_DIMENSIONS)),
+        "categories": sorted({r[1] for r in rows if r[1]}),
+    }
+
+
 async def add_contact_profile(
     user_id: str,
     contact_id: str,
@@ -372,6 +407,8 @@ async def add_contact_profile(
     source_type: str = "manual",
     source_id: str | None = None,
 ) -> dict:
+    dimension = normalize_facet(dimension, "basic")
+    category = normalize_facet(category, "other")
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
             """

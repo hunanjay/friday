@@ -2427,12 +2427,14 @@
 }
 
 .approval-card {
+  /* The card title and the subject line are deliberately the same size. */
+  --approval-title-size: 0.84rem;
   align-self: flex-start;
   width: min(560px, 86%);
   max-width: 100%;
   box-sizing: border-box;
   margin-left: 44px;
-  padding: 16px;
+  padding: 13px 14px;
   border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, var(--border-light));
   border-radius: 12px;
   background: var(--bg-card);
@@ -2458,6 +2460,7 @@
 }
 
 .approval-card-resolved {
+  position: relative;
   border-color: color-mix(in srgb, var(--color-success, #2f9e44) 45%, var(--border-light));
 }
 
@@ -2471,9 +2474,14 @@
 }
 
 .approval-resolved-status {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 10px;
+  position: absolute;
+  top: 13px;
+  right: 14px;
+}
+
+/* Keep a long recipient from running under the pill. */
+.approval-card-resolved .approval-email-head {
+  padding-right: 62px;
 }
 
 .approval-card-resolved .approval-card-icon {
@@ -2502,14 +2510,18 @@
 .approval-card-header {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.approval-card-header strong {
+  font-size: var(--approval-title-size);
 }
 
 .approval-card-header p {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.73rem;
 }
 
 .approval-title-row {
@@ -2522,9 +2534,9 @@
 .approval-status {
   display: inline-flex;
   align-items: center;
-  padding: 2px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
-  font-size: 0.68rem;
+  font-size: 0.63rem;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -2566,10 +2578,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 27px;
+  height: 27px;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   color: var(--accent-primary);
   background: var(--accent-light);
 }
@@ -2603,50 +2615,82 @@
   padding: 2px 2px 0;
 }
 
-.approval-email-recipient {
-  display: flex;
+/* Label column sized to the widest label, so every value starts on the same
+   x - "To"/"Subject" and 收件人/主题 all line up without a magic width. */
+.approval-email-head {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 8px;
+  row-gap: 5px;
   align-items: baseline;
-  gap: 10px;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
 }
 
-.approval-email-recipient span,
-.approval-email-body > span {
+.approval-email-label {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
-.approval-email-recipient strong {
-  color: var(--text-primary);
-  font-weight: 600;
+.approval-email-label::after {
+  content: ':';
+  margin-left: 1px;
+}
+
+.approval-email-to {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
 
 .approval-email-subject {
-  margin: 16px 0 12px;
   color: var(--text-primary);
-  font-size: 1.02rem;
+  font-size: var(--approval-title-size);
   font-weight: 650;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
 .approval-email-body {
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--border-light);
 }
 
 .approval-email-body p {
-  margin: 7px 0 0;
+  margin: 0;
   color: var(--text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.6;
+  font-size: 0.8rem;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.approval-email-signature {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-editable {
+  display: block;
+  border-radius: 6px;
+  outline: 1px dashed var(--border-light);
+  outline-offset: 3px;
+  cursor: text;
+}
+
+.approval-editable:hover {
+  outline-color: var(--accent-border);
+}
+
+.approval-editable:focus {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
 }
 
 .approval-body p {
@@ -2665,15 +2709,15 @@
 .approval-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 6px;
+  margin-top: 11px;
 }
 
 .approval-cancel-btn,
 .approval-confirm-btn {
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 0.85rem;
+  padding: 6px 11px;
+  border-radius: 7px;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 
@@ -3551,6 +3595,22 @@
   border: none !important;
   box-shadow: none !important;
   padding: 4px 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.compose-copy-toggle {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.compose-copy-toggle:hover {
+  color: var(--accent-primary);
 }
 
 .compose-body-group textarea {
@@ -5536,6 +5596,47 @@
 .settings-text-input:focus {
   outline: none;
   border-color: var(--accent-primary);
+}
+
+.compose-signature-preview {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-light);
+  color: var(--text-muted);
+}
+
+.compose-signature-preview > span {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.compose-signature-preview p {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-field-row-stacked {
+  align-items: flex-start;
+}
+
+.settings-signature-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 280px;
+}
+
+.settings-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
 }
 
 .avatar-preset-grid {

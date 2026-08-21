@@ -211,6 +211,7 @@ def _called_names(node: ast.AST) -> set[str]:
 
 for tool_name in (
     "send_email",
+    "forward_email",
     "delete_email",
     "create_event",
     "delete_event",
@@ -262,7 +263,7 @@ from app.agents.hitl import (  # noqa: E402
 )
 
 expected_hitl_tools = {
-    "send_email", "delete_email", "create_event", "delete_event",
+    "send_email", "forward_email", "delete_email", "create_event", "delete_event",
     "accept_event", "decline_event",
 }
 check("all email/calendar mutation tools have interrupt policies",
@@ -856,18 +857,26 @@ check(
     "contacts_db.init_schema()" in main_source_fresh,
 )
 
-# ── 13-J. 纯逻辑单元测试：fact dimension 白名单校验 ──────────────────────────
-VALID_DIMENSIONS = {"basic", "business", "private", "dynamic"}
+# ── 13-J. 纯逻辑单元测试：fact 维度/分类标签归一化 ───────────────────────────
+# The vocabulary is open now, so the question is no longer "is this label
+# allowed" but "does the same label always fold to the same bucket".
+# Importing the repository pulls in app.core.security, which builds a Supabase
+# client at import time; CI leaves these unset.
+for _var, _stub in (
+    ("SUPABASE_URL", "https://test.supabase.co"),
+    ("SUPABASE_ANON_KEY", "test-anon-key"),
+    ("SUPABASE_SERVICE_ROLE_KEY", "test-service-key"),
+):
+    os.environ[_var] = os.environ.get(_var) or _stub
 
-def _validate_dimension(dim: str) -> bool:
-    return dim in VALID_DIMENSIONS
+from app.infrastructure.db.repositories.contacts import normalize_facet  # noqa: E402
 
-check("valid dimension 'basic' passes",    _validate_dimension("basic"))
-check("valid dimension 'business' passes", _validate_dimension("business"))
-check("valid dimension 'private' passes",  _validate_dimension("private"))
-check("valid dimension 'dynamic' passes",  _validate_dimension("dynamic"))
-check("invalid dimension 'unknown' fails", not _validate_dimension("unknown"))
-check("empty string dimension fails",      not _validate_dimension(""))
+check("a built-in dimension is unchanged",   normalize_facet("business", "basic") == "business")
+check("case and spacing fold together",      normalize_facet("Dynamic Status", "basic") == "dynamic_status")
+check("hyphens fold like spaces",            normalize_facet("pain-point", "other") == "pain_point")
+check("a coined dimension survives",         normalize_facet("hobby", "basic") == "hobby")
+check("empty falls back rather than writing an empty bucket", normalize_facet("  ", "basic") == "basic")
+check("None falls back too",                 normalize_facet(None, "other") == "other")
 
 
 # ---------------------------------------------------------------------------
@@ -940,6 +949,242 @@ check(
     "describe_team exposes contact routing through the tool description",
     next(agent for agent in _team["agents"] if agent["name"] == "contact_agent")["routing_hint"]
     == _ROUTING_HINTS["contact_agent"],
+)
+
+
+section("16. inline draft edits on HITL approval")
+
+from langgraph.types import Interrupt  # noqa: E402
+
+from app.agents.hitl import interrupt_to_action, resume_value_for  # noqa: E402
+
+_mail_interrupt = Interrupt(
+    id="mail-1",
+    value={
+        "action_requests": [
+            {"name": "send_email", "args": {"to": "a@b.com", "subject": "Hi", "body": "Draft"}}
+        ],
+        "review_configs": [{"allowed_decisions": ["approve", "edit", "reject"]}],
+    },
+)
+_delete_interrupt = Interrupt(
+    id="del-1",
+    value={
+        "action_requests": [{"name": "delete_email", "args": {"email_id": "1"}}],
+        "review_configs": [{"allowed_decisions": ["approve", "reject"]}],
+    },
+)
+
+
+def _edit_error(interrupt, edits: dict) -> str:
+    try:
+        resume_value_for(interrupt, "approve", edits)
+    except ValueError as exc:
+        return str(exc)
+    return ""
+
+
+check(
+    "the email card is marked editable, the delete card is not",
+    interrupt_to_action(_mail_interrupt, "s1")["presentation"]["editable"] is True
+    and interrupt_to_action(_delete_interrupt, "s1")["presentation"]["editable"] is False,
+)
+check(
+    "an edited body resumes as a LangChain edit decision, other fields intact",
+    resume_value_for(_mail_interrupt, "approve", {"body": "Edited"})
+    == {
+        "decisions": [
+            {
+                "type": "edit",
+                "edited_action": {
+                    "name": "send_email",
+                    "args": {"to": "a@b.com", "subject": "Hi", "body": "Edited"},
+                },
+            }
+        ]
+    },
+)
+check(
+    "no edits still resumes as a plain approval",
+    resume_value_for(_mail_interrupt, "approve") == {"decisions": [{"type": "approve"}]},
+)
+check(
+    "a non-editable tool rejects edits outright",
+    "cannot be edited" in _edit_error(_delete_interrupt, {"email_id": "2"}),
+)
+
+
+section("17. email signature")
+
+import html  # noqa: E402
+
+from app.services.mail_compose import apply_signature, parse_recipients  # noqa: E402
+
+_SIG = "Best regards,\nJane Doe\nProduct Manager"
+
+check(
+    "the signature is appended after a blank line",
+    apply_signature("Hi there", _SIG) == f"Hi there\n\n{_SIG}",
+)
+check(
+    "an already-signed body is not signed twice",
+    apply_signature(f"Hi there\n\n{_SIG}", _SIG) == f"Hi there\n\n{_SIG}",
+)
+check(
+    "an empty signature leaves the body alone, CRLF still normalized",
+    apply_signature("Hi\r\nthere", "") == "Hi\nthere"
+    and apply_signature("Hi there", "   ") == "Hi there",
+)
+
+# The point of the shared renderer: no send route may hand-roll its own
+# newline-to-<br> conversion and thereby skip the signature.
+_SEND_MODULES = [
+    "app/agents/tools.py",
+    "app/services/mail_service.py",
+    "app/services/mail_provider_service.py",
+]
+_send_sources = {name: (backend_dir / name).read_text() for name in _SEND_MODULES}
+check(
+    # Bodies are plain text. Unescaped, "a < b" or "<notes>" reaches the
+    # recipient as markup and their mail client eats it.
+    "the body is html-escaped before the newline conversion",
+    html.escape(apply_signature("a < b, see <notes>", _SIG)).replace("\n", "<br>")
+    == "a &lt; b, see &lt;notes&gt;<br><br>" + _SIG.replace("\n", "<br>"),
+)
+check(
+    "every outbound mail path renders its body through render_body",
+    all("render_body(user_id" in source for source in _send_sources.values()),
+    detail=str([name for name, src in _send_sources.items() if "render_body(user_id" not in src]),
+)
+from app.agents.supervisor import _SIGNATURE_RULE  # noqa: E402
+
+_no_sig_prompt = _agent_prompts("Dora", "2026-08-21")["mail_agent"]
+_sig_prompt = _agent_prompts("Dora", "2026-08-21", has_signature=True)["mail_agent"]
+check(
+    "with a signature saved, the mail agent is told to stop writing its own sign-off",
+    _SIGNATURE_RULE in _sig_prompt,
+)
+check(
+    "without one, the rule is absent so replies are not left unsigned",
+    _SIGNATURE_RULE not in _no_sig_prompt,
+)
+check(
+    "an approval card carries the signature it will be sent with",
+    interrupt_to_action(_mail_interrupt, "s1", signature="Yours\nJane")["presentation"]["signature"]
+    == "Yours\nJane",
+)
+check(
+    "a non-email card carries no signature to render",
+    interrupt_to_action(_delete_interrupt, "s1", signature="Yours\nJane")["presentation"]["signature"]
+    == "",
+)
+from app.agents import draft as draft_module  # noqa: E402
+
+check(
+    "the reply drafter is told to skip the closing when a signature exists",
+    draft_module._SKIP_CLOSING in draft_module._SYSTEM_PROMPT.format(closing=draft_module._SKIP_CLOSING)
+    and draft_module._WRITE_CLOSING in draft_module._SYSTEM_PROMPT.format(closing=draft_module._WRITE_CLOSING),
+)
+check(
+    # The Qwen-compatible endpoint rejects a json response_format, which is what
+    # langchain_openai 1.x picks by default - drafting 500s without this.
+    "structured output stays on function calling, not a json response_format",
+    'with_structured_output(_ReplyDraft, method="function_calling")'
+    in (backend_dir / "app/agents/draft.py").read_text(),
+)
+check(
+    "a recipient field splits on commas and semicolons and unwraps Name <addr>",
+    parse_recipients("a@x.com, 张三 <b@y.com>; c@z.com") == ["a@x.com", "b@y.com", "c@z.com"],
+)
+check(
+    "blank entries are dropped and a repeat is not sent twice",
+    parse_recipients(" a@x.com , , a@x.com ") == ["a@x.com"]
+    and parse_recipients("") == []
+    and parse_recipients(None) == []
+    and parse_recipients(["a@x.com"]) == ["a@x.com"],
+)
+check(
+    "cc is editable on the card even when the draft carried none",
+    resume_value_for(_mail_interrupt, "approve", {"cc": "boss@x.com"})["decisions"][0][
+        "edited_action"
+    ]["args"]["cc"]
+    == "boss@x.com",
+)
+check(
+    "an argument the tool does not take is still refused",
+    "Unknown editable fields" in _edit_error(_mail_interrupt, {"reply_to": "evil@x.com"}),
+)
+_forward_interrupt = Interrupt(
+    id="fwd-1",
+    value={
+        "action_requests": [
+            {"name": "forward_email", "args": {"email_id": "abc", "to": "a@b.com", "comment": "FYI"}}
+        ],
+        "review_configs": [{"allowed_decisions": ["approve", "edit", "reject"]}],
+    },
+)
+check(
+    "forwarding is offered as its own card, not the generic fallback",
+    interrupt_to_action(_forward_interrupt, "s1")["presentation"]["renderer"] == "email_forward",
+)
+check(
+    "the forward card is editable and previews the signature",
+    interrupt_to_action(_forward_interrupt, "s1", signature="Yours")["presentation"]["signature"]
+    == "Yours",
+)
+check(
+    "the agent can forward, so it never has to retype an email it was given",
+    "forward_email" in _returned_tool_names("make_mail_tools"),
+)
+from app.services.mail_compose import (  # noqa: E402
+    GRAPH_ATTACHMENT_LIMIT,
+    SMTP_ATTACHMENT_LIMIT,
+    assert_attachments_fit,
+)
+
+
+def _attachment_error(sizes_mb: list[float], limit: int) -> str:
+    files = [{"content": b"x" * int(mb * 1024 * 1024)} for mb in sizes_mb]
+    try:
+        assert_attachments_fit(files, limit)
+    except Exception as exc:
+        return str(getattr(exc, "detail", exc))
+    return ""
+
+
+_over = _attachment_error([4], GRAPH_ATTACHMENT_LIMIT)
+check(
+    "an oversized batch is refused with its size, not the provider's 500",
+    "4.0MB" in _over and "3MB limit" in _over,
+)
+check(
+    # The old UI check measured only the newly picked files, so three 2MB picks
+    # slipped through and failed at the provider instead.
+    "the total is what counts, so several small files cannot add up past it",
+    "4.0MB" in _attachment_error([2, 2], GRAPH_ATTACHMENT_LIMIT),
+)
+check(
+    "the larger SMTP ceiling is not held to the Graph one",
+    _attachment_error([4], SMTP_ATTACHMENT_LIMIT) == "",
+)
+check(
+    "a batch that fits passes through untouched",
+    assert_attachments_fit([{"content": b"x" * 1024}], GRAPH_ATTACHMENT_LIMIT) is None
+    and assert_attachments_fit(None, GRAPH_ATTACHMENT_LIMIT) is None,
+)
+_compose_source = (backend_dir.parent / "frontend/src/pages/EmailPage.jsx").read_text()
+check(
+    # The UI checks before uploading, so it carries its own copy of the numbers.
+    "the compose form's limits still match the ones the backend enforces",
+    f"const GRAPH_ATTACHMENT_LIMIT = {GRAPH_ATTACHMENT_LIMIT // (1024 * 1024)} * 1024 * 1024;"
+    in _compose_source
+    and f"const SMTP_ATTACHMENT_LIMIT = {SMTP_ATTACHMENT_LIMIT // (1024 * 1024)} * 1024 * 1024;"
+    in _compose_source,
+)
+check(
+    "no send path still converts newlines to <br> on its own",
+    not any('.replace("\\n", "<br>")' in source for source in _send_sources.values()),
+    detail=str([name for name, src in _send_sources.items() if '.replace("\\n", "<br>")' in src]),
 )
 
 

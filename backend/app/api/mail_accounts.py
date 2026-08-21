@@ -196,6 +196,8 @@ async def send(
     to: str = Form(...),
     subject: str = Form(...),
     body: str = Form(...),
+    cc: str = Form(""),
+    bcc: str = Form(""),
     attachments: list[UploadFile] = File(default=[]),
     user_id: str = Depends(get_user_id),
 ):
@@ -205,7 +207,7 @@ async def send(
             content = await f.read()
             att_list.append({"name": f.filename, "contentType": f.content_type, "content": content})
     return await MailProviderService.send_message(
-        user_id, account_id, to=to, subject=subject, content=body, attachments=att_list
+        user_id, account_id, to=to, subject=subject, content=body, attachments=att_list, cc=cc, bcc=bcc
     )
 
 
@@ -232,6 +234,7 @@ async def delete(email_id: str, permanent: bool = False, user_id: str = Depends(
 async def reply(
     email_id: str,
     body: str = Form(""),
+    reply_all: bool = Form(False),
     attachments: list[UploadFile] = File(default=[]),
     user_id: str = Depends(get_user_id),
 ):
@@ -240,7 +243,30 @@ async def reply(
         if f.filename:
             content = await f.read()
             att_list.append({"name": f.filename, "contentType": f.content_type, "content": content})
-    return await MailProviderService.reply_message(user_id, email_id, content=body, attachments=att_list)
+    return await MailProviderService.reply_message(
+        user_id, email_id, content=body, attachments=att_list, reply_all=reply_all
+    )
+
+
+@router.post("/mail/{email_id}/forward")
+async def forward(
+    email_id: str,
+    to: str = Form(...),
+    body: str = Form(""),
+    cc: str = Form(""),
+    bcc: str = Form(""),
+    subject: str = Form(""),
+    attachments: list[UploadFile] = File(default=[]),
+    user_id: str = Depends(get_user_id),
+):
+    att_list = []
+    for f in attachments:
+        if f.filename:
+            content = await f.read()
+            att_list.append({"name": f.filename, "contentType": f.content_type, "content": content})
+    return await MailProviderService.forward_message(
+        user_id, email_id, to=to, content=body, attachments=att_list, cc=cc, bcc=bcc, subject=subject
+    )
 
 
 @router.get("/mail/{email_id}/attachments")

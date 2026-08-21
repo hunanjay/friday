@@ -17,13 +17,10 @@ import {
   Tag as TagIcon,
   Clock,
   MapPin,
-  Heart,
-  Briefcase as BusinessIcon,
-  UserIcon,
-  Zap,
   ChevronLeft,
 } from '../components/common/Icons';
 import ChatLogPasteModal from '../components/ChatLogPasteModal';
+import { DIMENSION_META, factDimensionOrder } from './contactDimensions';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -341,6 +338,7 @@ export default function ContactsPage() {
     acc[dim].push(p);
     return acc;
   }, {});
+  const dimensionKeys = factDimensionOrder(profilesByDimension);
 
   // Interactions keyed by id: a fact's source_id points at the record it came from.
   const originsById = (selectedContact?.timeline || []).reduce((acc, item) => {
@@ -667,54 +665,27 @@ export default function ContactsPage() {
                   {/* 4 Dimension Profiles & Facts Section */}
                   <section style={{ marginTop: 24 }}>
                     <h4 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: 12 }}>
-                      {isZh ? '4 大维度原子事实表 (Memory Profiles)' : 'Memory Profiles'}
+                      {isZh ? '原子事实表 (Memory Profiles)' : 'Memory Profiles'}
                     </h4>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <FactGroup
-                        title={isZh ? '商务事实 (Business)' : 'Business Facts'}
-                        icon={<BusinessIcon size={16} />}
-                        color="#2563eb"
-                        facts={profilesByDimension.business}
-                        emptyText={isZh ? '暂无商务事实' : 'No facts recorded'}
-                        originsById={originsById}
-                        isZh={isZh}
-                        onDelete={handleDeleteFact}
-                      />
-
-                      <FactGroup
-                        title={isZh ? '私人喜好 (Private)' : 'Private Preferences'}
-                        icon={<Heart size={16} />}
-                        color="#ec4899"
-                        facts={profilesByDimension.private}
-                        emptyText={isZh ? '暂无私人喜好' : 'No facts recorded'}
-                        originsById={originsById}
-                        isZh={isZh}
-                        onDelete={handleDeleteFact}
-                      />
-
-                      <FactGroup
-                        title={isZh ? '动态与约定 (Dynamic)' : 'Dynamic Status'}
-                        icon={<Zap size={16} />}
-                        color="#8b5cf6"
-                        facts={profilesByDimension.dynamic}
-                        emptyText={isZh ? '暂无动态约定' : 'No facts recorded'}
-                        originsById={originsById}
-                        isZh={isZh}
-                        onDelete={handleDeleteFact}
-                      />
-
-                      {/* 'basic' facts were written by the agent but had no panel to land in */}
-                      <FactGroup
-                        title={isZh ? '基础信息 (Basic)' : 'Basic Facts'}
-                        icon={<UserIcon size={16} />}
-                        color="#0891b2"
-                        facts={profilesByDimension.basic}
-                        emptyText={isZh ? '暂无基础事实' : 'No facts recorded'}
-                        originsById={originsById}
-                        isZh={isZh}
-                        onDelete={handleDeleteFact}
-                      />
+                      {dimensionKeys.map((dim) => {
+                        const meta = DIMENSION_META[dim];
+                        const Icon = meta?.icon || Sparkles;
+                        return (
+                          <FactGroup
+                            key={dim}
+                            title={meta ? (isZh ? meta.zh : meta.en) : dim}
+                            icon={<Icon size={16} />}
+                            color={meta?.color || '#64748b'}
+                            facts={profilesByDimension[dim]}
+                            emptyText={isZh ? (meta?.emptyZh || '暂无事实') : 'No facts recorded'}
+                            originsById={originsById}
+                            isZh={isZh}
+                            onDelete={handleDeleteFact}
+                          />
+                        );
+                      })}
 
                       {/* Tags Section */}
                       <div style={{ background: 'var(--bg-secondary, #f8fafc)', padding: 12, borderRadius: 8, border: '1px solid var(--border-light, #e2e8f0)' }}>

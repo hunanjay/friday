@@ -1,6 +1,14 @@
 from urllib.parse import quote
 
+from fastapi import HTTPException
+
 from app.infrastructure.graph.client import graph_get, graph_get_binary
+from app.services.mail_compose import (
+    GRAPH_ATTACHMENT_LIMIT,
+    assert_attachments_fit,
+    parse_recipients,
+    render_body,
+)
 from app.tools.mail_queries import MAIL_FOLDERS, search_path
 
 LIST_SELECT_FIELDS = (
@@ -98,13 +106,37 @@ class MailService:
             await client.me.messages.by_message_id(email_id).move.post(body)
         return {"status": "ok"}
 
-    @classmethod
-    async def send_message(cls, user_id: str, to: str, subject: str, content: str, attachments: list = None) -> dict:
+    @staticmethod
+    def _file_attachments(attachments: list | None) -> list:
         import base64
+
+        from msgraph.generated.models.file_attachment import FileAttachment
+
+        built = []
+        for att in attachments or []:
+            content_data = att["content"]
+            raw_bytes = base64.b64decode(content_data) if isinstance(content_data, str) else content_data
+            built.append(FileAttachment(
+                name=att.get("name", "attachment"),
+                content_type=att.get("contentType", "application/octet-stream"),
+                content_bytes=raw_bytes,
+            ))
+        return built
+
+    @classmethod
+    async def send_message(
+        cls,
+        user_id: str,
+        to: str,
+        subject: str,
+        content: str,
+        attachments: list = None,
+        cc: str | list[str] | None = None,
+        bcc: str | list[str] | None = None,
+    ) -> dict:
 
         from msgraph.generated.models.body_type import BodyType
         from msgraph.generated.models.email_address import EmailAddress
-        from msgraph.generated.models.file_attachment import FileAttachment
         from msgraph.generated.models.item_body import ItemBody
         from msgraph.generated.models.message import Message
         from msgraph.generated.models.recipient import Recipient
@@ -113,7 +145,17 @@ class MailService:
         from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
-        html_content = content.replace("\r\n", "\n").replace("\n", "<br>")
+        html_content = await render_body(user_id, content)
+
+        def recipients(field) -> list:
+            return [
+                Recipient(email_address=EmailAddress(address=address))
+                for address in parse_recipients(field)
+            ]
+
+        to_recipients = recipients(to)
+        if not to_recipients:
+            raise HTTPException(status_code=422, detail="At least one recipient is required")
 
         msg = Message(
             subject=subject,
@@ -121,41 +163,40 @@ class MailService:
                 content_type=BodyType.Html,
                 content=html_content
             ),
-            to_recipients=[
-                Recipient(email_address=EmailAddress(address=to))
-            ]
+            to_recipients=to_recipients,
+            cc_recipients=recipients(cc),
+            bcc_recipients=recipients(bcc),
         )
 
+        assert_attachments_fit(attachments, GRAPH_ATTACHMENT_LIMIT)
         if attachments:
-            msg.attachments = []
-            for att in attachments:
-                import base64
-                content_data = att["content"]
-                raw_bytes = base64.b64decode(content_data) if isinstance(content_data, str) else content_data
-                msg.attachments.append(FileAttachment(
-                    name=att.get("name", "attachment"),
-                    content_type=att.get("contentType", "application/octet-stream"),
-                    content_bytes=raw_bytes
-                ))
+            msg.attachments = cls._file_attachments(attachments)
 
         request_body = SendMailPostRequestBody(message=msg, save_to_sent_items=True)
         await client.me.send_mail.post(request_body)
         return {"status": "ok"}
 
     @classmethod
-    async def reply_message(cls, user_id: str, email_id: str, content: str, attachments: list = None) -> dict:
-        import base64
-
+    async def reply_message(
+        cls,
+        user_id: str,
+        email_id: str,
+        content: str,
+        attachments: list = None,
+        reply_all: bool = False,
+    ) -> dict:
         from msgraph.generated.models.body_type import BodyType
-        from msgraph.generated.models.file_attachment import FileAttachment
         from msgraph.generated.models.item_body import ItemBody
         from msgraph.generated.models.message import Message
         from msgraph.generated.users.item.messages.item.reply.reply_post_request_body import ReplyPostRequestBody
+        from msgraph.generated.users.item.messages.item.reply_all.reply_all_post_request_body import (
+            ReplyAllPostRequestBody,
+        )
 
         from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
-        html_content = content.replace("\r\n", "\n").replace("\n", "<br>")
+        html_content = await render_body(user_id, content)
 
         msg = Message(
             body=ItemBody(
@@ -164,20 +205,79 @@ class MailService:
             )
         )
 
+        assert_attachments_fit(attachments, GRAPH_ATTACHMENT_LIMIT)
         if attachments:
-            msg.attachments = []
-            for att in attachments:
-                import base64
-                content_data = att["content"]
-                raw_bytes = base64.b64decode(content_data) if isinstance(content_data, str) else content_data
-                msg.attachments.append(FileAttachment(
-                    name=att.get("name", "attachment"),
-                    content_type=att.get("contentType", "application/octet-stream"),
-                    content_bytes=raw_bytes
-                ))
+            msg.attachments = cls._file_attachments(attachments)
 
-        request_body = ReplyPostRequestBody(message=msg)
-        await client.me.messages.by_message_id(email_id).reply.post(request_body)
+        # Graph resolves the recipients itself, which is the whole point of
+        # replyAll: it keeps everyone on the thread without us re-deriving the
+        # list from headers and getting the sender's own address wrong.
+        message = client.me.messages.by_message_id(email_id)
+        if reply_all:
+            await message.reply_all.post(ReplyAllPostRequestBody(message=msg))
+        else:
+            await message.reply.post(ReplyPostRequestBody(message=msg))
+        return {"status": "ok"}
+
+    @classmethod
+    async def forward_message(
+        cls,
+        user_id: str,
+        email_id: str,
+        to: str,
+        content: str = "",
+        attachments: list = None,
+        cc: str | list[str] | None = None,
+        bcc: str | list[str] | None = None,
+        subject: str = "",
+    ) -> dict:
+        """Forward with Graph's own forward action, so the original body and
+        its attachments travel along without us rebuilding the message.
+
+        Graph derives the "Fwd:" subject itself; an explicit `subject` overrides
+        it, because the compose form lets the user edit that line.
+        """
+        from msgraph.generated.models.body_type import BodyType
+        from msgraph.generated.models.email_address import EmailAddress
+        from msgraph.generated.models.item_body import ItemBody
+        from msgraph.generated.models.message import Message
+        from msgraph.generated.models.recipient import Recipient
+        from msgraph.generated.users.item.messages.item.forward.forward_post_request_body import (
+            ForwardPostRequestBody,
+        )
+
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
+
+        to_addrs = parse_recipients(to)
+        if not to_addrs:
+            raise HTTPException(status_code=422, detail="At least one recipient is required")
+
+        client = get_graph_sdk_client(user_id)
+        msg = Message(
+            body=ItemBody(content_type=BodyType.Html, content=await render_body(user_id, content)),
+            cc_recipients=[
+                Recipient(email_address=EmailAddress(address=address))
+                for address in parse_recipients(cc)
+            ],
+            bcc_recipients=[
+                Recipient(email_address=EmailAddress(address=address))
+                for address in parse_recipients(bcc)
+            ],
+        )
+        if subject:
+            msg.subject = subject
+        assert_attachments_fit(attachments, GRAPH_ATTACHMENT_LIMIT)
+        if attachments:
+            msg.attachments = cls._file_attachments(attachments)
+
+        await client.me.messages.by_message_id(email_id).forward.post(
+            ForwardPostRequestBody(
+                message=msg,
+                to_recipients=[
+                    Recipient(email_address=EmailAddress(address=address)) for address in to_addrs
+                ],
+            )
+        )
         return {"status": "ok"}
 
     @classmethod
