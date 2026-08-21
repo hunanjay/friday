@@ -15,10 +15,11 @@ create table if not exists memos (
     attachments jsonb not null default '[]'::jsonb
 );
 alter table memos add column if not exists attachments jsonb not null default '[]'::jsonb;
+alter table memos add column if not exists agent_maintained boolean not null default false;
 create index if not exists memos_user_id_idx on memos (user_id, updated_at desc);
 """
 
-_COLUMNS = "id, title, content, category, color, pinned, updated_at, attachments"
+_COLUMNS = "id, title, content, category, color, pinned, updated_at, attachments, agent_maintained"
 
 
 def _db_pool():
@@ -52,6 +53,7 @@ def _row_to_dict(row) -> dict:
         "pinned": row[5],
         "updated_at": row[6].isoformat(),
         "attachments": attachments,
+        "agent_maintained": row[8],
     }
 
 
@@ -65,15 +67,32 @@ async def list_memos(user_id: str) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+async def get_memo(user_id: str, memo_id: str) -> dict | None:
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            f"select {_COLUMNS} from memos where id = %s and user_id = %s",
+            (memo_id, user_id),
+        )
+        row = await cur.fetchone()
+    return _row_to_dict(row) if row else None
+
+
 async def create_memo(
-    user_id: str, title: str, content: str, category: str, color: str, attachments: list | None = None
+    user_id: str,
+    title: str,
+    content: str,
+    category: str,
+    color: str,
+    attachments: list | None = None,
+    agent_maintained: bool = False,
 ) -> dict:
     att_json = json.dumps(attachments or [])
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
-            "insert into memos (user_id, title, content, category, color, attachments) values (%s, %s, %s, %s, %s, %s::jsonb) "
+            "insert into memos (user_id, title, content, category, color, attachments, agent_maintained) "
+            "values (%s, %s, %s, %s, %s, %s::jsonb, %s) "
             f"returning {_COLUMNS}",
-            (user_id, title, content, category, color, att_json),
+            (user_id, title, content, category, color, att_json, agent_maintained),
         )
         row = await cur.fetchone()
     return _row_to_dict(row)
@@ -88,13 +107,15 @@ async def update_memo(
     color: str,
     pinned: bool,
     attachments: list | None = None,
+    agent_maintained: bool = False,
 ) -> dict | None:
     att_json = json.dumps(attachments or [])
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
-            "update memos set title = %s, content = %s, category = %s, color = %s, pinned = %s, attachments = %s::jsonb, updated_at = now() "
+            "update memos set title = %s, content = %s, category = %s, color = %s, pinned = %s, "
+            "attachments = %s::jsonb, agent_maintained = %s, updated_at = now() "
             f"where id = %s and user_id = %s returning {_COLUMNS}",
-            (title, content, category, color, pinned, att_json, memo_id, user_id),
+            (title, content, category, color, pinned, att_json, agent_maintained, memo_id, user_id),
         )
         row = await cur.fetchone()
     return _row_to_dict(row) if row else None

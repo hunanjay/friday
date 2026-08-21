@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 from app.agents.calendar_dates import resolve_calendar_day
 from app.agents.internal_links import markdown_internal_link
 from app.infrastructure.db.repositories import memos as memos_db
+from app.infrastructure.db.repositories import user_memory as user_memory_db
 from app.services.mail_compose import parse_recipients, render_body
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
@@ -774,12 +775,137 @@ def make_memos_tools(user_id: str) -> list:
             return "The user has no memos yet."
         return "\n".join(_format_memo_row(m) for m in memos)
 
+    @tool
+    async def track_area(name: str, notes: str) -> str:
+        """Track or update an ongoing project/initiative for the user (an "area"
+        of their life or work, e.g. "Q3 hiring", "apartment renovation").
+
+        Use when the user mentions something ongoing they want kept track of
+        across conversations, not a one-off note - use create_memo for that.
+        Calling this again with the same `name` updates the existing area
+        instead of creating a duplicate, so keep `name` stable across calls
+        (e.g. always "Q3 hiring", not "Q3 hiring plan" one time and "hiring
+        for Q3" the next).
+        """
+        existing = next(
+            (
+                m for m in await memos_db.list_memos(user_id)
+                if m["agent_maintained"] and m["category"] == "area" and m["title"] == name
+            ),
+            None,
+        )
+        if existing:
+            memo = await memos_db.update_memo(
+                user_id,
+                existing["id"],
+                title=name,
+                content=notes,
+                category="area",
+                color=existing["color"],
+                pinned=existing["pinned"],
+                attachments=existing["attachments"],
+                agent_maintained=True,
+            )
+            verb = "Updated"
+        else:
+            memo = await memos_db.create_memo(user_id, name, notes, "area", "beige", agent_maintained=True)
+            verb = "Started tracking"
+        try:
+            await vector_store.upsert_memo(user_id, memo["id"], name, notes, "area")
+        except Exception:
+            logging.exception("failed to index area %s in Qdrant", memo["id"])
+        return f"{verb} area: id={memo['id']} name={name!r}"
+
     return [
         list_memos,
         _make_create_memo_tool(user_id),
         _make_search_memos_tool(user_id),
         _make_search_contacts_tool(user_id),
+        track_area,
     ]
+
+
+_MEMORY_CATEGORIES = ("profile", "preference", "topic")
+
+
+def make_user_memory_tools(user_id: str, session_id: str | None = None) -> list:
+    """Tools every domain agent gets (wired in build_agent, not per-factory)
+    for remembering and recalling facts about the user themselves - distinct
+    from contact_profiles, which is about people the user mentions."""
+
+    @tool
+    async def remember_user_fact(category: str, fact_key: str, fact_value: str, topic: str = "") -> str:
+        """Remember a durable fact about the user themselves for future conversations.
+
+        - `category`: one of
+          - "profile" - stable identity facts (job, long-term goals, where they live)
+          - "preference" - how the user wants YOU to respond (tone, length, format -
+            e.g. "keep replies short", "never use tables")
+          - "topic" - a habit or preference tied to one domain (e.g. mail or
+            calendar habits). Requires `topic` naming that domain.
+        - `fact_key`: short snake_case identifier, e.g. 'reply_tone', 'job_title'.
+        - `fact_value`: the fact itself.
+        - `topic`: required when category is "topic" (e.g. "mail", "calendar");
+          leave blank otherwise.
+
+        Calling this again with the same category/topic/fact_key OVERWRITES
+        the previous value instead of adding a second, possibly contradicting
+        entry - so when the user corrects or updates something you already
+        recorded, reuse the same fact_key rather than inventing a new one
+        (search_user_memory first if you're not sure what key it was saved
+        under). Only call this for something that should persist across
+        conversations, not a one-off detail relevant to just this turn.
+        """
+        category = category.strip().lower()
+        if category not in _MEMORY_CATEGORIES:
+            return f"Error: category must be one of {', '.join(_MEMORY_CATEGORIES)}."
+        if not fact_value.strip():
+            return "Error: fact_value cannot be empty."
+        fact = await user_memory_db.remember_fact(
+            user_id=user_id,
+            category=category,
+            fact_key=fact_key.strip(),
+            fact_value=fact_value.strip(),
+            topic=topic or None,
+            source_type="chat",
+            source_id=session_id,
+        )
+        label = f"{fact['category']}/{fact['topic']}" if fact["topic"] else fact["category"]
+        return f"Remembered ({label}): {fact['fact_key']} = {fact['fact_value']}"
+
+    @tool
+    async def search_user_memory(query: str, category: str = "") -> str:
+        """Search facts previously remembered about the user with
+        remember_user_fact. Profile and preference facts are usually already
+        in your instructions, so this is mainly for "topic" habits, or for
+        anything that might have aged out of your instructions."""
+        category = category.strip().lower() or None
+        if category and category not in _MEMORY_CATEGORIES:
+            return f"Error: category must be one of {', '.join(_MEMORY_CATEGORIES)}."
+        facts = await user_memory_db.search_facts(user_id, query, category)
+        if not facts:
+            return f"No remembered facts matched {query!r}."
+        def _row(f):
+            label = f"{f['category']}/{f['topic']}" if f["topic"] else f["category"]
+            return f"- [{label}] {f['fact_key']} = {f['fact_value']}"
+
+        return "\n".join(_row(f) for f in facts)
+
+    @tool
+    async def forget_user_fact(category: str, fact_key: str, topic: str = "") -> str:
+        """Delete a previously remembered fact about the user. Use when the
+        user explicitly asks you to forget something. If you don't know the
+        exact fact_key, call search_user_memory first to find it - a wrong
+        key silently deletes nothing."""
+        category = category.strip().lower()
+        if category not in _MEMORY_CATEGORIES:
+            return f"Error: category must be one of {', '.join(_MEMORY_CATEGORIES)}."
+        deleted = await user_memory_db.forget_fact(user_id, category, fact_key.strip(), topic or None)
+        if not deleted:
+            return f"No fact found for ({category}) {fact_key!r} - nothing deleted."
+        return f"Forgot ({category}): {fact_key}"
+
+    return [remember_user_fact, search_user_memory, forget_user_fact]
 
 
 _GITHUB_NOT_CONNECTED = (
