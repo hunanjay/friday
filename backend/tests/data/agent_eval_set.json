@@ -1,0 +1,321 @@
+{
+  "notes": "Behaviour goldset for the supervisor + domain agents. Each case runs the real graph with stubbed tool bodies, so what is under test is the prompts and the tool descriptions, not the integrations.",
+  "cases": [
+    {
+      "id": "greeting",
+      "kind": "smalltalk",
+      "turns": [
+        "HI，好久不见"
+      ],
+      "expect_agents": [],
+      "expect_tools": [],
+      "forbid_tools": [
+        "create_memo",
+        "create_contact",
+        "record_contact_fact",
+        "send_email",
+        "create_event"
+      ],
+      "rubric": "用中文自然回应寒暄，不声称保存或记录了任何东西。"
+    },
+    {
+      "id": "smalltalk_miss_you",
+      "kind": "smalltalk",
+      "turns": [
+        "HI，好久不见",
+        "我想你了"
+      ],
+      "expect_agents": [],
+      "expect_tools": [],
+      "forbid_tools": [
+        "create_memo",
+        "create_contact",
+        "record_contact_fact",
+        "send_email",
+        "create_event"
+      ],
+      "rubric": "用中文回应这句闲聊，不声称保存或记录了任何东西。"
+    },
+    {
+      "id": "who_are_you",
+      "kind": "smalltalk",
+      "turns": [
+        "你是谁？"
+      ],
+      "expect_agents": [],
+      "expect_tools": [],
+      "forbid_tools": [
+        "create_memo",
+        "create_contact"
+      ],
+      "rubric": "回答里出现助手名字 Dora，并且不是只回一个名字。"
+    },
+    {
+      "id": "today_date",
+      "kind": "smalltalk",
+      "turns": [
+        "今天几号？"
+      ],
+      "expect_agents": [],
+      "expect_tools": [],
+      "forbid_tools": [
+        "list_events",
+        "list_events_on_day",
+        "create_memo"
+      ],
+      "rubric": "直接回答日期是 2026-08-20 或等价说法。"
+    },
+    {
+      "id": "save_a_note",
+      "kind": "memos",
+      "turns": [
+        "帮我记一下：下周五之前要交季度报告"
+      ],
+      "expect_agents": [
+        "memos_agent"
+      ],
+      "expect_tools": [
+        "create_memo"
+      ],
+      "forbid_tools": [
+        "create_contact",
+        "send_email"
+      ],
+      "rubric": "确认已保存这条备忘。"
+    },
+    {
+      "id": "recall_a_note",
+      "kind": "memos",
+      "turns": [
+        "我上次记的关于定价的想法是什么？"
+      ],
+      "expect_agents": [
+        "memos_agent"
+      ],
+      "expect_tools": [
+        "search_memos"
+      ],
+      "forbid_tools": [
+        "create_memo"
+      ],
+      "rubric": "复述检索到的备忘内容，不编造额外细节。"
+    },
+    {
+      "id": "who_is_person",
+      "kind": "contacts",
+      "turns": [
+        "李娜是谁？"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "search_contacts"
+      ],
+      "forbid_tools": [
+        "create_contact"
+      ],
+      "rubric": "介绍这个人的公司和职位，且不能声称自己无法访问个人信息。"
+    },
+    {
+      "id": "vague_person_query",
+      "kind": "contacts",
+      "turns": [
+        "谁喜欢喝普洱茶？"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "search_contacts"
+      ],
+      "forbid_tools": [
+        "create_contact"
+      ],
+      "rubric": "给出检索到的人，不说自己没有这类信息。"
+    },
+    {
+      "id": "casual_fact_about_person",
+      "kind": "contacts",
+      "turns": [
+        "昨天我和李娜聊天，听她说她考了个 PMP 证书"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "record_contact_fact"
+      ],
+      "forbid_tools": [
+        "create_memo"
+      ],
+      "rubric": "确认已把这条信息记到这个人名下。"
+    },
+    {
+      "id": "person_not_found",
+      "kind": "contacts",
+      "turns": [
+        "王建国是谁？"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "search_contacts"
+      ],
+      "forbid_tools": [
+        "create_contact"
+      ],
+      "tool_results": {
+        "search_contacts": "No contacts matched."
+      },
+      "rubric": "明确说没有找到这个人并追问，绝不能编造这个人的公司、职位或任何事实。"
+    },
+    {
+      "id": "list_inbox",
+      "kind": "mail",
+      "turns": [
+        "看看我今天的邮件"
+      ],
+      "expect_agents": [
+        "mail_agent"
+      ],
+      "expect_tools": [
+        "list_inbox"
+      ],
+      "forbid_tools": [
+        "send_email",
+        "delete_email"
+      ],
+      "rubric": "列出邮件的主题、发件人和时间，正文里不出现 AAMk 开头的邮件 id。"
+    },
+    {
+      "id": "send_to_named_recipient",
+      "kind": "mail",
+      "turns": [
+        "给李娜发个邮件，说会议改到周三下午三点"
+      ],
+      "expect_agents": [
+        "mail_agent"
+      ],
+      "expect_tools": [
+        "search_contacts",
+        "send_email"
+      ],
+      "forbid_tools": [
+        "create_memo"
+      ],
+      "rubric": "邮件发给了检索到的真实地址，没有编造收件人地址。",
+      "allow_agents": [
+        "contact_agent"
+      ]
+    },
+    {
+      "id": "send_written_report",
+      "kind": "mail",
+      "turns": [
+        "把我写的日报发给李娜"
+      ],
+      "expect_agents": [
+        "mail_agent"
+      ],
+      "expect_tools": [
+        "search_memos",
+        "send_email"
+      ],
+      "forbid_tools": [
+        "create_memo",
+        "list_todays_commits"
+      ],
+      "rubric": "邮件正文里是日报的实际内容，没有声称有附件、也没有写占位符。"
+    },
+    {
+      "id": "list_day_events",
+      "kind": "calendar",
+      "turns": [
+        "明天有什么安排？"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "list_events_on_day"
+      ],
+      "forbid_tools": [
+        "create_event",
+        "delete_event"
+      ],
+      "rubric": "列出明天日程的标题和时间，正文里不出现 AAMk 开头的事件 id。"
+    },
+    {
+      "id": "create_event",
+      "kind": "calendar",
+      "turns": [
+        "帮我约明天下午三点和产品组开会，一小时"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "create_event"
+      ],
+      "forbid_tools": [
+        "create_memo"
+      ],
+      "rubric": "确认按 2026-08-21 15:00 到 16:00 建了这个会。"
+    },
+    {
+      "id": "delete_event_lists_first",
+      "kind": "calendar",
+      "turns": [
+        "把明天那个会删掉"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "list_events_on_day",
+        "delete_event"
+      ],
+      "forbid_tools": [
+        "create_event"
+      ],
+      "rubric": "删除前先查了当天日程，删的是查到的那个具体事件。"
+    },
+    {
+      "id": "daily_report",
+      "kind": "github",
+      "turns": [
+        "生成今天的日报"
+      ],
+      "expect_agents": [
+        "github_agent"
+      ],
+      "expect_tools": [
+        "list_todays_commits",
+        "create_memo"
+      ],
+      "forbid_tools": [
+        "send_email"
+      ],
+      "rubric": "报告内容只来自返回的 commit，并说明已保存为备忘。"
+    },
+    {
+      "id": "english_calendar",
+      "kind": "calendar",
+      "turns": [
+        "what's on my calendar tomorrow?"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "list_events_on_day"
+      ],
+      "forbid_tools": [
+        "create_event"
+      ],
+      "rubric": "回复必须是英文，因为用户最后一句用的是英文。"
+    }
+  ]
+}
