@@ -951,6 +951,148 @@ check(
 )
 
 
+section("16. inline draft edits on HITL approval")
+
+from langgraph.types import Interrupt  # noqa: E402
+
+from app.agents.hitl import interrupt_to_action, resume_value_for  # noqa: E402
+
+_mail_interrupt = Interrupt(
+    id="mail-1",
+    value={
+        "action_requests": [
+            {"name": "send_email", "args": {"to": "a@b.com", "subject": "Hi", "body": "Draft"}}
+        ],
+        "review_configs": [{"allowed_decisions": ["approve", "edit", "reject"]}],
+    },
+)
+_delete_interrupt = Interrupt(
+    id="del-1",
+    value={
+        "action_requests": [{"name": "delete_email", "args": {"email_id": "1"}}],
+        "review_configs": [{"allowed_decisions": ["approve", "reject"]}],
+    },
+)
+
+
+def _edit_error(interrupt, edits: dict) -> str:
+    try:
+        resume_value_for(interrupt, "approve", edits)
+    except ValueError as exc:
+        return str(exc)
+    return ""
+
+
+check(
+    "the email card is marked editable, the delete card is not",
+    interrupt_to_action(_mail_interrupt, "s1")["presentation"]["editable"] is True
+    and interrupt_to_action(_delete_interrupt, "s1")["presentation"]["editable"] is False,
+)
+check(
+    "an edited body resumes as a LangChain edit decision, other fields intact",
+    resume_value_for(_mail_interrupt, "approve", {"body": "Edited"})
+    == {
+        "decisions": [
+            {
+                "type": "edit",
+                "edited_action": {
+                    "name": "send_email",
+                    "args": {"to": "a@b.com", "subject": "Hi", "body": "Edited"},
+                },
+            }
+        ]
+    },
+)
+check(
+    "no edits still resumes as a plain approval",
+    resume_value_for(_mail_interrupt, "approve") == {"decisions": [{"type": "approve"}]},
+)
+check(
+    "the client cannot introduce tool arguments the draft never had",
+    "Unknown editable fields" in _edit_error(_mail_interrupt, {"cc": "evil@example.com"}),
+)
+check(
+    "a non-editable tool rejects edits outright",
+    "cannot be edited" in _edit_error(_delete_interrupt, {"email_id": "2"}),
+)
+
+
+section("17. email signature")
+
+from app.services.mail_signature import apply_signature  # noqa: E402
+
+_SIG = "Best regards,\nJane Doe\nProduct Manager"
+
+check(
+    "the signature is appended after a blank line",
+    apply_signature("Hi there", _SIG) == f"Hi there\n\n{_SIG}",
+)
+check(
+    "an already-signed body is not signed twice",
+    apply_signature(f"Hi there\n\n{_SIG}", _SIG) == f"Hi there\n\n{_SIG}",
+)
+check(
+    "an empty signature leaves the body alone, CRLF still normalized",
+    apply_signature("Hi\r\nthere", "") == "Hi\nthere"
+    and apply_signature("Hi there", "   ") == "Hi there",
+)
+
+# The point of the shared renderer: no send route may hand-roll its own
+# newline-to-<br> conversion and thereby skip the signature.
+_SEND_MODULES = [
+    "app/agents/tools.py",
+    "app/services/mail_service.py",
+    "app/services/mail_provider_service.py",
+]
+_send_sources = {name: (backend_dir / name).read_text() for name in _SEND_MODULES}
+check(
+    "every outbound mail path renders its body through render_body",
+    all("render_body(user_id" in source for source in _send_sources.values()),
+    detail=str([name for name, src in _send_sources.items() if "render_body(user_id" not in src]),
+)
+from app.agents.supervisor import _SIGNATURE_RULE  # noqa: E402
+
+_no_sig_prompt = _agent_prompts("Dora", "2026-08-21")["mail_agent"]
+_sig_prompt = _agent_prompts("Dora", "2026-08-21", has_signature=True)["mail_agent"]
+check(
+    "with a signature saved, the mail agent is told to stop writing its own sign-off",
+    _SIGNATURE_RULE in _sig_prompt,
+)
+check(
+    "without one, the rule is absent so replies are not left unsigned",
+    _SIGNATURE_RULE not in _no_sig_prompt,
+)
+check(
+    "an approval card carries the signature it will be sent with",
+    interrupt_to_action(_mail_interrupt, "s1", signature="Yours\nJane")["presentation"]["signature"]
+    == "Yours\nJane",
+)
+check(
+    "a non-email card carries no signature to render",
+    interrupt_to_action(_delete_interrupt, "s1", signature="Yours\nJane")["presentation"]["signature"]
+    == "",
+)
+from app.agents import draft as draft_module  # noqa: E402
+
+check(
+    "the reply drafter is told to skip the closing when a signature exists",
+    draft_module._SKIP_CLOSING in draft_module._SYSTEM_PROMPT.format(closing=draft_module._SKIP_CLOSING)
+    and draft_module._WRITE_CLOSING in draft_module._SYSTEM_PROMPT.format(closing=draft_module._WRITE_CLOSING),
+)
+check(
+    # The Qwen-compatible endpoint rejects a json response_format, which is what
+    # langchain_openai 1.x picks by default - drafting 500s without this.
+    "structured output stays on function calling, not a json response_format",
+    'with_structured_output(_ReplyDraft, method="function_calling")'
+    in (backend_dir / "app/agents/draft.py").read_text(),
+)
+check(
+    "no send path still converts newlines to <br> on its own",
+    not any('.replace("\\n", "<br>")' in source for source in _send_sources.values()),
+    detail=str([name for name, src in _send_sources.items() if '.replace("\\n", "<br>")' in src]),
+)
+
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

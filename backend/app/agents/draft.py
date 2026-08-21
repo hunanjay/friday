@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.agents.supervisor import _get_model
+from app.infrastructure.db.repositories import user_settings
 from app.tools.graph_client import graph_get
 from app.tools.html_sanitizer import sanitize_html_to_text
 
@@ -16,17 +17,26 @@ CRITICAL FORMATTING INSTRUCTIONS:
 - You MUST format the email using proper line breaks and empty lines between sections.
 - Greeting line MUST be on its own line, followed by a blank line (e.g. "Dear [Name],\n\n" or "你好，\n\n").
 - Separate each body paragraph with a blank line (\n\n).
-- Closing phrase MUST be on its own line (e.g. "Best regards," or "祝好！\n").
+- {closing}
 - Do NOT output everything on a single line!
 """
+
+_WRITE_CLOSING = 'Closing phrase MUST be on its own line (e.g. "Best regards," or "祝好！\n").'
+
+_SKIP_CLOSING = (
+    "End at the last sentence of the message. Do NOT write a closing phrase "
+    "such as \"Best regards\", \"祝好\" or \"此致\", and do NOT write a name, a "
+    "title, or a company: the user's saved signature is appended automatically, "
+    "so writing one would sign the email twice."
+)
 
 
 class _ReplyDraft(BaseModel):
     body: str = Field(
         description=(
             "The full reply email content formatted with line breaks and empty lines between sections: "
-            "greeting line, body paragraphs separated by blank lines, and a short closing phrase "
-            "on a new line (e.g. 'Best regards,' or '祝好！'). Do NOT put everything on a single line. "
+            "greeting line, then body paragraphs separated by blank lines, then whatever ending the "
+            "system instructions call for. Do NOT put everything on a single line. "
             "Do NOT include a subject line or commentary."
         )
     )
@@ -75,8 +85,16 @@ async def draft_reply(user_id: str, email_id: str, intent: str, my_name: str = "
         f"[User Intent]\n\"{intent}\""
     )
     logger.info("draft_reply input: user_id=%s email_id=%s\n%s", user_id, email_id, human)
-    structured_model = _get_model().with_structured_output(_ReplyDraft)
-    result: _ReplyDraft = await structured_model.ainvoke([SystemMessage(_SYSTEM_PROMPT), HumanMessage(human)])
-    draft = _apply_signature(result.body.strip(), my_name)
+    # method="function_calling" rather than the langchain_openai 1.x default of
+    # "json_schema": the Qwen-compatible endpoint behind OPENAI_BASE_URL rejects
+    # a json response_format ("'messages' must contain the word 'json'"), while
+    # tool calling is what every agent in this app already runs on.
+    # A saved signature already carries the sign-off and name, and is appended
+    # to every send, so the drafter must not write one of its own.
+    signature = await user_settings.get_signature(user_id)
+    system_prompt = _SYSTEM_PROMPT.format(closing=_SKIP_CLOSING if signature else _WRITE_CLOSING)
+    structured_model = _get_model().with_structured_output(_ReplyDraft, method="function_calling")
+    result: _ReplyDraft = await structured_model.ainvoke([SystemMessage(system_prompt), HumanMessage(human)])
+    draft = result.body.strip() if signature else _apply_signature(result.body.strip(), my_name)
     logger.info("draft_reply output: user_id=%s email_id=%s\n%s", user_id, email_id, draft)
     return draft

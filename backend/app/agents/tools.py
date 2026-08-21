@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 from app.agents.calendar_dates import resolve_calendar_day
 from app.agents.internal_links import markdown_internal_link
 from app.infrastructure.db.repositories import memos as memos_db
+from app.services.mail_signature import render_body
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
 from app.tools.graph_client import graph_delete, graph_get, graph_get_paginated, graph_patch, graph_post
@@ -217,7 +218,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
     async def send_email(to: str, subject: str, body: str) -> str:
         """Send an email with final recipient, subject, and body. This tool is
         guarded by LangChain HITL middleware and only runs after approval."""
-        html_body = body.replace("\r\n", "\n").replace("\n", "<br>")
+        html_body = await render_body(user_id, body)
         await _graph_mutation(
             graph_post(
                 user_id,

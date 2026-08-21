@@ -313,6 +313,34 @@ export function WorkspaceProvider({ children }) {
     return data.assistant_name;
   }, [authToken]);
 
+  // Email signature. The backend appends it at send time (every send route
+  // shares one renderer); the compose form only previews it.
+  const [signature, setSignature] = useState('');
+  useEffect(() => {
+    if (!authToken) {
+      setSignature('');
+      return;
+    }
+    fetch(`${API_URL}/api/settings/signature`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => setSignature(data?.signature || ''))
+      .catch(() => {});
+  }, [authToken]);
+
+  const handleUpdateSignature = useCallback(async (value) => {
+    const res = await fetch(`${API_URL}/api/settings/signature`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ signature: value }),
+    });
+    if (!res.ok) throw new Error('Failed to update signature');
+    const data = await res.json();
+    setSignature(data.signature || '');
+    return data.signature || '';
+  }, [authToken]);
+
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [avatarPresets, setAvatarPresets] = useState([]);
   useEffect(() => {
@@ -590,6 +618,8 @@ export function WorkspaceProvider({ children }) {
         memos,
         assistantName,
         handleUpdateAssistantName,
+        signature,
+        handleUpdateSignature,
         avatarUrl,
         avatarPresets,
         handleUpdateAvatar,

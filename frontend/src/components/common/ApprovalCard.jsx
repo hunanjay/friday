@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getApprovalRenderer } from './ApprovalPreview';
 
@@ -22,6 +22,8 @@ export default function ApprovalCard({
   assistantName = 'Friday',
 }) {
   const { t } = useTranslation();
+  // Inline edits to the draft, applied to the tool call on approval.
+  const [edits, setEdits] = useState({});
 
   if (!action || !action.payload) return null;
 
@@ -58,7 +60,7 @@ export default function ApprovalCard({
             ? 'approval-cancel-btn'
             : `approval-confirm-btn ${decision.style === 'danger' ? 'approval-danger-btn' : ''}`}
           disabled={action.busy}
-          onClick={() => onDecision(decision.id)}
+          onClick={() => onDecision(decision.id, edits)}
         >
           {action.busy ? t('chat.approvalWorking') : t(decision.label_key)}
         </button>
@@ -95,7 +97,7 @@ export default function ApprovalCard({
   return (
     <div className={`approval-card ${className}`} role="group" aria-label={defaultTitle}>
       <div className="approval-card-header">
-        <span className="approval-card-icon"><Icon size={18} /></span>
+        <span className="approval-card-icon"><Icon size={15} /></span>
         <div>
           <div className="approval-title-row">
             <strong>{defaultTitle}</strong>
@@ -105,7 +107,14 @@ export default function ApprovalCard({
         </div>
       </div>
 
-      <Preview payload={action.payload} action={action} t={t} />
+      <Preview
+        payload={action.payload}
+        action={action}
+        t={t}
+        onEdit={presentation.editable
+          ? (field, value) => setEdits(prev => ({ ...prev, [field]: value }))
+          : undefined}
+      />
       {action.error && <p className="approval-error" role="alert">{action.error}</p>}
       <div className="approval-actions">{renderActions()}</div>
     </div>

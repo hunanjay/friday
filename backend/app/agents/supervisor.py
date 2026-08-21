@@ -163,7 +163,16 @@ def _format_rules(rules: list[str] | tuple[str, ...]) -> str:
     return "- " + "\n- ".join(rules)
 
 
-def _agent_prompts(assistant_name: str, today: str) -> dict[str, str]:
+_SIGNATURE_RULE = (
+    "The user has a saved signature and the product appends it to every email "
+    "it sends, so the body you pass to send_email must be the message only: end "
+    "it at the last sentence, and never write a closing phrase such as 'Best "
+    "regards', '祝好', '此致' or '敬礼', a name, a title, or a company. Writing "
+    "one would put two sign-offs in the email the recipient receives."
+)
+
+
+def _agent_prompts(assistant_name: str, today: str, has_signature: bool = False) -> dict[str, str]:
     """The full system prompt for each domain agent, keyed by AGENT_NAMES.
 
     Single source of truth so build_agent (which actually runs the agent) and
@@ -173,6 +182,7 @@ def _agent_prompts(assistant_name: str, today: str) -> dict[str, str]:
         "mail_agent": _format_rules([
             "You handle the user's email, including listing, searching, reading, sending, marking read or unread, and deleting messages.",
             "Resolve the parts of a send before calling send_email: look up a named recipient with search_contacts, and fetch content the user already wrote down, such as a report or note, with search_memos.",
+            *([_SIGNATURE_RULE] if has_signature else []),
             "You cannot attach files, so put the actual content in the email body.",
             _ID_DISPLAY_RULE,
             *_HITL_RULES,
@@ -225,6 +235,7 @@ def build_agent(
     name: str,
     session_id: str | None = None,
     assistant_name: str = DEFAULT_ASSISTANT_NAME,
+    has_signature: bool = False,
 ):
     """Build one isolated domain agent with official HITL policy."""
     if name not in _AGENT_TOOL_FACTORIES:
@@ -232,7 +243,7 @@ def build_agent(
     model = _get_model()
     today = _today_str()
     tools = _AGENT_TOOL_FACTORIES[name](user_id, session_id)
-    system_prompt = _agent_prompts(assistant_name, today)[name]
+    system_prompt = _agent_prompts(assistant_name, today, has_signature)[name]
 
     middleware = []
     hitl = make_hitl_middleware({item.name for item in tools})
@@ -294,6 +305,7 @@ def build_supervisor(
     user_id: str,
     session_id: str | None = None,
     assistant_name: str = DEFAULT_ASSISTANT_NAME,
+    has_signature: bool = False,
 ):
     """Builds a fresh supervisor graph per request, its tools closed over
     this user's id so each sub-agent only ever touches this user's mailbox
@@ -301,7 +313,7 @@ def build_supervisor(
     model = _get_model()
     today = _today_str()
     subagents = {
-        name: build_agent(user_id, name, session_id, assistant_name)
+        name: build_agent(user_id, name, session_id, assistant_name, has_signature)
         for name in AGENT_NAMES
     }
     delegation_tools = [
@@ -351,6 +363,7 @@ def describe_team(
     user_id: str,
     session_id: str | None = None,
     assistant_name: str = DEFAULT_ASSISTANT_NAME,
+    has_signature: bool = False,
 ) -> dict:
     """Introspection for debugging: the supervisor prompt plus each domain
     agent's system prompt and tool name/description, exactly as they'd be
@@ -359,7 +372,7 @@ def describe_team(
     actually invoked), so this is safe and cheap to call on every request.
     """
     today = _today_str()
-    prompts = _agent_prompts(assistant_name, today)
+    prompts = _agent_prompts(assistant_name, today, has_signature)
     return {
         "provider": settings.LLM_PROVIDER,
         "model": settings.OPENAI_MODEL,

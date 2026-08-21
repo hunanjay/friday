@@ -61,7 +61,8 @@
     "generateReply": "生成回复",
     "assistantCopyDraft": "应用为草稿",
     "assistantDrafted": "{{name}} 已生成回复草稿",
-    "assistantWait": "{{name}} 正在思考中..."
+    "assistantWait": "{{name}} 正在思考中...",
+    "signature": "签名"
   },
   "calendar": {
     "prevMonth": "上个月",

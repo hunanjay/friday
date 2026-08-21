@@ -239,7 +239,7 @@ export default function ChatPage() {
     setThreadMessages(prev => prev.map(m => m.id === id ? { ...m, text: newText } : m));
   };
 
-  const handleActionDecision = async (action, decision) => {
+  const handleActionDecision = async (action, decision, edits) => {
     setPendingActions(prev => prev.map(item => (
       item.id === action.id ? { ...item, busy: true, error: '' } : item
     )));
@@ -249,7 +249,8 @@ export default function ChatPage() {
         `${API_URL}/api/agent/actions/${action.id}/decisions/${decision}?session_id=${encodeURIComponent(sessionId)}`,
         {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: edits && Object.keys(edits).length ? edits : null }),
         },
       );
       if (res.status === 401) {
@@ -544,7 +545,7 @@ export default function ChatPage() {
       <ApprovalCard
         key={action.id}
         action={action}
-        onDecision={(decision) => handleActionDecision(action, decision)}
+        onDecision={(decision, edits) => handleActionDecision(action, decision, edits)}
         onCancel={() => handleActionDecision(action, 'reject')}
         onConfirm={() => handleActionDecision(action, 'approve')}
         assistantName={assistantName}

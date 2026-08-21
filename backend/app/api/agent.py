@@ -3,7 +3,7 @@ import logging
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
@@ -53,12 +53,40 @@ def _explicit_agent_name(message) -> str | None:
     return name if name in AGENT_NAMES else None
 
 
+async def _prompt_settings(user_id: str) -> tuple[str, bool]:
+    """Assistant name plus whether a mail signature is configured.
+
+    Both shape the system prompts, so every graph build reads them together -
+    the mail agent must stop writing its own sign-off once a signature exists.
+    """
+    return (
+        await user_settings.get_assistant_name(user_id),
+        bool(await user_settings.get_signature(user_id)),
+    )
+
+
+async def _visible_actions_signature(user_id: str) -> str:
+    """The signature an approval card must preview, since the send appends it."""
+    return await user_settings.get_signature(user_id)
+
+
 async def _visible_actions(user_id: str, session_id: str, interrupts: tuple) -> list[dict]:
     """Combine official interrupts with their durable execution state."""
-    pending = pending_actions_from_interrupts(interrupts, session_id)
+    pending = pending_actions_from_interrupts(
+        interrupts, session_id, await _visible_actions_signature(user_id)
+    )
     for action in pending:
         await hitl_audit.ensure_pending(user_id, session_id, action)
     persisted = await hitl_audit.list_actions(user_id, session_id)
+    live_by_id = {action["id"]: action for action in pending}
+    for action in persisted:
+        live = live_by_id.get(action["id"])
+        # The audit row was rendered when the interrupt was raised. While it is
+        # still pending, what the card previews has to follow the live settings -
+        # otherwise a signature saved after the draft appeared would be sent but
+        # never shown.
+        if live and action.get("status") == "pending":
+            action["presentation"] = live["presentation"]
     persisted_ids = {action["id"] for action in persisted}
     return persisted + [action for action in pending if action["id"] not in persisted_ids]
 
@@ -78,8 +106,8 @@ async def team_info(user_id: str = Depends(get_user_id)):
     """Debug/introspection: the supervisor's prompt plus each domain agent's
     system prompt and tool name/description, exactly as they're sent to the
     model on the next real request from this user."""
-    assistant_name = await user_settings.get_assistant_name(user_id)
-    return describe_team(user_id, assistant_name=assistant_name)
+    assistant_name, has_signature = await _prompt_settings(user_id)
+    return describe_team(user_id, assistant_name=assistant_name, has_signature=has_signature)
 
 
 @router.get("/sessions")
@@ -138,8 +166,8 @@ async def get_session_messages(session_id: str, user_id: str = Depends(get_user_
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    assistant_name = await user_settings.get_assistant_name(user_id)
-    supervisor = build_supervisor(user_id, session_id, assistant_name)
+    assistant_name, has_signature = await _prompt_settings(user_id)
+    supervisor = build_supervisor(user_id, session_id, assistant_name, has_signature)
     config = {"configurable": {"thread_id": session_id}}
     state = await supervisor.aget_state(config)
     raw_messages = (state.values or {}).get("messages", [])
@@ -199,8 +227,8 @@ async def list_actions(session_id: str, user_id: str = Depends(get_user_id)):
     session = await chat_sessions.get_session(user_id, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    assistant_name = await user_settings.get_assistant_name(user_id)
-    graph = build_supervisor(user_id, session_id, assistant_name)
+    assistant_name, has_signature = await _prompt_settings(user_id)
+    graph = build_supervisor(user_id, session_id, assistant_name, has_signature)
     state = await graph.aget_state({"configurable": {"thread_id": session_id}})
     return {"actions": await _visible_actions(user_id, session_id, state.interrupts)}
 
@@ -210,13 +238,14 @@ async def _decide_action(
     decision_id: str,
     session_id: str,
     user_id: str,
+    edited_args: dict | None = None,
 ):
     session = await chat_sessions.get_session(user_id, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     config = {"configurable": {"thread_id": session_id}, **trace_config(session_id, user_id)}
-    assistant_name = await user_settings.get_assistant_name(user_id)
-    graph = build_supervisor(user_id, session_id, assistant_name)
+    assistant_name, has_signature = await _prompt_settings(user_id)
+    graph = build_supervisor(user_id, session_id, assistant_name, has_signature)
 
     async with session_turn_lock(session_id):
         state = await graph.aget_state(config)
@@ -224,7 +253,7 @@ async def _decide_action(
         if not pending:
             raise HTTPException(status_code=409, detail="This HITL interrupt is no longer pending")
         try:
-            resume_value = resume_value_for(pending, decision_id)
+            resume_value = resume_value_for(pending, decision_id, edited_args)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -232,6 +261,7 @@ async def _decide_action(
             pending,
             session_id,
             anchor_message_id=f"hitl_{pending.id}",
+            signature=await _visible_actions_signature(user_id),
         )
         await hitl_audit.ensure_pending(user_id, session_id, pending_action)
         claim_status = await hitl_audit.claim_action(
@@ -320,7 +350,12 @@ async def _decide_action(
             session_id,
             status=status,
             anchor_message_id=final_reply[1] if final_reply else None,
+            signature=await _visible_actions_signature(user_id),
         )
+        # Show what was actually executed, not the model's original draft.
+        edited_action = (resume_value["decisions"][0]).get("edited_action") or {}
+        if edited_action.get("args"):
+            action["payload"] = dict(edited_action["args"])
         action["resolved"] = True
         if execution_error:
             action["error"] = execution_error
@@ -356,10 +391,19 @@ async def decide_action(
     action_id: str,
     decision_id: str,
     session_id: str,
+    body: dict | None = Body(None),
     user_id: str = Depends(get_user_id),
 ):
-    """Resume an official LangChain HITL interrupt with a human decision."""
-    return await _decide_action(action_id, decision_id, session_id, user_id)
+    """Resume an official LangChain HITL interrupt with a human decision.
+
+    An optional ``{"payload": {...}}`` body carries the fields the user edited
+    inline on the approval card; only keys the original tool call already had
+    are accepted (see ``resume_value_for``).
+    """
+    edited_args = (body or {}).get("payload") or None
+    if edited_args is not None and not isinstance(edited_args, dict):
+        raise HTTPException(status_code=422, detail="payload must be an object")
+    return await _decide_action(action_id, decision_id, session_id, user_id, edited_args)
 
 
 @router.post("/actions/{action_id}/confirm")
@@ -387,11 +431,11 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     route = decide_route(message)
     routed_agent = route.agent_name
     routed_message = route.message
-    assistant_name = await user_settings.get_assistant_name(user_id)
+    assistant_name, has_signature = await _prompt_settings(user_id)
 
     async def locked_event_generator():
         config = {"configurable": {"thread_id": session_id}, **trace_config(session_id, user_id)}
-        graph = build_supervisor(user_id, session_id, assistant_name)
+        graph = build_supervisor(user_id, session_id, assistant_name, has_signature)
         user_message = {"role": "user", "content": routed_message}
         if route.source == "slash_command":
             # Persist the explicit route for UI rendering. The model adapter

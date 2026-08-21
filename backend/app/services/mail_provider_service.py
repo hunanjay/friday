@@ -17,6 +17,7 @@ from app.infrastructure.mail.ids import parse_email_id
 from app.infrastructure.mail.imap_client import connect, select_mailbox
 from app.infrastructure.mail.providers import resolve_provider_settings
 from app.infrastructure.mail.ssrf import assert_public_host
+from app.services.mail_signature import render_body
 
 _IMAP_FOLDER_BY_ALIAS = {
     "inbox": "INBOX",
@@ -484,7 +485,7 @@ class MailProviderService:
         from app.infrastructure.mail.smtp_client import build_message, send_mail
 
         settings = await cls._settings(user_id, account_id)
-        html_content = content.replace("\r\n", "\n").replace("\n", "<br>")
+        html_content = await render_body(user_id, content)
         raw = build_message(
             from_addr=settings["email_address"],
             to=to,
@@ -529,7 +530,7 @@ class MailProviderService:
         original_subject = original.get("Subject") or ""
         subject = f"Re: {original_subject}" if not original_subject.lower().startswith("re:") else original_subject
 
-        html_content = content.replace("\r\n", "\n").replace("\n", "<br>")
+        html_content = await render_body(user_id, content)
         raw_reply = build_message(
             from_addr=settings["email_address"],
             to=(original.get("Reply-To") or original.get("From") or ""),

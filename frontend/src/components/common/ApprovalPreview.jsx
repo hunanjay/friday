@@ -2,20 +2,62 @@
 import React from 'react';
 import { Calendar, Mail, Trash } from './Icons';
 
-function EmailPreview({ payload, t }) {
+/**
+ * Uncontrolled on purpose: `value` is only the initial text, so typing never
+ * re-renders the node and the caret stays put. `innerText` (not textContent)
+ * keeps the line breaks an email body needs.
+ */
+function Editable({ as: Tag, value, className = '', onChange }) {
+  if (!onChange) return <Tag className={className}>{value}</Tag>;
+  return (
+    <Tag
+      className={`${className} approval-editable`}
+      contentEditable="plaintext-only"
+      suppressContentEditableWarning
+      role="textbox"
+      tabIndex={0}
+      onInput={(e) => onChange(e.currentTarget.innerText)}
+    >
+      {value}
+    </Tag>
+  );
+}
+
+function EmailPreview({ payload, action, t, onEdit }) {
+  const edit = (field) => (onEdit ? (value) => onEdit(field, value) : null);
+  const signature = (action?.presentation?.signature || '').trim();
   return (
     <div className="approval-email-preview">
-      {payload.to && (
-        <div className="approval-email-recipient">
-          <span>{t('email.to')}</span>
-          <strong>{payload.to}</strong>
-        </div>
-      )}
-      {payload.subject && <h4 className="approval-email-subject">{payload.subject}</h4>}
-      {payload.body && (
+      {/* One grid for both header rows, so the label column sizes itself to the
+          widest label and the values line up in either language. */}
+      <div className="approval-email-head">
+        {(payload.to || onEdit) && (
+          <>
+            <span className="approval-email-label">{t('email.to')}</span>
+            <Editable as="div" className="approval-email-to" value={payload.to} onChange={edit('to')} />
+          </>
+        )}
+        {(payload.subject || onEdit) && (
+          <>
+            <span className="approval-email-label">{t('email.subject')}</span>
+            <Editable
+              as="div"
+              className="approval-email-subject"
+              value={payload.subject}
+              onChange={edit('subject')}
+            />
+          </>
+        )}
+      </div>
+      {(payload.body || onEdit) && (
         <div className="approval-email-body">
-          <span>{t('email.body')}</span>
-          <p>{payload.body}</p>
+          <Editable as="p" value={payload.body} onChange={edit('body')} />
+          {/* Not editable and not part of the payload: the backend appends the
+              saved signature at send time. Shown so the card is the whole
+              email the recipient will get, not just the part the agent wrote. */}
+          {signature && !payload.body?.trimEnd().endsWith(signature) && (
+            <p className="approval-email-signature">{signature}</p>
+          )}
         </div>
       )}
     </div>

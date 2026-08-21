@@ -68,7 +68,8 @@ export default function EmailPage() {
     mailAccounts,
     msDisconnected,
     assistantName,
-    avatarUrl
+    avatarUrl,
+    signature
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();
@@ -1156,6 +1157,7 @@ export default function EmailPage() {
                     <ApprovalCard
                       action={{
                         action_type: 'send_email',
+                        presentation: { renderer: 'email', signature },
                         payload: {
                           to: selectedEmail?.sender?.emailAddress?.address || selectedEmail?.sender?.emailAddress?.name,
                           subject: selectedEmail?.subject ? `Re: ${selectedEmail.subject}` : '',
@@ -1237,6 +1239,14 @@ export default function EmailPage() {
                   placeholder="Write your email here..."
                   required
                 />
+                {/* Read-only: the backend appends this at send time, for every
+                    send route. Shown so the append is never a surprise. */}
+                {signature && (
+                  <div className="compose-signature-preview">
+                    <span>{t('email.signature')}</span>
+                    <p>{signature}</p>
+                  </div>
+                )}
               </div>
               <div className="compose-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="compose-attachments-list" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: 1 }}>

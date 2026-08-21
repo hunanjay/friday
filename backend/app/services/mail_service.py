@@ -1,6 +1,7 @@
 from urllib.parse import quote
 
 from app.infrastructure.graph.client import graph_get, graph_get_binary
+from app.services.mail_signature import render_body
 from app.tools.mail_queries import MAIL_FOLDERS, search_path
 
 LIST_SELECT_FIELDS = (
@@ -113,7 +114,7 @@ class MailService:
         from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
-        html_content = content.replace("\r\n", "\n").replace("\n", "<br>")
+        html_content = await render_body(user_id, content)
 
         msg = Message(
             subject=subject,
@@ -155,7 +156,7 @@ class MailService:
         from app.infrastructure.graph.sdk_client import get_graph_sdk_client
 
         client = get_graph_sdk_client(user_id)
-        html_content = content.replace("\r\n", "\n").replace("\n", "<br>")
+        html_content = await render_body(user_id, content)
 
         msg = Message(
             body=ItemBody(

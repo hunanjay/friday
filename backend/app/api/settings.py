@@ -42,3 +42,26 @@ async def set_avatar(body: dict, user_id: str = Depends(get_user_id)):
     if avatar_url not in allowed:
         raise HTTPException(status_code=422, detail="avatar_url must be one of the current presets")
     return {"avatar_url": await user_settings_db.set_avatar_url(user_id, avatar_url)}
+
+
+MAX_SIGNATURE_LENGTH = 1000
+
+
+@router.get("/signature")
+async def get_signature(user_id: str = Depends(get_user_id)):
+    return {"signature": await user_settings_db.get_signature(user_id)}
+
+
+@router.put("/signature")
+async def set_signature(body: dict, user_id: str = Depends(get_user_id)):
+    """Set the block appended to every outgoing email. Empty string clears it."""
+    signature = body.get("signature")
+    if not isinstance(signature, str):
+        raise HTTPException(status_code=422, detail="signature must be a string")
+    signature = signature.strip()
+    if len(signature) > MAX_SIGNATURE_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"signature must be {MAX_SIGNATURE_LENGTH} characters or fewer",
+        )
+    return {"signature": await user_settings_db.set_signature(user_id, signature)}

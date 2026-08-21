@@ -61,7 +61,8 @@
     "generateReply": "Generate Reply",
     "assistantCopyDraft": "Use as Reply",
     "assistantDrafted": "Reply drafted by {{name}}",
-    "assistantWait": "{{name}} is thinking..."
+    "assistantWait": "{{name}} is thinking...",
+    "signature": "Signature"
   },
   "calendar": {
     "prevMonth": "Prev Month",
