@@ -164,53 +164,77 @@ export default function CalendarPage() {
     setIsModalOpen(true);
   };
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!eventTitle) {
       alert('Event title is required');
       return;
     }
 
-    const newEvent = {
-      id: 'event_' + Date.now(),
-      subject: eventTitle,
-      start: {
-        dateTime: `${selectedDateStr}T${eventStart}:00`,
-        timeZone: 'UTC'
-      },
-      end: {
-        dateTime: `${selectedDateStr}T${eventEnd}:00`,
-        timeZone: 'UTC'
-      },
-      body: {
-        content: eventDesc,
-        contentType: 'text'
-      },
-      categories: [eventCategory.charAt(0).toUpperCase() + eventCategory.slice(1)],
-      location: {
-        displayName: eventLocation || 'Microsoft Teams Meeting'
+    try {
+      const res = await fetch(`${API_URL}/api/graph/calendar/events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          subject: eventTitle,
+          start: `${selectedDateStr}T${eventStart}:00`,
+          end: `${selectedDateStr}T${eventEnd}:00`,
+          location: eventLocation || 'Microsoft Teams Meeting',
+        }),
+      });
+      if (res.status === 401) {
+        handleLogout();
+        return;
       }
-    };
+      if (!res.ok) throw new Error('create failed');
+      const created = await res.json();
 
-    handleAddEvent(newEvent);
-    setIsModalOpen(false);
+      handleAddEvent({
+        id: created.id,
+        subject: created.subject,
+        start: created.start,
+        end: created.end,
+        body: { content: eventDesc, contentType: 'text' },
+        categories: [eventCategory.charAt(0).toUpperCase() + eventCategory.slice(1)],
+        location: created.location,
+      });
+      setIsModalOpen(false);
 
-    // Reset fields
-    setEventTitle('');
-    setEventStart('09:00');
-    setEventEnd('10:00');
-    setEventDesc('');
-    setEventLocation('');
-    setEventCategory('work');
+      // Reset fields
+      setEventTitle('');
+      setEventStart('09:00');
+      setEventEnd('10:00');
+      setEventDesc('');
+      setEventLocation('');
+      setEventCategory('work');
 
-    showToast(t('calendar.addedSuccess'));
+      showToast(t('calendar.addedSuccess'));
+    } catch {
+      showToast(t('calendar.syncFailed', { defaultValue: 'Failed to sync calendar from Outlook' }));
+    }
   };
 
-  const handleDeleteEventClick = (eventId, e) => {
+  const handleDeleteEventClick = async (eventId, e) => {
     e.stopPropagation();
-    handleDeleteEvent(eventId);
-    setSelectedEvent(null);
-    showToast(t('calendar.deletedSuccess'));
+    try {
+      const res = await fetch(`${API_URL}/api/graph/calendar/events/${encodeURIComponent(eventId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (!res.ok) throw new Error('delete failed');
+      handleDeleteEvent(eventId);
+      setSelectedEvent(null);
+      showToast(t('calendar.deletedSuccess'));
+    } catch {
+      showToast(t('calendar.syncFailed', { defaultValue: 'Failed to sync calendar from Outlook' }));
+    }
   };
 
   const getCleanCategory = (categories) => {
