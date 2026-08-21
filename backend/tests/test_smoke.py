@@ -211,6 +211,7 @@ def _called_names(node: ast.AST) -> set[str]:
 
 for tool_name in (
     "send_email",
+    "forward_email",
     "delete_email",
     "create_event",
     "delete_event",
@@ -262,7 +263,7 @@ from app.agents.hitl import (  # noqa: E402
 )
 
 expected_hitl_tools = {
-    "send_email", "delete_email", "create_event", "delete_event",
+    "send_email", "forward_email", "delete_email", "create_event", "delete_event",
     "accept_event", "decline_event",
 }
 check("all email/calendar mutation tools have interrupt policies",
@@ -1008,10 +1009,6 @@ check(
     resume_value_for(_mail_interrupt, "approve") == {"decisions": [{"type": "approve"}]},
 )
 check(
-    "the client cannot introduce tool arguments the draft never had",
-    "Unknown editable fields" in _edit_error(_mail_interrupt, {"cc": "evil@example.com"}),
-)
-check(
     "a non-editable tool rejects edits outright",
     "cannot be edited" in _edit_error(_delete_interrupt, {"email_id": "2"}),
 )
@@ -1019,7 +1016,9 @@ check(
 
 section("17. email signature")
 
-from app.services.mail_signature import apply_signature  # noqa: E402
+import html  # noqa: E402
+
+from app.services.mail_compose import apply_signature, parse_recipients  # noqa: E402
 
 _SIG = "Best regards,\nJane Doe\nProduct Manager"
 
@@ -1045,6 +1044,13 @@ _SEND_MODULES = [
     "app/services/mail_provider_service.py",
 ]
 _send_sources = {name: (backend_dir / name).read_text() for name in _SEND_MODULES}
+check(
+    # Bodies are plain text. Unescaped, "a < b" or "<notes>" reaches the
+    # recipient as markup and their mail client eats it.
+    "the body is html-escaped before the newline conversion",
+    html.escape(apply_signature("a < b, see <notes>", _SIG)).replace("\n", "<br>")
+    == "a &lt; b, see &lt;notes&gt;<br><br>" + _SIG.replace("\n", "<br>"),
+)
 check(
     "every outbound mail path renders its body through render_body",
     all("render_body(user_id" in source for source in _send_sources.values()),
@@ -1085,6 +1091,95 @@ check(
     "structured output stays on function calling, not a json response_format",
     'with_structured_output(_ReplyDraft, method="function_calling")'
     in (backend_dir / "app/agents/draft.py").read_text(),
+)
+check(
+    "a recipient field splits on commas and semicolons and unwraps Name <addr>",
+    parse_recipients("a@x.com, 张三 <b@y.com>; c@z.com") == ["a@x.com", "b@y.com", "c@z.com"],
+)
+check(
+    "blank entries are dropped and a repeat is not sent twice",
+    parse_recipients(" a@x.com , , a@x.com ") == ["a@x.com"]
+    and parse_recipients("") == []
+    and parse_recipients(None) == []
+    and parse_recipients(["a@x.com"]) == ["a@x.com"],
+)
+check(
+    "cc is editable on the card even when the draft carried none",
+    resume_value_for(_mail_interrupt, "approve", {"cc": "boss@x.com"})["decisions"][0][
+        "edited_action"
+    ]["args"]["cc"]
+    == "boss@x.com",
+)
+check(
+    "an argument the tool does not take is still refused",
+    "Unknown editable fields" in _edit_error(_mail_interrupt, {"reply_to": "evil@x.com"}),
+)
+_forward_interrupt = Interrupt(
+    id="fwd-1",
+    value={
+        "action_requests": [
+            {"name": "forward_email", "args": {"email_id": "abc", "to": "a@b.com", "comment": "FYI"}}
+        ],
+        "review_configs": [{"allowed_decisions": ["approve", "edit", "reject"]}],
+    },
+)
+check(
+    "forwarding is offered as its own card, not the generic fallback",
+    interrupt_to_action(_forward_interrupt, "s1")["presentation"]["renderer"] == "email_forward",
+)
+check(
+    "the forward card is editable and previews the signature",
+    interrupt_to_action(_forward_interrupt, "s1", signature="Yours")["presentation"]["signature"]
+    == "Yours",
+)
+check(
+    "the agent can forward, so it never has to retype an email it was given",
+    "forward_email" in _returned_tool_names("make_mail_tools"),
+)
+from app.services.mail_compose import (  # noqa: E402
+    GRAPH_ATTACHMENT_LIMIT,
+    SMTP_ATTACHMENT_LIMIT,
+    assert_attachments_fit,
+)
+
+
+def _attachment_error(sizes_mb: list[float], limit: int) -> str:
+    files = [{"content": b"x" * int(mb * 1024 * 1024)} for mb in sizes_mb]
+    try:
+        assert_attachments_fit(files, limit)
+    except Exception as exc:
+        return str(getattr(exc, "detail", exc))
+    return ""
+
+
+_over = _attachment_error([4], GRAPH_ATTACHMENT_LIMIT)
+check(
+    "an oversized batch is refused with its size, not the provider's 500",
+    "4.0MB" in _over and "3MB limit" in _over,
+)
+check(
+    # The old UI check measured only the newly picked files, so three 2MB picks
+    # slipped through and failed at the provider instead.
+    "the total is what counts, so several small files cannot add up past it",
+    "4.0MB" in _attachment_error([2, 2], GRAPH_ATTACHMENT_LIMIT),
+)
+check(
+    "the larger SMTP ceiling is not held to the Graph one",
+    _attachment_error([4], SMTP_ATTACHMENT_LIMIT) == "",
+)
+check(
+    "a batch that fits passes through untouched",
+    assert_attachments_fit([{"content": b"x" * 1024}], GRAPH_ATTACHMENT_LIMIT) is None
+    and assert_attachments_fit(None, GRAPH_ATTACHMENT_LIMIT) is None,
+)
+_compose_source = (backend_dir.parent / "frontend/src/pages/EmailPage.jsx").read_text()
+check(
+    # The UI checks before uploading, so it carries its own copy of the numbers.
+    "the compose form's limits still match the ones the backend enforces",
+    f"const GRAPH_ATTACHMENT_LIMIT = {GRAPH_ATTACHMENT_LIMIT // (1024 * 1024)} * 1024 * 1024;"
+    in _compose_source
+    and f"const SMTP_ATTACHMENT_LIMIT = {SMTP_ATTACHMENT_LIMIT // (1024 * 1024)} * 1024 * 1024;"
+    in _compose_source,
 )
 check(
     "no send path still converts newlines to <br> on its own",

@@ -8,6 +8,8 @@ resolve_provider_settings 合并预设/覆盖 → 建连 → 操作 → logout�
 IMAP 是同步库，全部包 run_in_threadpool；SMTP 用 aiosmtplib 异步。
 """
 
+import html
+
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
@@ -17,7 +19,12 @@ from app.infrastructure.mail.ids import parse_email_id
 from app.infrastructure.mail.imap_client import connect, select_mailbox
 from app.infrastructure.mail.providers import resolve_provider_settings
 from app.infrastructure.mail.ssrf import assert_public_host
-from app.services.mail_signature import render_body
+from app.services.mail_compose import (
+    SMTP_ATTACHMENT_LIMIT,
+    assert_attachments_fit,
+    parse_recipients,
+    render_body,
+)
 
 _IMAP_FOLDER_BY_ALIAS = {
     "inbox": "INBOX",
@@ -461,6 +468,85 @@ class MailProviderService:
         return await run_in_threadpool(_delete_sync, settings, mailbox, uid)
 
     @classmethod
+    async def forward_message(
+        cls,
+        user_id: str,
+        email_id: str,
+        to: str,
+        content: str = "",
+        attachments: list = None,
+        cc: str | list[str] | None = None,
+        bcc: str | list[str] | None = None,
+        subject: str = "",
+    ) -> dict:
+        """Forward over SMTP. Unlike Graph there is no server-side forward, so
+        the original is quoted into the new body and its files re-attached."""
+        import email as email_mod
+
+        from app.infrastructure.mail.converter import (
+            attachment_payloads,
+            body_html,
+            decode_header_value,
+        )
+        from app.infrastructure.mail.smtp_client import build_message, send_mail
+
+        parsed = parse_email_id(email_id)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="invalid imap email id")
+        account_id, mailbox, uid = parsed
+        settings = await cls._settings(user_id, account_id)
+
+        to_addrs = parse_recipients(to)
+        cc_addrs = parse_recipients(cc)
+        bcc_addrs = parse_recipients(bcc)
+        if not to_addrs:
+            raise HTTPException(status_code=422, detail="At least one recipient is required")
+
+        assert_attachments_fit(attachments, SMTP_ATTACHMENT_LIMIT)
+        raw = await run_in_threadpool(_get_raw_sync, settings, mailbox, uid)
+        original = email_mod.message_from_bytes(raw)
+        original_subject = decode_header_value(original.get("Subject") or "")
+        subject = subject or (
+            original_subject
+            if original_subject.lower().startswith(("fw:", "fwd:"))
+            else f"Fwd: {original_subject}"
+        )
+        quoted = "".join(
+            f"<b>{label}:</b> {html.escape(decode_header_value(original.get(header) or ''))}<br>"
+            for label, header in (
+                ("From", "From"),
+                ("Date", "Date"),
+                ("Subject", "Subject"),
+                ("To", "To"),
+            )
+        )
+        body = (
+            f"{await render_body(user_id, content)}"
+            f"<br><hr>{quoted}<br>{body_html(original)}"
+        )
+        raw_forward = build_message(
+            from_addr=settings["email_address"],
+            to=to_addrs,
+            subject=subject,
+            html_body=body,
+            attachments=(attachments or []) + attachment_payloads(original),
+            cc=cc_addrs,
+        )
+        try:
+            await send_mail(
+                settings["smtp_host"], settings["smtp_port"], settings["smtp_security"],
+                settings["username"], settings["credential"], raw_forward,
+                sender=settings["email_address"], recipients=to_addrs + cc_addrs + bcc_addrs,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"邮件转发失败：{type(exc).__name__}（请检查授权码/服务器配置）",
+            )
+        await run_in_threadpool(_append_sent_sync, settings, raw_forward)
+        return {"status": "ok"}
+
+    @classmethod
     async def list_attachments(cls, user_id: str, email_id: str) -> dict:
         parsed = parse_email_id(email_id)
         if not parsed:
@@ -480,24 +566,44 @@ class MailProviderService:
         return await run_in_threadpool(_download_sync, settings, mailbox, uid, attachment_id)
 
     @classmethod
-    async def send_message(cls, user_id: str, account_id: str, to: str, subject: str, content: str, attachments: list = None) -> dict:
+    async def send_message(
+        cls,
+        user_id: str,
+        account_id: str,
+        to: str,
+        subject: str,
+        content: str,
+        attachments: list = None,
+        cc: str | list[str] | None = None,
+        bcc: str | list[str] | None = None,
+    ) -> dict:
         """SMTP 发送 + IMAP APPEND 归档到 Sent。"""
         from app.infrastructure.mail.smtp_client import build_message, send_mail
 
         settings = await cls._settings(user_id, account_id)
+        assert_attachments_fit(attachments, SMTP_ATTACHMENT_LIMIT)
         html_content = await render_body(user_id, content)
+        to_addrs = parse_recipients(to)
+        cc_addrs = parse_recipients(cc)
+        bcc_addrs = parse_recipients(bcc)
+        if not to_addrs:
+            raise HTTPException(status_code=422, detail="At least one recipient is required")
         raw = build_message(
             from_addr=settings["email_address"],
-            to=to,
+            to=to_addrs,
             subject=subject,
             html_body=html_content,
             attachments=attachments,
+            cc=cc_addrs,
         )
         try:
             await send_mail(
                 settings["smtp_host"], settings["smtp_port"], settings["smtp_security"],
                 settings["username"], settings["credential"], raw,
-                sender=settings["email_address"], recipients=[to],
+                sender=settings["email_address"],
+                # Bcc is an envelope-only recipient: it must reach the server
+                # here but never appear in a header the others can read.
+                recipients=to_addrs + cc_addrs + bcc_addrs,
             )
         except Exception as exc:
             raise HTTPException(
@@ -508,7 +614,14 @@ class MailProviderService:
         return {"status": "ok"}
 
     @classmethod
-    async def reply_message(cls, user_id: str, email_id: str, content: str, attachments: list = None) -> dict:
+    async def reply_message(
+        cls,
+        user_id: str,
+        email_id: str,
+        content: str,
+        attachments: list = None,
+        reply_all: bool = False,
+    ) -> dict:
         from app.infrastructure.mail.smtp_client import build_message, send_mail
 
         parsed = parse_email_id(email_id)
@@ -517,6 +630,7 @@ class MailProviderService:
         account_id, mailbox, uid = parsed
         settings = await cls._settings(user_id, account_id)
 
+        assert_attachments_fit(attachments, SMTP_ATTACHMENT_LIMIT)
         raw = await run_in_threadpool(_get_raw_sync, settings, mailbox, uid)
         import email as email_mod
         original = email_mod.message_from_bytes(raw)
@@ -531,21 +645,32 @@ class MailProviderService:
         subject = f"Re: {original_subject}" if not original_subject.lower().startswith("re:") else original_subject
 
         html_content = await render_body(user_id, content)
+        # There is no server-side replyAll here, so the recipient list is
+        # rebuilt from the headers: everyone the original reached, minus this
+        # account, or the reply lands back in our own inbox.
+        to_addrs = parse_recipients(original.get("Reply-To") or original.get("From") or "")
+        cc_addrs: list[str] = []
+        if reply_all:
+            mine = settings["email_address"].lower()
+            everyone = parse_recipients(
+                (original.get("To") or "") + "," + (original.get("Cc") or "")
+            )
+            cc_addrs = [a for a in everyone if a.lower() != mine and a not in to_addrs]
         raw_reply = build_message(
             from_addr=settings["email_address"],
-            to=(original.get("Reply-To") or original.get("From") or ""),
+            to=to_addrs,
             subject=subject,
             html_body=html_content,
             attachments=attachments,
             references=references or None,
             in_reply_to=original_msg_id,
+            cc=cc_addrs,
         )
         try:
-            reply_to = (original.get("Reply-To") or original.get("From") or "").strip()
             await send_mail(
                 settings["smtp_host"], settings["smtp_port"], settings["smtp_security"],
                 settings["username"], settings["credential"], raw_reply,
-                sender=settings["email_address"], recipients=[reply_to],
+                sender=settings["email_address"], recipients=to_addrs + cc_addrs,
             )
         except Exception as exc:
             raise HTTPException(

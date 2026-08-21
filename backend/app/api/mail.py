@@ -68,6 +68,8 @@ async def send(
     to: str = Form(...),
     subject: str = Form(...),
     body: str = Form(...),
+    cc: str = Form(""),
+    bcc: str = Form(""),
     attachments: list[UploadFile] = File(default=[]),
     user_id: str = Depends(get_user_id)
 ):
@@ -80,26 +82,57 @@ async def send(
                 "contentType": f.content_type,
                 "content": content
             })
-    return await MailService.send_message(user_id=user_id, to=to, subject=subject, content=body, attachments=att_list)
+    return await MailService.send_message(
+        user_id=user_id, to=to, subject=subject, content=body, attachments=att_list, cc=cc, bcc=bcc
+    )
+
+
+async def _uploaded(attachments: list[UploadFile]) -> list[dict]:
+    return [
+        {"name": f.filename, "contentType": f.content_type, "content": await f.read()}
+        for f in attachments
+        if f.filename
+    ]
 
 
 @router.post("/{email_id}/reply")
 async def reply(
     email_id: str,
     body: str = Form(""),
+    reply_all: bool = Form(False),
     attachments: list[UploadFile] = File(default=[]),
     user_id: str = Depends(get_user_id)
 ):
-    att_list = []
-    for f in attachments:
-        if f.filename:
-            content = await f.read()
-            att_list.append({
-                "name": f.filename,
-                "contentType": f.content_type,
-                "content": content
-            })
-    return await MailService.reply_message(user_id=user_id, email_id=email_id, content=body, attachments=att_list)
+    return await MailService.reply_message(
+        user_id=user_id,
+        email_id=email_id,
+        content=body,
+        attachments=await _uploaded(attachments),
+        reply_all=reply_all,
+    )
+
+
+@router.post("/{email_id}/forward")
+async def forward(
+    email_id: str,
+    to: str = Form(...),
+    body: str = Form(""),
+    cc: str = Form(""),
+    bcc: str = Form(""),
+    subject: str = Form(""),
+    attachments: list[UploadFile] = File(default=[]),
+    user_id: str = Depends(get_user_id),
+):
+    return await MailService.forward_message(
+        user_id=user_id,
+        email_id=email_id,
+        to=to,
+        content=body,
+        attachments=await _uploaded(attachments),
+        cc=cc,
+        bcc=bcc,
+        subject=subject,
+    )
 
 
 @router.get("/{email_id}/attachments")

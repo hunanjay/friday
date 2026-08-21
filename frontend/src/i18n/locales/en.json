@@ -62,7 +62,14 @@
     "assistantCopyDraft": "Use as Reply",
     "assistantDrafted": "Reply drafted by {{name}}",
     "assistantWait": "{{name}} is thinking...",
-    "signature": "Signature"
+    "signature": "Signature",
+    "cc": "Cc",
+    "bcc": "Bcc",
+    "forwardCarriesOriginal": "The original message and its attachments are forwarded with this note.",
+    "forward": "Forward",
+    "replyAll": "Reply all",
+    "reply": "Reply",
+    "attachmentsTooLarge": "Attachments total {{total}}MB, over this mailbox's {{limit}}MB limit for one message. Compress them or send a share link instead."
   },
   "calendar": {
     "prevMonth": "Prev Month",
@@ -109,6 +116,8 @@
     "reviewDelete": "Review email deletion",
     "sender": "Sender",
     "confirmSend": "Confirm and send",
+    "reviewForward": "Check the forward before sending",
+    "confirmForward": "Confirm and forward",
     "confirmDelete": "Confirm delete",
     "approvalWorking": "Working...",
     "approvalStatusPending": "Pending",

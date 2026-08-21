@@ -335,3 +335,25 @@ export const UserCheck = ({ size = 20, className = "" }) => (
     <polyline points="16 11 18 13 22 9" />
   </svg>
 );
+
+export const Reply = ({ size = 20, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polyline points="9 17 4 12 9 7" />
+    <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+  </svg>
+);
+
+export const ReplyAll = ({ size = 20, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polyline points="7 17 2 12 7 7" />
+    <polyline points="12 17 7 12 12 7" />
+    <path d="M22 18v-2a4 4 0 0 0-4-4H7" />
+  </svg>
+);
+
+export const Forward = ({ size = 20, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polyline points="15 17 20 12 15 7" />
+    <path d="M4 18v-2a4 4 0 0 1 4-4h12" />
+  </svg>
+);

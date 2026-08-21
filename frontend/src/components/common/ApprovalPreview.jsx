@@ -37,6 +37,12 @@ function EmailPreview({ payload, action, t, onEdit }) {
             <Editable as="div" className="approval-email-to" value={payload.to} onChange={edit('to')} />
           </>
         )}
+        {(payload.cc || onEdit) && (
+          <>
+            <span className="approval-email-label">{t('email.cc')}</span>
+            <Editable as="div" className="approval-email-to" value={payload.cc} onChange={edit('cc')} />
+          </>
+        )}
         {(payload.subject || onEdit) && (
           <>
             <span className="approval-email-label">{t('email.subject')}</span>
@@ -60,6 +66,33 @@ function EmailPreview({ payload, action, t, onEdit }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Forwarding carries the original along, so the card previews only the note. */
+function EmailForwardPreview({ payload, action, t, onEdit }) {
+  const edit = (field) => (onEdit ? (value) => onEdit(field, value) : null);
+  const signature = (action?.presentation?.signature || '').trim();
+  return (
+    <div className="approval-email-preview">
+      <div className="approval-email-head">
+        <span className="approval-email-label">{t('email.to')}</span>
+        <Editable as="div" className="approval-email-to" value={payload.to} onChange={edit('to')} />
+        {(payload.cc || onEdit) && (
+          <>
+            <span className="approval-email-label">{t('email.cc')}</span>
+            <Editable as="div" className="approval-email-to" value={payload.cc} onChange={edit('cc')} />
+          </>
+        )}
+      </div>
+      <div className="approval-email-body">
+        <Editable as="p" value={payload.comment} onChange={edit('comment')} />
+        {signature && !payload.comment?.trimEnd().endsWith(signature) && (
+          <p className="approval-email-signature">{signature}</p>
+        )}
+        <p className="approval-email-note">{t('email.forwardCarriesOriginal')}</p>
+      </div>
     </div>
   );
 }
@@ -110,6 +143,7 @@ function GenericPreview({ payload }) {
 
 export const APPROVAL_RENDERERS = {
   email: { Preview: EmailPreview, Icon: Mail },
+  email_forward: { Preview: EmailForwardPreview, Icon: Mail },
   email_delete: { Preview: EmailDeletePreview, Icon: Trash },
   calendar: { Preview: CalendarPreview, Icon: Calendar },
   generic: { Preview: GenericPreview, Icon: Mail },
@@ -120,6 +154,7 @@ export function getApprovalRenderer(action) {
   if (configured && APPROVAL_RENDERERS[configured]) return APPROVAL_RENDERERS[configured];
   const type = action.canonical_action_type || action.action_type || '';
   if (type === 'mail.send' || type === 'send_email' || !type) return APPROVAL_RENDERERS.email;
+  if (type === 'mail.forward' || type === 'forward_email') return APPROVAL_RENDERERS.email_forward;
   if (type === 'mail.move_to_trash' || type === 'delete_email') return APPROVAL_RENDERERS.email_delete;
   if (type.startsWith('calendar.')) return APPROVAL_RENDERERS.calendar;
   return APPROVAL_RENDERERS.generic;

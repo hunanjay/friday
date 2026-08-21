@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { readComposeDraft, writeComposeDraft } from './composeDraft';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
-import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info } from '../components/common/Icons';
+import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
 import EmailAttachments from '../components/common/EmailAttachments';
 import ApprovalCard from '../components/common/ApprovalCard';
@@ -16,6 +17,11 @@ const THREAD_CACHE_MAX_ENTRIES = 10;
 // (its mail_accounts id). Both providers return the same Graph-shaped
 // message objects, so the UI only differs in the API base URL.
 const MICROSOFT = 'microsoft';
+// Mirrors mail_compose.py; a backend smoke test asserts the two agree. Checked
+// here so an oversized file is refused on pick, not after a slow upload.
+const GRAPH_ATTACHMENT_LIMIT = 3 * 1024 * 1024;
+const SMTP_ATTACHMENT_LIMIT = 20 * 1024 * 1024;
+
 const mailApiBase = (channel) =>
   channel === MICROSOFT
     ? `${API_URL}/api/graph/mail`
@@ -221,11 +227,19 @@ export default function EmailPage() {
       .finally(() => setIsLoadingMoreSent(false));
   };
 
+  // Closing the window (or a reload) used to throw away whatever was typed.
+  // Text only: attachments are File handles the browser will not hand back, so
+  // restoring their names would promise files that are no longer attached.
+  const [restoredDraft] = useState(readComposeDraft);
+
   // Compose modal states
   const [isComposing, setIsComposing] = useState(false);
-  const [composeTo, setComposeTo] = useState('');
-  const [composeSubject, setComposeSubject] = useState('');
-  const [composeBody, setComposeBody] = useState('');
+  const [composeTo, setComposeTo] = useState(restoredDraft.to);
+  const [composeCc, setComposeCc] = useState(restoredDraft.cc);
+  const [composeBcc, setComposeBcc] = useState(restoredDraft.bcc);
+  const [showCopyFields, setShowCopyFields] = useState(Boolean(restoredDraft.cc || restoredDraft.bcc));
+  const [composeSubject, setComposeSubject] = useState(restoredDraft.subject);
+  const [composeBody, setComposeBody] = useState(restoredDraft.body);
   const [composeAttachments, setComposeAttachments] = useState([]);
   // Which mailbox sends: 'microsoft' or a bound mail_accounts id.
   const [composeChannel, setComposeChannel] = useState(MICROSOFT);
@@ -233,6 +247,11 @@ export default function EmailPage() {
   // Set by handleUseDraftAsReply - when present, submit hits the {id}/reply
   // endpoint (keeps threading) instead of a fresh /send.
   const [replyToEmailId, setReplyToEmailId] = useState(null);
+  const [composeMode, setComposeMode] = useState(null);
+
+  useEffect(() => {
+    writeComposeDraft({ to: composeTo, cc: composeCc, bcc: composeBcc, subject: composeSubject, body: composeBody });
+  }, [composeTo, composeCc, composeBcc, composeSubject, composeBody]);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   // Dora AI Assistant states
@@ -415,12 +434,17 @@ export default function EmailPage() {
 
   const handleAttachmentChange = (e) => {
     const files = Array.from(e.target.files);
-    const totalSize = files.reduce((acc, file) => acc + file.size, 0);
-    if (totalSize > 3 * 1024 * 1024) {
-      alert(i18n.language === 'zh' ? '目前基础附件总大小限制为 3MB' : 'Standard attachments total size limited to 3MB');
+    const limit = composeChannel === MICROSOFT ? GRAPH_ATTACHMENT_LIMIT : SMTP_ATTACHMENT_LIMIT;
+    // Everything already attached counts: the whole batch goes in one request,
+    // so measuring only the new files let three small picks add up past it.
+    const total = [...composeAttachments, ...files].reduce((sum, file) => sum + file.size, 0);
+    if (total > limit) {
+      showToast(t('email.attachmentsTooLarge', {
+        total: (total / 1048576).toFixed(1),
+        limit: Math.round(limit / 1048576),
+      }));
       return;
     }
-
     setComposeAttachments(prev => [...prev, ...files]);
   };
 
@@ -442,13 +466,18 @@ export default function EmailPage() {
       formData.append('to', composeTo);
       formData.append('subject', composeSubject);
       formData.append('body', composeBody);
+      formData.append('cc', composeCc);
+      formData.append('bcc', composeBcc);
+      if (composeMode === 'forward') formData.append('subject', composeSubject);
       composeAttachments.forEach(file => {
         formData.append('attachments', file);
       });
 
+      if (composeMode === 'replyAll') formData.append('reply_all', 'true');
       const sendBase = mailApiBase(composeChannel);
+      const threadPath = composeMode === 'forward' ? '/forward' : '/reply';
       const res = replyToEmailId
-        ? await fetch(mailMessageUrl(replyToEmailId, '/reply'), {
+        ? await fetch(mailMessageUrl(replyToEmailId, threadPath), {
             method: 'POST',
             headers: { Authorization: `Bearer ${authToken}` },
             body: formData,
@@ -464,7 +493,8 @@ export default function EmailPage() {
         return;
       }
       if (!res.ok) {
-        showToast(isZh ? '发送失败，请稍后重试' : 'Failed to send, please try again');
+        const failure = await res.json().catch(() => ({}));
+        showToast(failure.detail || (isZh ? '发送失败，请稍后重试' : 'Failed to send, please try again'));
         return;
       }
 
@@ -476,7 +506,11 @@ export default function EmailPage() {
       syncInbox();
       setIsComposing(false);
       setReplyToEmailId(null);
+      setComposeMode(null);
       setComposeTo('');
+      setComposeCc('');
+      setComposeBcc('');
+      setShowCopyFields(false);
       setComposeSubject('');
       setComposeBody('');
       setComposeAttachments([]);
@@ -766,15 +800,28 @@ export default function EmailPage() {
     }
   };
 
-  const handleUseDraftAsReply = () => {
-    if (!aiDraft) return;
+  // 'reply' | 'replyAll' hit {id}/reply, 'forward' hits {id}/forward, and a
+  // null mode is a fresh /send. The submit handler branches on this alone.
+  const openComposeFor = (mode, { body = '' } = {}) => {
+    if (!selectedEmail) return;
     const senderAddress = selectedEmail.sender?.emailAddress?.address || selectedEmail.sender?.emailAddress?.name || '';
-    setComposeTo(senderAddress);
-    setComposeSubject(`Re: ${selectedEmail.subject}`);
-    setComposeBody(aiDraft);
+    setComposeMode(mode);
     setReplyToEmailId(selectedEmail.id);
     setComposeChannel(selectedEmail.provider || MICROSOFT);
+    setComposeTo(mode === 'forward' ? '' : senderAddress);
+    setComposeCc('');
+    setComposeBcc('');
+    setShowCopyFields(false);
+    setComposeSubject(
+      mode === 'forward' ? `Fwd: ${selectedEmail.subject}` : `Re: ${selectedEmail.subject}`,
+    );
+    setComposeBody(body);
     setIsComposing(true);
+  };
+
+  const handleUseDraftAsReply = () => {
+    if (!aiDraft) return;
+    openComposeFor('reply', { body: aiDraft });
   };
 
   return (
@@ -789,7 +836,7 @@ export default function EmailPage() {
       )}
       {/* Email Sidebar */}
       <div className="email-sidebar">
-        <button className="compose-btn" onClick={() => { setReplyToEmailId(null); setIsComposing(true); }}>
+        <button className="compose-btn" onClick={() => { setReplyToEmailId(null); setComposeMode(null); setIsComposing(true); }}>
           <Plus size={18} />
           <span>{t('email.compose')}</span>
         </button>
@@ -1017,6 +1064,18 @@ export default function EmailPage() {
                   </h2>
                 </div>
                 <div className="email-detail-actions">
+                  <button className="action-icon-btn" onClick={() => openComposeFor('reply')}>
+                    <Reply size={16} />
+                    <span>{t('email.reply')}</span>
+                  </button>
+                  <button className="action-icon-btn" onClick={() => openComposeFor('replyAll')}>
+                    <ReplyAll size={16} />
+                    <span>{t('email.replyAll')}</span>
+                  </button>
+                  <button className="action-icon-btn" onClick={() => openComposeFor('forward')}>
+                    <Forward size={16} />
+                    <span>{t('email.forward')}</span>
+                  </button>
                   <button
                     className={`action-icon-btn dora-toggle-btn ${isDoraActive ? 'active' : ''}`}
                     onClick={() => setIsDoraActive(!isDoraActive)}
@@ -1212,14 +1271,47 @@ export default function EmailPage() {
               <div className="compose-input-group">
                 <label htmlFor="compose-to">{t('email.to')}:</label>
                 <input
-                  type="email"
+                  type="text"
                   id="compose-to"
                   value={composeTo}
                   onChange={(e) => setComposeTo(e.target.value)}
                   placeholder="recipients@email.com"
                   required
                 />
+                {!showCopyFields && (
+                  <button
+                    type="button"
+                    className="compose-copy-toggle"
+                    onClick={() => setShowCopyFields(true)}
+                  >
+                    {t('email.cc')} / {t('email.bcc')}
+                  </button>
+                )}
               </div>
+              {showCopyFields && (
+                <>
+                  <div className="compose-input-group">
+                    <label htmlFor="compose-cc">{t('email.cc')}:</label>
+                    <input
+                      type="text"
+                      id="compose-cc"
+                      value={composeCc}
+                      onChange={(e) => setComposeCc(e.target.value)}
+                      placeholder="a@example.com, b@example.com"
+                    />
+                  </div>
+                  <div className="compose-input-group">
+                    <label htmlFor="compose-bcc">{t('email.bcc')}:</label>
+                    <input
+                      type="text"
+                      id="compose-bcc"
+                      value={composeBcc}
+                      onChange={(e) => setComposeBcc(e.target.value)}
+                      placeholder="a@example.com, b@example.com"
+                    />
+                  </div>
+                </>
+              )}
               <div className="compose-input-group">
                 <label htmlFor="compose-subject">{t('email.subject')}:</label>
                 <input
