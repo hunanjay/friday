@@ -26,6 +26,7 @@ from app.agents.routing import AGENT_NAMES, decide_route
 from app.agents.supervisor import build_supervisor, describe_team, generate_session_title
 from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
+from app.core.tracing import trace_config
 from app.infrastructure.db.repositories import chat_sessions, hitl_audit, user_settings
 
 logger = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ async def _decide_action(
     session = await chat_sessions.get_session(user_id, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    config = {"configurable": {"thread_id": session_id}}
+    config = {"configurable": {"thread_id": session_id}, **trace_config(session_id, user_id)}
     assistant_name = await user_settings.get_assistant_name(user_id)
     graph = build_supervisor(user_id, session_id, assistant_name)
 
@@ -389,7 +390,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     assistant_name = await user_settings.get_assistant_name(user_id)
 
     async def locked_event_generator():
-        config = {"configurable": {"thread_id": session_id}}
+        config = {"configurable": {"thread_id": session_id}, **trace_config(session_id, user_id)}
         graph = build_supervisor(user_id, session_id, assistant_name)
         user_message = {"role": "user", "content": routed_message}
         if route.source == "slash_command":
