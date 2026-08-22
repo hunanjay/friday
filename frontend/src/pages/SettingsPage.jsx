@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight } from '../components/common/Icons';
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3 } from '../components/common/Icons';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -50,6 +50,7 @@ export default function SettingsPage() {
   const [isSavingAssistantName, setIsSavingAssistantName] = useState(false);
   const [signatureDraft, setSignatureDraft] = useState(signature);
   const [isSavingSignature, setIsSavingSignature] = useState(false);
+  const [isEditingSignature, setIsEditingSignature] = useState(false);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const addRepoRef = useRef(null);
@@ -59,6 +60,14 @@ export default function SettingsPage() {
   const [showSupervisorPrompt, setShowSupervisorPrompt] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState(new Set());
   const selectedCommit = location.state?.commit;
+
+  // Client-side navigation (e.g. from the chat approval card) doesn't
+  // trigger the browser's native anchor scroll, so do it ourselves.
+  useEffect(() => {
+    if (!location.hash) return;
+    document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' });
+    if (location.hash === '#signature') setIsEditingSignature(true);
+  }, [location.hash]);
 
   const loadTeamInfo = useCallback(() => {
     if (!authToken) return;
@@ -158,11 +167,17 @@ export default function SettingsPage() {
     try {
       await handleUpdateSignature(signatureDraft.trim());
       showToast(isZh ? '邮件签名已保存' : 'Email signature saved');
+      setIsEditingSignature(false);
     } catch {
       showToast(isZh ? '保存失败' : 'Failed to save signature');
     } finally {
       setIsSavingSignature(false);
     }
+  };
+
+  const handleCancelSignatureEdit = () => {
+    setSignatureDraft(signature);
+    setIsEditingSignature(false);
   };
 
   const handleSelectAvatar = async (url) => {
@@ -521,8 +536,8 @@ export default function SettingsPage() {
                 ? '支持 163 / QQ / Gmail / iCloud / Outlook（IMAP+SMTP）及自定义服务器，凭据加密存储。'
                 : '163 / QQ / Gmail / iCloud / Outlook (IMAP+SMTP) and custom servers. Credentials are encrypted at rest.'}
             </p>
-            <div className="settings-panel">
-              <div className="settings-field-row settings-field-row-stacked">
+            <div className="settings-panel" id="signature">
+              <div className="settings-signature-head">
                 <div>
                   <div className="settings-field-label">{isZh ? '邮件签名' : 'Email Signature'}</div>
                   <div className="settings-field-hint">
@@ -531,25 +546,54 @@ export default function SettingsPage() {
                       : 'Appended to every email you send, from any bound account and from the assistant. Leave empty to turn it off.'}
                   </div>
                 </div>
-                <div className="settings-signature-editor">
+                {!isEditingSignature && (
+                  <button
+                    type="button"
+                    className="settings-btn settings-signature-edit-btn"
+                    onClick={() => setIsEditingSignature(true)}
+                  >
+                    <Edit3 size={14} />
+                    {isZh ? '编辑' : 'Edit'}
+                  </button>
+                )}
+              </div>
+              <div className="settings-signature-body">
+                {isEditingSignature ? (
                   <textarea
-                    className="settings-text-input settings-textarea"
+                    className="settings-signature-textarea"
+                    autoFocus
                     value={signatureDraft}
                     maxLength={1000}
-                    rows={4}
+                    rows={6}
                     onChange={(e) => setSignatureDraft(e.target.value)}
                     placeholder={isZh ? '此致\n张三\n产品经理 · Friday' : 'Best regards,\nJane Doe\nProduct Manager, Friday'}
                   />
-                  <button
-                    type="button"
-                    className="settings-btn"
-                    disabled={isSavingSignature || signatureDraft.trim() === signature}
-                    onClick={handleSaveSignature}
-                  >
-                    {isSavingSignature ? (isZh ? '保存中...' : 'Saving...') : (isZh ? '保存' : 'Save')}
-                  </button>
-                </div>
+                ) : signature.trim() ? (
+                  <p className="settings-signature-static">{signature}</p>
+                ) : (
+                  <p className="settings-signature-static settings-signature-preview-empty">
+                    {isZh ? '未设置签名，点击"编辑"添加' : 'No signature set — click Edit to add one'}
+                  </p>
+                )}
               </div>
+              {isEditingSignature && (
+                <div className="settings-pane-foot">
+                  <span>{signatureDraft.length}/1000</span>
+                  <div className="settings-row-actions">
+                    <button type="button" className="settings-btn" onClick={handleCancelSignatureEdit}>
+                      {isZh ? '取消' : 'Cancel'}
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn btn-primary"
+                      disabled={isSavingSignature || signatureDraft.trim() === signature}
+                      onClick={handleSaveSignature}
+                    >
+                      {isSavingSignature ? (isZh ? '保存中...' : 'Saving...') : (isZh ? '保存' : 'Save')}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="settings-panel">
               {mailAccounts.length === 0 ? (

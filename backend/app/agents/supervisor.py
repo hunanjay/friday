@@ -19,6 +19,7 @@ from app.agents.tools import (
     make_github_tools,
     make_mail_tools,
     make_memos_tools,
+    make_user_memory_tools,
 )
 from app.core.config import settings
 from app.core.llm import make_chat_model
@@ -172,12 +173,44 @@ _SIGNATURE_RULE = (
 )
 
 
-def _agent_prompts(assistant_name: str, today: str, has_signature: bool = False) -> dict[str, str]:
+def format_memory_block(profile_rows: list[dict], preference_rows: list[dict]) -> str:
+    """One rule-list entry summarizing durable facts about the user, so every
+    agent (and the supervisor) sees it without a tool call. Empty when the
+    user hasn't told the assistant anything durable yet."""
+    if not profile_rows and not preference_rows:
+        return ""
+    parts = []
+    if profile_rows:
+        facts = "; ".join(f"{r['fact_key']}: {r['fact_value']}" for r in profile_rows)
+        parts.append(f"What you know about the user: {facts}.")
+    if preference_rows:
+        facts = "; ".join(f"{r['fact_key']}: {r['fact_value']}" for r in preference_rows)
+        parts.append(f"The user's preferred response style, which you must follow: {facts}.")
+    return " ".join(parts)
+
+
+_MEMORY_TOOLS_RULE = (
+    "When the user tells you something durable about themselves, not just this "
+    "task, save it with remember_user_fact: category='profile' for stable "
+    "identity facts, 'preference' for how they want you to respond, 'topic' "
+    "for a habit tied to one domain. Reuse the same fact_key when the user "
+    "corrects or updates something already recorded - it overwrites in place "
+    "rather than adding a contradicting entry. Call search_user_memory for a "
+    "topic habit that might not already be in your instructions, or to find "
+    "the exact fact_key before an update or a forget_user_fact call. Call "
+    "forget_user_fact when the user explicitly asks you to forget something."
+)
+
+
+def _agent_prompts(
+    assistant_name: str, today: str, has_signature: bool = False, memory_block: str = ""
+) -> dict[str, str]:
     """The full system prompt for each domain agent, keyed by AGENT_NAMES.
 
     Single source of truth so build_agent (which actually runs the agent) and
     describe_team (which introspects it for debugging) can never drift apart.
     """
+    memory_rules = [_MEMORY_TOOLS_RULE, *([memory_block] if memory_block else [])]
     return {
         "mail_agent": _format_rules([
             "You handle the user's email, including listing, searching, reading, sending, marking read or unread, and deleting messages.",
@@ -186,6 +219,7 @@ def _agent_prompts(assistant_name: str, today: str, has_signature: bool = False)
             "You cannot attach files, so put the actual content in the email body.",
             _ID_DISPLAY_RULE,
             *_HITL_RULES,
+            *memory_rules,
             *_BASE_RULES,
         ]),
         "contact_agent": _format_rules([
@@ -195,6 +229,7 @@ def _agent_prompts(assistant_name: str, today: str, has_signature: bool = False)
             "Anything else the user tells you about a person, such as where they live, what they pay in rent, a habit, or a plan, is a fact: record each one with record_contact_fact rather than stopping at create_contact or repeating it back unsaved.",
             "Say which contact the information was filed under, so the user knows where to find it later.",
             "Cite the source marker returned with each contact fact.",
+            *memory_rules,
             *_BASE_RULES,
         ]),
         "calendar_agent": _format_rules([
@@ -203,12 +238,15 @@ def _agent_prompts(assistant_name: str, today: str, has_signature: bool = False)
             "Before deleting an event, list that day's events and select exactly one, and if several match, ask which one the user means.",
             _ID_DISPLAY_RULE,
             *_HITL_RULES,
+            *memory_rules,
             *_BASE_RULES,
         ]),
         "memos_agent": _format_rules([
             "You manage the user's memos, with list_memos for browsing, search_memos(query) for retrieval, and create_memo(title, content, category) for saving.",
             "Search or list before answering a memo question, and base the answer on the result.",
             "Call create_memo only when the user explicitly asked to save or record something, inferring a concise title and content from the relevant conversation, and otherwise just reply.",
+            "Use track_area instead of create_memo for an ongoing project/initiative the user wants tracked across conversations, keeping the same `name` on later updates so it's revised in place rather than duplicated.",
+            *memory_rules,
             *_BASE_RULES,
         ]),
         "github_agent": _format_rules([
@@ -216,6 +254,7 @@ def _agent_prompts(assistant_name: str, today: str, has_signature: bool = False)
             "Call list_todays_commits first on every turn, without asking for permission.",
             "Write a concise report with grouped bullet points from the returned commit messages, then save it with create_memo using category='work' and a title such as 'Daily Report - <date>'.",
             "If there were no commits today, say so instead of saving an empty report.",
+            *memory_rules,
             *_BASE_RULES,
         ]),
     }
@@ -236,14 +275,17 @@ def build_agent(
     session_id: str | None = None,
     assistant_name: str = DEFAULT_ASSISTANT_NAME,
     has_signature: bool = False,
+    memory_block: str = "",
 ):
     """Build one isolated domain agent with official HITL policy."""
     if name not in _AGENT_TOOL_FACTORIES:
         raise ValueError(f"Unknown agent: {name}")
     model = _get_model()
     today = _today_str()
-    tools = _AGENT_TOOL_FACTORIES[name](user_id, session_id)
-    system_prompt = _agent_prompts(assistant_name, today, has_signature)[name]
+    # Every agent gets remember_user_fact/search_user_memory, so this lives
+    # here rather than duplicated into each entry of _AGENT_TOOL_FACTORIES.
+    tools = _AGENT_TOOL_FACTORIES[name](user_id, session_id) + make_user_memory_tools(user_id, session_id)
+    system_prompt = _agent_prompts(assistant_name, today, has_signature, memory_block)[name]
 
     middleware = []
     hitl = make_hitl_middleware({item.name for item in tools})
@@ -258,7 +300,7 @@ def build_agent(
     )
 
 
-def _supervisor_prompt(assistant_name: str, today: str) -> str:
+def _supervisor_prompt(assistant_name: str, today: str, memory_block: str = "") -> str:
     return _format_rules([
         _name_line(assistant_name),
         f"Today is {today}, and you coordinate {len(AGENT_NAMES)} specialized agents.",
@@ -266,6 +308,7 @@ def _supervisor_prompt(assistant_name: str, today: str) -> str:
         "Route with the delegation tool descriptions, and relay the result concisely.",
         "Pass each delegated agent a self-contained task in which pronouns, people, and relative dates are already resolved from the conversation.",
         "Relay delegated lists, links, and other formatted content verbatim without rewriting or dropping items.",
+        *([memory_block] if memory_block else []),
         *_BASE_RULES,
     ])
 
@@ -306,6 +349,7 @@ def build_supervisor(
     session_id: str | None = None,
     assistant_name: str = DEFAULT_ASSISTANT_NAME,
     has_signature: bool = False,
+    memory_block: str = "",
 ):
     """Builds a fresh supervisor graph per request, its tools closed over
     this user's id so each sub-agent only ever touches this user's mailbox
@@ -313,7 +357,7 @@ def build_supervisor(
     model = _get_model()
     today = _today_str()
     subagents = {
-        name: build_agent(user_id, name, session_id, assistant_name, has_signature)
+        name: build_agent(user_id, name, session_id, assistant_name, has_signature, memory_block)
         for name in AGENT_NAMES
     }
     delegation_tools = [
@@ -324,7 +368,7 @@ def build_supervisor(
         tools=delegation_tools,
         middleware=[_trim_history_middleware],
         name="parent",
-        system_prompt=_supervisor_prompt(assistant_name, today),
+        system_prompt=_supervisor_prompt(assistant_name, today, memory_block),
     )
     workflow = parent.builder
     # create_agent returns a compiled graph, but its builder remains reusable.
@@ -364,6 +408,7 @@ def describe_team(
     session_id: str | None = None,
     assistant_name: str = DEFAULT_ASSISTANT_NAME,
     has_signature: bool = False,
+    memory_block: str = "",
 ) -> dict:
     """Introspection for debugging: the supervisor prompt plus each domain
     agent's system prompt and tool name/description, exactly as they'd be
@@ -372,13 +417,13 @@ def describe_team(
     actually invoked), so this is safe and cheap to call on every request.
     """
     today = _today_str()
-    prompts = _agent_prompts(assistant_name, today, has_signature)
+    prompts = _agent_prompts(assistant_name, today, has_signature, memory_block)
     return {
         "provider": settings.LLM_PROVIDER,
         "model": settings.OPENAI_MODEL,
         "assistant_name": assistant_name,
         "supervisor": {
-            "system_prompt": _supervisor_prompt(assistant_name, today),
+            "system_prompt": _supervisor_prompt(assistant_name, today, memory_block),
         },
         "agents": [
             {
@@ -387,7 +432,7 @@ def describe_team(
                 "system_prompt": prompts[name],
                 "tools": [
                     {"name": t.name, "description": t.description}
-                    for t in _AGENT_TOOL_FACTORIES[name](user_id, session_id)
+                    for t in _AGENT_TOOL_FACTORIES[name](user_id, session_id) + make_user_memory_tools(user_id, session_id)
                 ],
             }
             for name in AGENT_NAMES

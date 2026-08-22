@@ -30,6 +30,7 @@ from app.infrastructure.db.repositories import (
     hitl_audit,
     memos as memos_db,
     todos as todos_db,
+    user_memory as user_memory_db,
     user_settings as user_settings_db,
 )
 from app.infrastructure.github import client as github_client
@@ -47,6 +48,7 @@ async def lifespan(_app: FastAPI):
     await contacts_db.init_schema()
     await memos_db.init_schema()
     await todos_db.init_schema()
+    await user_memory_db.init_schema()
     await user_settings_db.init_schema()
     await vector_store.init_collection()
 

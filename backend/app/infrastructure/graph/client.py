@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import time
@@ -13,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+
+# Transient failures (rate limiting, upstream hiccups) - retry a couple times
+# before giving up, instead of making the LLM decide whether to try again.
+_RETRYABLE_STATUS = {429, 502, 503, 504}
+_MAX_ATTEMPTS = 3
 
 _client: httpx.AsyncClient | None = None
 _MS_TOKEN_CACHE_TTL_SECONDS = 300
@@ -140,21 +146,31 @@ async def _graph_request(
             upstream_duration_ms += (time.perf_counter() - upstream_started) * 1000
 
     safe_path = url.split("?", 1)[0].removeprefix(GRAPH_BASE)
-    try:
-        resp = await _call(ms_token)
-    except Exception:
-        logger.exception(
-            "graph.http method=%s path=%s status=network_error token_source=%s "
-            "token_ms=%.1f upstream_ms=%.1f total_ms=%.1f attempts=%d",
-            method,
-            safe_path,
-            token_source,
-            token_duration_ms,
-            upstream_duration_ms,
-            (time.perf_counter() - request_started) * 1000,
-            attempts,
-        )
-        raise
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            resp = await _call(ms_token)
+        except (httpx.TimeoutException, httpx.NetworkError):
+            if attempt == _MAX_ATTEMPTS:
+                logger.exception(
+                    "graph.http method=%s path=%s status=network_error token_source=%s "
+                    "token_ms=%.1f upstream_ms=%.1f total_ms=%.1f attempts=%d",
+                    method,
+                    safe_path,
+                    token_source,
+                    token_duration_ms,
+                    upstream_duration_ms,
+                    (time.perf_counter() - request_started) * 1000,
+                    attempts,
+                )
+                raise
+            await asyncio.sleep(0.5 * 2 ** (attempt - 1))
+            continue
+        if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS:
+            retry_after = resp.headers.get("Retry-After")
+            delay = float(retry_after) if retry_after else 0.5 * 2 ** (attempt - 1)
+            await asyncio.sleep(delay)
+            continue
+        break
     if resp.status_code == 401:
         invalidate_ms_token(user_id, ms_token)
         refresh_started = time.perf_counter()

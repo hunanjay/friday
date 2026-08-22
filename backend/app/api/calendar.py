@@ -1,9 +1,23 @@
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from app.core.security import get_user_id
-from app.tools.graph_client import graph_get
+from app.tools.graph_client import graph_delete, graph_get, graph_post
 
 router = APIRouter(prefix="/api/graph/calendar", tags=["calendar"])
+
+# Matches the Prefer header below and agents/tools.py's create_event, so
+# manually-created and agent-created events land in the same timezone.
+_BEIJING_TZ = "China Standard Time"
+
+
+class EventCreate(BaseModel):
+    subject: str
+    start: str  # ISO 8601, no offset - interpreted in _BEIJING_TZ
+    end: str
+    location: str = ""
 
 
 @router.get("/events")
@@ -22,4 +36,22 @@ async def events(
     # Frontend displays event.start/end.dateTime digits as-is (no timezone
     # math), so ask Graph to return them already in Beijing time - matching
     # what create_event now writes (see agents/tools.py's _BEIJING_TZ).
-    return await graph_get(user_id, path, extra_headers={"Prefer": 'outlook.timezone="China Standard Time"'})
+    return await graph_get(user_id, path, extra_headers={"Prefer": f'outlook.timezone="{_BEIJING_TZ}"'})
+
+
+@router.post("/events")
+async def create_event(body: EventCreate, user_id: str = Depends(get_user_id)):
+    graph_body = {
+        "subject": body.subject,
+        "start": {"dateTime": body.start, "timeZone": _BEIJING_TZ},
+        "end": {"dateTime": body.end, "timeZone": _BEIJING_TZ},
+    }
+    if body.location:
+        graph_body["location"] = {"displayName": body.location}
+    return await graph_post(user_id, "/me/events", graph_body)
+
+
+@router.delete("/events/{event_id}")
+async def delete_event(event_id: str, user_id: str = Depends(get_user_id)):
+    await graph_delete(user_id, f"/me/events/{quote(event_id)}")
+    return {"ok": True}

@@ -86,6 +86,8 @@ async def update_memo(memo_id: str, body: dict, user_id: str = Depends(get_user_
     color = body.get("color") or "beige"
     pinned = bool(body.get("pinned"))
     attachments = body.get("attachments") or []
+    existing = await memos_db.get_memo(user_id, memo_id)
+    agent_maintained = existing["agent_maintained"] if existing else False
 
     memo = await memos_db.update_memo(
         user_id,
@@ -96,6 +98,7 @@ async def update_memo(memo_id: str, body: dict, user_id: str = Depends(get_user_
         color=color,
         pinned=pinned,
         attachments=attachments,
+        agent_maintained=agent_maintained,
     )
     if not memo:
         raise HTTPException(status_code=404, detail="Memo not found")

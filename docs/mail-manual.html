@@ -1,0 +1,790 @@
+<title>Dora 邮件手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+  /* Palette and faces come from Dora's own tokens (frontend/src/index.css),
+     so the manual reads as part of the product. Playfair is dropped: it has
+     no CJK coverage and this document is Chinese-first. */
+  :root {
+    --ground: #F7F5F0;
+    --rail: #EFECE6;
+    --card: #FFFFFF;
+    --card-hover: #FAF9F6;
+    --line: #E2DDD5;
+    --line-strong: #D0C9BE;
+    --ink: #191919;
+    --ink-2: #605B56;
+    --ink-3: #9E978F;
+    --accent: #CC5A37;
+    --accent-wash: #F7EBE6;
+    --hold: #D97706;
+    --hold-wash: #FEF3C7;
+    --done: #059669;
+    --done-wash: #D1FAE5;
+    --stop: #DC2626;
+    --stop-wash: #FEE2E2;
+
+    --sans: 'Noto Sans SC', 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --display: 'Outfit', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #151514;
+      --rail: #1C1C1B;
+      --card: #20201F;
+      --card-hover: #262625;
+      --line: #2E2E2C;
+      --line-strong: #3E3E3A;
+      --ink: #EBE8E2;
+      --ink-2: #AAA49C;
+      --ink-3: #7A756E;
+      --accent: #E27E5B;
+      --accent-wash: #352520;
+      --hold: #F59E0B;
+      --hold-wash: #3F2C0B;
+      --done: #10B981;
+      --done-wash: #0C382A;
+      --stop: #EF4444;
+      --stop-wash: #450A0A;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #151514;
+    --rail: #1C1C1B;
+    --card: #20201F;
+    --card-hover: #262625;
+    --line: #2E2E2C;
+    --line-strong: #3E3E3A;
+    --ink: #EBE8E2;
+    --ink-2: #AAA49C;
+    --ink-3: #7A756E;
+    --accent: #E27E5B;
+    --accent-wash: #352520;
+    --hold: #F59E0B;
+    --hold-wash: #3F2C0B;
+    --done: #10B981;
+    --done-wash: #0C382A;
+    --stop: #EF4444;
+    --stop-wash: #450A0A;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  /* ── Masthead ───────────────────────────────────────── */
+  header.masthead {
+    padding: 72px 0 40px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(2.1rem, 5.2vw, 3.1rem);
+    font-weight: 600;
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 46ch;
+    margin: 0;
+    font-size: 1.02rem;
+    color: var(--ink-2);
+  }
+
+  /* ── Two-column reference layout ─────────────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding-top: 44px;
+  }
+
+  @media (min-width: 960px) {
+    .layout {
+      grid-template-columns: 208px minmax(0, 1fr);
+      gap: 56px;
+    }
+    nav.contents {
+      position: sticky;
+      top: 32px;
+      align-self: start;
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
+    }
+  }
+
+  nav.contents ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  nav.contents a {
+    display: block;
+    padding: 6px 10px;
+    border-radius: 7px;
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 0.86rem;
+    border-left: 2px solid transparent;
+  }
+
+  nav.contents a:hover,
+  nav.contents a:focus-visible {
+    background: var(--card);
+    color: var(--accent);
+    border-left-color: var(--accent);
+  }
+
+  nav.contents .nav-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 0 10px;
+    margin-bottom: 10px;
+  }
+
+  main { min-width: 0; }
+
+  section {
+    scroll-margin-top: 28px;
+    padding-bottom: 44px;
+  }
+
+  section + section {
+    border-top: 1px solid var(--line);
+    padding-top: 40px;
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-size: 1.42rem;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+
+  .section-note {
+    margin: 0 0 24px;
+    color: var(--ink-3);
+    font-size: 0.9rem;
+  }
+
+  h3 {
+    font-family: var(--display);
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  p { margin: 0 0 14px; max-width: 68ch; }
+  p:last-child { margin-bottom: 0; }
+
+  /* ── Task blocks — the actor chip is the spine ───────── */
+  .task {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+
+  .tasks {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .task-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .task p {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 0.92rem;
+  }
+
+  .task p + p { margin-top: 8px; }
+
+  .chip {
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .chip-you {
+    color: var(--ink-2);
+    background: var(--rail);
+    border: 1px solid var(--line-strong);
+  }
+
+  .chip-hold {
+    color: var(--hold);
+    background: var(--hold-wash);
+    border: 1px solid transparent;
+  }
+
+  .chip-auto {
+    color: var(--done);
+    background: var(--done-wash);
+    border: 1px solid transparent;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+    background: var(--accent-wash);
+    border-radius: 10px;
+    font-size: 0.85rem;
+    color: var(--ink-2);
+    align-items: center;
+  }
+
+  .legend > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ── Tables ──────────────────────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--card);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  tr:last-child th, tr:last-child td { border-bottom: none; }
+
+  th {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  td.num {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--rail);
+    color: var(--ink);
+  }
+
+  .path {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  /* ── Callouts ────────────────────────────────────────── */
+  .note {
+    border-left: 2px solid var(--accent);
+    padding: 2px 0 2px 16px;
+    margin: 18px 0;
+    color: var(--ink-2);
+    font-size: 0.9rem;
+  }
+
+  .note strong { color: var(--ink); font-weight: 600; }
+
+  .note.warn { border-left-color: var(--stop); }
+
+  /* ── Approval card mock ──────────────────────────────── */
+  .mock {
+    background: var(--card);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 14px 16px;
+    max-width: 460px;
+    margin: 4px 0 18px;
+  }
+
+  .mock-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .mock-title {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 0.88rem;
+  }
+
+  .mock-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 10px;
+    row-gap: 5px;
+    align-items: baseline;
+    font-size: 0.85rem;
+  }
+
+  .mock-label {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--ink-3);
+  }
+
+  .mock-label::after { content: ':'; }
+
+  .editable {
+    border-radius: 5px;
+    outline: 1px dashed var(--line-strong);
+    outline-offset: 3px;
+    color: var(--ink-2);
+  }
+
+  .mock-body {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-size: 0.85rem;
+    color: var(--ink-2);
+    white-space: pre-line;
+  }
+
+  .mock-sig {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    font-size: 0.78rem;
+    color: var(--ink-3);
+    white-space: pre-line;
+  }
+
+  .mock-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 7px;
+  }
+
+  .btn-ghost {
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    background: var(--card);
+  }
+
+  .btn-solid {
+    color: #fff;
+    border: 1px solid transparent;
+    background: var(--accent);
+  }
+
+  .caption {
+    font-size: 0.82rem;
+    color: var(--ink-3);
+    margin: 0 0 18px;
+  }
+
+  ul.plain {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--ink-2);
+    font-size: 0.92rem;
+  }
+
+  ul.plain li { margin-bottom: 6px; }
+  ul.plain li:last-child { margin-bottom: 0; }
+
+  footer {
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-3);
+    font-size: 0.82rem;
+  }
+
+  a { color: var(--accent); }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <p class="eyebrow">用户手册 · v1</p>
+    <h1>Dora 邮件手册</h1>
+    <p class="standfirst">
+      收信、写信、回复、转发，以及把这些交给 Dora 去做——
+      它写好的每一封信，都会先停在一张卡片上等你过目。
+    </p>
+  </header>
+
+  <div class="layout">
+    <nav class="contents" aria-label="目录">
+      <p class="nav-label">目录</p>
+      <ol>
+        <li><a href="#setup">绑定邮箱</a></li>
+        <li><a href="#read">收信与查找</a></li>
+        <li><a href="#write">写一封新邮件</a></li>
+        <li><a href="#thread">回复与转发</a></li>
+        <li><a href="#dora">让 Dora 代笔</a></li>
+        <li><a href="#card">确认卡片</a></li>
+        <li><a href="#signature">邮件签名</a></li>
+        <li><a href="#limits">这一版还没有的</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <div class="legend">
+        <div><span class="chip chip-you">你</span> 你自己点，立刻生效</div>
+        <div><span class="chip chip-hold">DORA · 需确认</span> Dora 准备好，你点了才发生</div>
+        <div><span class="chip chip-auto">DORA</span> Dora 直接做，只读不改</div>
+      </div>
+
+      <section id="setup">
+        <h2>绑定邮箱</h2>
+        <p class="section-note">两种接法，可以同时用。绑好之后收件箱会把它们合成一个列表。</p>
+        <div class="tasks">
+          <div class="task">
+            <div class="task-head">
+              <h3>Microsoft 账号（Outlook）</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>登录页选微软账号授权即可，不需要单独填服务器。授权过期时邮件页顶部会出现提示条，重新登录一次就好。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>其他邮箱（IMAP / SMTP）</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p><span class="path">设置 → 邮箱账号 → 绑定邮箱</span>。已内置 163、QQ、Gmail、iCloud、Outlook 五家的服务器配置，选好只要填授权码；用自建服务器就选「自定义服务器」自己填。</p>
+            <p>密码和授权码加密存储。绑好可以点「验证」确认连得上。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="read">
+        <h2>收信与查找</h2>
+        <p class="section-note">左边三个文件夹，中间列表，右边正文。</p>
+        <div class="tasks">
+          <div class="task">
+            <div class="task-head">
+              <h3>收件箱 · 已发送 · 垃圾箱</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>绑了多个邮箱时，各家的信会按时间混排在同一个列表里，每封信记得自己是从哪个邮箱来的——回复和转发会自动走原来那个邮箱。</p>
+            <p>列表拉到底会继续加载更早的邮件。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>同一话题串在一起</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>来回好几封的对话会合成一条，点开按时间顺序展开，最新一封默认展开。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>搜索</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>顶部搜索框按关键词搜<strong>当前文件夹</strong>——在收件箱搜就只搜收件箱。停止输入后自动开始，多个邮箱一起搜。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>附件</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>带附件的邮件正文下方列出文件，点击下载。正文里的内嵌图片会直接显示。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>删除</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>你自己点删除是<strong>直接</strong>移到垃圾箱，不弹确认。Dora 要删信则必须先给你一张卡片。</p>
+          </div>
+        </div>
+        <div class="note warn">
+          <strong>垃圾箱是单向的。</strong>Dora 里只能移进去，没有「还原」。误删了要去原邮箱（Outlook 网页版、163 网页版等）里恢复。
+        </div>
+      </section>
+
+      <section id="write">
+        <h2>写一封新邮件</h2>
+        <p class="section-note">左上角「写邮件」。发信邮箱可以在写信框顶部切换。</p>
+
+        <h3 style="margin-bottom:10px">收件人怎么写</h3>
+        <div class="table-wrap" style="margin-bottom:18px">
+          <table>
+            <thead>
+              <tr><th>你输入</th><th>实际发给</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>a@x.com, b@y.com</code></td><td>两个人</td></tr>
+              <tr><td><code>a@x.com;b@y.com</code></td><td>两个人，分号也行</td></tr>
+              <tr><td><code>张三 &lt;zhangsan@x.com&gt;</code></td><td>zhangsan@x.com，名字会自动去掉</td></tr>
+              <tr><td><code>a@x.com, a@x.com</code></td><td>一个人，重复的会去掉</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>抄送、密送同理。点收件人栏右边的「抄送 / 密送」把这两栏展开。密送的人不会出现在其他收件人能看到的任何地方。</p>
+
+        <h3 style="margin:24px 0 10px">附件</h3>
+        <div class="table-wrap" style="margin-bottom:14px">
+          <table>
+            <thead>
+              <tr><th>发信邮箱</th><th>单封附件合计上限</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Microsoft（Outlook）</td><td class="num">3 MB</td></tr>
+              <tr><td>其他邮箱（IMAP / SMTP）</td><td class="num">20 MB</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>算的是<strong>已选文件的合计</strong>，不是单个文件。超了会在选文件的时候就告诉你实际多大、上限多少，不会等你上传完才失败。</p>
+
+        <div class="note">
+          <strong>写到一半关掉窗口不会丢。</strong>收件人、主题、正文会存在这台设备上，下次点「写邮件」还在，发出去之后自动清空。<br>
+          附件是例外——浏览器不允许网页把文件重新交回来，所以关掉后要重新选。
+        </div>
+      </section>
+
+      <section id="thread">
+        <h2>回复与转发</h2>
+        <p class="section-note">打开一封信，右上角三个按钮。</p>
+        <div class="tasks">
+          <div class="task">
+            <div class="task-head">
+              <h3>回复</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>只回发件人。主题自动补 <code>Re:</code>，并且留在原来的对话串里。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>回复全部</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p>回给这封信的所有人——原收件人加抄送，去掉你自己。名单是自动算的，不用手填。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>转发</h3>
+              <span class="chip chip-you">你</span>
+            </div>
+            <p><strong>原文和附件会自动带上</strong>，你只需要填新收件人，正文里写一句补充说明就行，不用把原信复制一遍。主题默认 <code>Fwd:</code>，可以改。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="dora">
+        <h2>让 Dora 代笔</h2>
+        <p class="section-note">两个入口：邮件页里针对某封信，或者在聊天页直接说。</p>
+        <div class="tasks">
+          <div class="task">
+            <div class="task-head">
+              <h3>邮件页：按你的意思拟一份回复</h3>
+              <span class="chip chip-hold">DORA · 需确认</span>
+            </div>
+            <p>打开一封信，点右上角助手按钮，用一句话说你想怎么回——「答应下周三」「委婉拒绝」「问他要报价单」都行，不用写全文。</p>
+            <p>Dora 会照原信的语言和语气写好，出现在一张草稿卡上。满意就点「应用为草稿」，内容会填进写信框，你还能再改、加附件，然后自己点发送。</p>
+          </div>
+          <div class="task">
+            <div class="task-head">
+              <h3>聊天页：直接说要做什么</h3>
+              <span class="chip chip-hold">DORA · 需确认</span>
+            </div>
+            <p>「给张三发封邮件说项目要延期两周」「把李娜那封报价单转给王工」「今天有没有未读邮件」都可以。找人不用记邮箱地址，Dora 会去通讯录里查。</p>
+            <p>想直接点名让邮件助手处理，消息开头加 <code>/mail_agent</code>。</p>
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:18px">
+          <table>
+            <thead>
+              <tr><th>Dora 能做的事</th><th>要不要你确认</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>列出、搜索、读邮件</td><td><span class="chip chip-auto">直接做</span></td></tr>
+              <tr><td>标记已读 / 未读</td><td><span class="chip chip-auto">直接做</span></td></tr>
+              <tr><td>发送邮件</td><td><span class="chip chip-hold">需确认</span></td></tr>
+              <tr><td>转发邮件</td><td><span class="chip chip-hold">需确认</span></td></tr>
+              <tr><td>删除邮件</td><td><span class="chip chip-hold">需确认</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          <strong>Dora 不会自己把信发出去。</strong>凡是会改动外部状态的事，都会停下来变成一张卡片，你不点就什么都没发生。
+        </div>
+      </section>
+
+      <section id="card">
+        <h2>确认卡片</h2>
+        <p class="section-note">这是 Dora 和你之间的闸门。卡片上的字段可以直接点着改。</p>
+
+        <div class="mock" aria-hidden="true">
+          <div class="mock-head">
+            <span class="mock-title">发送前检查邮件</span>
+            <span class="chip chip-hold">待确认</span>
+          </div>
+          <div class="mock-grid">
+            <span class="mock-label">收件人</span>
+            <span class="editable">zhangsan@client.com</span>
+            <span class="mock-label">抄送</span>
+            <span class="editable">&nbsp;</span>
+            <span class="mock-label">主题</span>
+            <span class="editable">关于 Q3 项目进度</span>
+          </div>
+          <div class="mock-body editable">张伟你好，
+
+附上本周的进度更新：核心功能已完成 80%，预计下周三前完成联调测试。</div>
+          <div class="mock-sig">Yours
+Luo Jian
+牛马科技有限公司 技术部部长</div>
+          <div class="mock-actions">
+            <span class="btn btn-ghost">取消</span>
+            <span class="btn btn-solid">确认发送</span>
+          </div>
+        </div>
+        <p class="caption">虚线框的地方都能点进去直接改；灰字的签名是自动附加的，不用改也改不动。</p>
+
+        <ul class="plain">
+          <li><strong>就地修改</strong>——收件人、抄送、主题、正文点一下就能编辑。改完点确认，发出去的是你改过的版本。</li>
+          <li><strong>加抄送</strong>——就算 Dora 原本没写抄送，那一栏也在，可以自己填。</li>
+          <li><strong>取消</strong>——什么都不会发生，Dora 也不会在这一轮里再试一次。</li>
+          <li><strong>转发的卡片只显示你补充的那段话</strong>，因为原文和附件本来就会跟着走。</li>
+          <li><strong>24 小时不处理会过期</strong>，过期后需要重新提。</li>
+          <li>处理完的卡片会留在对话里，标成「已发送」或「已取消」，刷新页面也还在。</li>
+        </ul>
+      </section>
+
+      <section id="signature">
+        <h2>邮件签名</h2>
+        <p class="section-note"><span class="path">设置 → 邮箱账号 → 邮件签名</span></p>
+        <p>填好保存之后，<strong>每一封发出去的邮件都会自动加上</strong>——你自己写的、Dora 代写的、回复的、转发的，都一样。留空就是关掉。最多 1000 字。</p>
+        <ul class="plain">
+          <li>设了签名之后，Dora 写正文时<strong>不会再写「此致敬礼」和落款</strong>，避免一封信签两次。</li>
+          <li>写信框和确认卡片下方都会灰字预览签名，让你知道对方最终收到的是什么样。</li>
+          <li>正文里已经有一模一样的签名时不会重复追加。</li>
+        </ul>
+      </section>
+
+      <section id="limits">
+        <h2>这一版还没有的</h2>
+        <p class="section-note">明确知道、这一版决定不做的四件事。</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>缺什么</th><th>现在怎么办</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>签名只有一份，不区分邮箱账号</td>
+                <td>绑了工作和私人两个邮箱的话，落款会是同一个。要区分只能发前手动改。</td>
+              </tr>
+              <tr>
+                <td>草稿只存在本机</td>
+                <td>一份草稿、一台设备，换电脑看不到，也不会同步到邮箱的草稿箱。</td>
+              </tr>
+              <tr>
+                <td>垃圾箱不能还原</td>
+                <td>去原邮箱的网页版里恢复。</td>
+              </tr>
+              <tr>
+                <td>没有文件夹管理、归档、星标</td>
+                <td>用搜索找信；归类还是回原邮箱做。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer>
+        助手的名字可以在 <span class="path">设置 → 助手</span> 里改，改完手册里说的「Dora」就是你给它起的名字。
+      </footer>
+    </main>
+  </div>
+</div>
