@@ -1,14 +1,5 @@
-# Langfuse tracing is vendored by reference, not by copy: the upstream compose
-# file is 200+ lines that would rot here, so clone it as a sibling of this repo
-# (`git clone https://github.com/langfuse/langfuse ../langfuse`) and its secrets
-# stay in ../langfuse/.env. docker-compose.tracing.yml puts those services
-# behind the "tracing" profile so they do not start by default.
-include:
-  - path:
-      - ../langfuse/docker-compose.yml
-      - ./docker-compose.tracing.yml
-    env_file: ../langfuse/.env
-
+# Langfuse tracing lives in docker-compose.tracing.yml, opt-in only - a plain
+# `docker compose up` here must work with no sibling ../langfuse checkout.
 services:
   db:
     image: postgres:16-alpine
