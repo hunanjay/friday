@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import '../i18n';
 import ApprovalCard from '../components/common/ApprovalCard';
@@ -19,7 +20,9 @@ describe('ApprovalCard', () => {
         { id: 'approve', outcome: 'approve', label_key: 'chat.confirmSend', style: 'primary' },
       ],
     };
-    const { rerender } = render(<ApprovalCard action={action} onDecision={onDecision} />);
+    const { rerender } = render(<ApprovalCard action={action} onDecision={onDecision} />, {
+      wrapper: MemoryRouter,
+    });
     expect(screen.getByText('Best,\nJane', { collapseWhitespace: false })).toBeInTheDocument();
     // The signature is display only - approving must not send it as an edit.
     fireEvent.click(screen.getByRole('button', { name: /send/i }));

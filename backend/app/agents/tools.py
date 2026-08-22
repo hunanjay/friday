@@ -8,8 +8,7 @@ from langchain_core.tools import tool
 
 from app.agents.calendar_dates import resolve_calendar_day
 from app.agents.internal_links import markdown_internal_link
-from app.infrastructure.db.repositories import memos as memos_db
-from app.infrastructure.db.repositories import user_memory as user_memory_db
+from app.infrastructure.db.repositories import memos as memos_db, user_memory as user_memory_db
 from app.services.mail_compose import parse_recipients, render_body
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits

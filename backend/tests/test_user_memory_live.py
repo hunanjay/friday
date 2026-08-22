@@ -21,8 +21,7 @@ except ImportError:
 os.environ["CHECKPOINT_DB_URL"] = "postgresql://friday:friday@localhost:5438/friday"
 
 from app.infrastructure.db.pool import close_db_pool, init_db_pool
-from app.infrastructure.db.repositories import memos as memos_repo
-from app.infrastructure.db.repositories import user_memory as user_memory_repo
+from app.infrastructure.db.repositories import memos as memos_repo, user_memory as user_memory_repo
 
 
 class TestUserMemoryLivePostgres(unittest.IsolatedAsyncioTestCase):
