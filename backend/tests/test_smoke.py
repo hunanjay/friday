@@ -268,6 +268,29 @@ expected_hitl_tools = {
 }
 check("all email/calendar mutation tools have interrupt policies",
       expected_hitl_tools <= set(HITL_TOOL_CONFIGS))
+
+
+def _tool_decorated(node: ast.AsyncFunctionDef) -> bool:
+    return any(
+        (isinstance(d, ast.Name) and d.id == "tool")
+        or (isinstance(d, ast.Attribute) and d.attr == "tool")
+        for d in node.decorator_list
+    )
+
+
+# Default-deny: any @tool that performs a real Graph mutation (i.e. calls the
+# _graph_mutation helper) must be registered in HITL_TOOL_CONFIGS, or this
+# fails the build - a new write tool can no longer ship unguarded just
+# because someone forgot to add it to the dict above.
+_undeclared_mutation_tools = {
+    node.name
+    for node in ast.walk(tools_tree)
+    if isinstance(node, ast.AsyncFunctionDef)
+    and _tool_decorated(node)
+    and "_graph_mutation" in _called_names(node)
+} - set(HITL_TOOL_CONFIGS)
+check("no Graph-mutating tool ships without a declared HITL policy",
+      not _undeclared_mutation_tools, f"undeclared: {sorted(_undeclared_mutation_tools)}")
 middleware = make_hitl_middleware({"send_email", "list_inbox"})
 check("official HumanInTheLoopMiddleware is instantiated",
       isinstance(middleware, HumanInTheLoopMiddleware))

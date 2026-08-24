@@ -17,7 +17,13 @@ MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
 # Transient failures (rate limiting, upstream hiccups) - retry a couple times
 # before giving up, instead of making the LLM decide whether to try again.
+# Retrying is only safe for GET: for POST/PATCH/DELETE a network error or 5xx
+# doesn't tell us whether Graph already applied the mutation before the
+# response was lost, so a blind retry could send a second email or delete
+# twice. Writes fail fast instead and surface as an error the HITL flow can
+# mark "failed" for reconciliation, rather than silently double-executing.
 _RETRYABLE_STATUS = {429, 502, 503, 504}
+_SAFE_RETRY_METHODS = {"GET"}
 _MAX_ATTEMPTS = 3
 
 _client: httpx.AsyncClient | None = None
@@ -150,7 +156,7 @@ async def _graph_request(
         try:
             resp = await _call(ms_token)
         except (httpx.TimeoutException, httpx.NetworkError):
-            if attempt == _MAX_ATTEMPTS:
+            if method not in _SAFE_RETRY_METHODS or attempt == _MAX_ATTEMPTS:
                 logger.exception(
                     "graph.http method=%s path=%s status=network_error token_source=%s "
                     "token_ms=%.1f upstream_ms=%.1f total_ms=%.1f attempts=%d",
@@ -165,7 +171,11 @@ async def _graph_request(
                 raise
             await asyncio.sleep(0.5 * 2 ** (attempt - 1))
             continue
-        if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS:
+        if (
+            resp.status_code in _RETRYABLE_STATUS
+            and method in _SAFE_RETRY_METHODS
+            and attempt < _MAX_ATTEMPTS
+        ):
             retry_after = resp.headers.get("Retry-After")
             delay = float(retry_after) if retry_after else 0.5 * 2 ** (attempt - 1)
             await asyncio.sleep(delay)
