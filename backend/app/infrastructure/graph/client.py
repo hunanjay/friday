@@ -30,6 +30,17 @@ _client: httpx.AsyncClient | None = None
 _MS_TOKEN_CACHE_TTL_SECONDS = 300
 _MS_TOKEN_CACHE_MAX_ENTRIES = 1024
 _ms_token_cache: dict[str, tuple[float, str]] = {}
+# ponytail: unbounded per-user lock map, fine for a self-hosted personal
+# deployment; add eviction if the user pool ever grows large.
+_refresh_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_refresh_lock(user_id: str) -> asyncio.Lock:
+    lock = _refresh_locks.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _refresh_locks[user_id] = lock
+    return lock
 
 
 @dataclass(frozen=True)
@@ -184,7 +195,16 @@ async def _graph_request(
     if resp.status_code == 401:
         invalidate_ms_token(user_id, ms_token)
         refresh_started = time.perf_counter()
-        refreshed = await refresh_ms_token(user_id)
+        # Azure AD rotates refresh tokens on use, so concurrent 401s (e.g. the
+        # frontend's parallel inbox/calendar/status fetches) must not each call
+        # refresh_ms_token with the same now-stale refresh_token - only the
+        # first would succeed and the rest would wrongly report the user as
+        # logged out. Serialize per user, and let waiters reuse whatever the
+        # lock holder already cached instead of refreshing again.
+        async with _get_refresh_lock(user_id):
+            refreshed = _get_cached_ms_token(user_id)
+            if not refreshed:
+                refreshed = await refresh_ms_token(user_id)
         token_duration_ms += (time.perf_counter() - refresh_started) * 1000
         token_source = "refresh"
         if not refreshed:
