@@ -117,8 +117,7 @@ export default function EmailPage() {
 
   // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
   // value, so periodic Supabase token refreshes don't re-trigger a refetch.
-  // (The authoritative unread count is fetched in WorkspaceContext so the
-  // sidebar badge shares it.)
+  // The authoritative unread count lives in the shared mail query cache.
   const hasAuthToken = Boolean(authToken);
   const authTokenRef = useRef(authToken);
   useEffect(() => {

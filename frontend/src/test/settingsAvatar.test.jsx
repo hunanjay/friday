@@ -3,12 +3,24 @@ import { MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../i18n';
-import { WorkspaceContext } from '../context/workspace-context';
 import SettingsPage from '../pages/SettingsPage';
 
 const settingsState = vi.hoisted(() => ({}));
 const githubState = vi.hoisted(() => ({}));
 const mailState = vi.hoisted(() => ({}));
+const providerState = vi.hoisted(() => ({}));
+
+vi.mock('../features/auth/useAuth', () => ({
+  useAuth: () => providerState.auth,
+}));
+
+vi.mock('../hooks/useTheme', () => ({
+  useTheme: () => providerState.theme,
+}));
+
+vi.mock('../hooks/useUi', () => ({
+  useUi: () => providerState.ui,
+}));
 
 vi.mock('../features/settings/hooks', () => ({
   useAssistantName: () => ({
@@ -81,11 +93,18 @@ function renderSettings(overrides = {}) {
     showToast: vi.fn(),
     ...overrides,
   };
+  providerState.auth = {
+    user: value.user,
+    authToken: value.authToken,
+    handleLogout: value.handleLogout,
+    handleSwitchAccount: value.handleSwitchAccount,
+    handleMsLogout: value.handleMsLogout,
+  };
+  providerState.theme = { theme: value.theme, toggleTheme: value.toggleTheme };
+  providerState.ui = { showToast: value.showToast };
   render(
     <MemoryRouter>
-      <WorkspaceContext.Provider value={value}>
-        <SettingsPage />
-      </WorkspaceContext.Provider>
+      <SettingsPage />
     </MemoryRouter>
   );
   return { ...value, ...settingsState, ...githubState, ...mailState };

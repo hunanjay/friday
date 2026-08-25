@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useAuth } from '../features/auth/useAuth';
 import { useGitHubConnection, useGitHubRepositories } from '../features/github/hooks';
 import { useMailAccounts } from '../features/mail/accountHooks';
 import { useAssistantName, useAvatar, useAvatarPresets, useSignature } from '../features/settings/hooks';
+import { useTheme } from '../hooks/useTheme';
+import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
 import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3, RefreshCw, MicrosoftIcon } from '../components/common/Icons';
@@ -24,14 +26,13 @@ export default function SettingsPage() {
   const { mailAccounts, unbindMailAccount, verifyMailAccount } = useMailAccounts();
   const {
     user,
-    theme,
-    toggleTheme,
     handleLogout,
     handleSwitchAccount,
     handleMsLogout,
     authToken,
-    showToast,
-  } = useWorkspace();
+  } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const { showToast } = useUi();
 
   const { t, i18n } = useTranslation();
   const changeLanguage = (lang) => {

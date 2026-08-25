@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useAuth } from '../features/auth/useAuth';
+import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import {
   Search,
@@ -92,7 +93,8 @@ export function FactGroup({ title, icon, color, facts, emptyText, originsById, i
 }
 
 export default function ContactsPage() {
-  const { authToken, showToast } = useWorkspace();
+  const { authToken } = useAuth();
+  const { showToast } = useUi();
   const { i18n } = useTranslation();
   const navigate = useNavigate();
 

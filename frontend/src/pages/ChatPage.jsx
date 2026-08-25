@@ -1,6 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { isApiError } from '../api/errors';
+import { streamAgentChat } from '../api/agentStream';
+import { useAuth } from '../features/auth/useAuth';
+import {
+  decideChatAction,
+  getChatSessionMessages,
+  getPendingChatActions,
+} from '../features/chat/api';
+import { useChatSessions } from '../features/chat/hooks';
 import { useAssistantName, useAvatar } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import { Send, StopIcon, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
@@ -23,15 +31,14 @@ const isActionResolved = status => Boolean(status && status !== 'pending');
 export default function ChatPage() {
   const { assistantName } = useAssistantName();
   const { avatarUrl } = useAvatar();
+  const { authToken, handleLogout } = useAuth();
   const {
-    chatThreads,
-    handleCreateSession,
-    handleUpdateSessionTitle,
-    handleUpdateSessionPreview,
-    handleDeleteSession,
-    handleLogout,
-    authToken
-  } = useWorkspace();
+    chatSessions: chatThreads,
+    createChatSession: handleCreateSession,
+    updateChatSessionTitle: handleUpdateSessionTitle,
+    updateChatSessionPreview: handleUpdateSessionPreview,
+    deleteChatSession: handleDeleteSession,
+  } = useChatSessions();
   const navigate = useNavigate();
 
   const { t, i18n } = useTranslation();
@@ -162,12 +169,9 @@ export default function ChatPage() {
     }
     let ignore = false;
     setIsLoadingMessages(true);
-    const headers = { Authorization: `Bearer ${authToken}` };
     Promise.all([
-      fetch(`${API_URL}/api/agent/sessions/${activeThreadId}/messages`, { headers })
-        .then(res => (res.ok ? res.json() : { messages: [] })),
-      fetch(`${API_URL}/api/agent/actions?session_id=${encodeURIComponent(activeThreadId)}`, { headers })
-        .then(res => (res.ok ? res.json() : { actions: [] })),
+      getChatSessionMessages(authToken, activeThreadId),
+      getPendingChatActions(authToken, activeThreadId),
     ])
       .then(([messageData, actionData]) => {
         if (ignore) return;
@@ -256,29 +260,12 @@ export default function ChatPage() {
     )));
     try {
       const sessionId = action.session_id || activeThreadId;
-      const res = await fetch(
-        `${API_URL}/api/agent/actions/${action.id}/decisions/${decision}?session_id=${encodeURIComponent(sessionId)}`,
-        {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload: edits && Object.keys(edits).length ? edits : null }),
-        },
-      );
-      if (res.status === 401) {
-        handleLogout();
-        navigate('/login');
-        return;
-      }
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 410) {
-        setPendingActions(prev => prev.map(item => (
-          item.id === action.id
-            ? { ...item, busy: false, resolved: true, status: 'expired', error: '' }
-            : item
-        )));
-        return;
-      }
-      if (!res.ok) throw new Error(data.detail || t('chat.approvalFailed'));
+      const data = await decideChatAction(authToken, {
+        actionId: action.id,
+        decision,
+        sessionId,
+        edits,
+      });
 
       const selectedDecision = action.decisions?.find(item => item.id === decision);
       if (Array.isArray(data.pending_actions)) {
@@ -301,8 +288,23 @@ export default function ChatPage() {
       }
       if (data.preview) handleUpdateSessionPreview(activeThreadId, data.preview);
     } catch (error) {
+      if (isApiError(error) && error.status === 401) {
+        handleLogout();
+        navigate('/login');
+        return;
+      }
+      if (isApiError(error) && error.status === 410) {
+        setPendingActions(prev => prev.map(item => (
+          item.id === action.id
+            ? { ...item, busy: false, resolved: true, status: 'expired', error: '' }
+            : item
+        )));
+        return;
+      }
       setPendingActions(prev => prev.map(item => (
-        item.id === action.id ? { ...item, busy: false, error: error.message } : item
+        item.id === action.id
+          ? { ...item, busy: false, error: error.message || t('chat.approvalFailed') }
+          : item
       )));
     }
   };
@@ -347,156 +349,77 @@ export default function ChatPage() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    try {
-      const res = await fetch(`${API_URL}/api/agent/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ message: sentText, session_id: sessionId }),
-        signal: controller.signal,
-      });
+    let botText = '';
+    const applyAgentEvent = (data) => {
+      if (data.error) {
+        botText += `\n[Error: ${data.error}]`;
+        handleUpdateMessageText(botMsgId, botText);
+      } else if (data.tool_call) {
+        setThreadMessages(prev => prev.map(message => {
+          if (message.id !== botMsgId) return message;
+          const existingCalls = message.toolCalls || [];
+          const incoming = data.tool_call;
+          const index = existingCalls.findIndex(call => (
+            call.name === incoming.name && call.status === 'running'
+          ));
+          if (index >= 0 && incoming.status === 'completed') {
+            const updatedCalls = [...existingCalls];
+            updatedCalls[index] = { ...updatedCalls[index], ...incoming };
+            return { ...message, toolCalls: updatedCalls };
+          }
+          return index < 0
+            ? { ...message, toolCalls: [...existingCalls, incoming] }
+            : message;
+        }));
+      } else if (data.chunk) {
+        botText += data.chunk;
+        handleUpdateMessageText(botMsgId, botText);
+      } else if (data.final_message) {
+        // The final projection is authoritative; chunks are only a typing effect.
+        botText = data.final_message;
+        handleUpdateMessageText(botMsgId, botText);
+      } else if (data.title) {
+        handleUpdateSessionTitle(sessionId, data.title);
+      } else if (data.preview) {
+        handleUpdateSessionPreview(sessionId, data.preview);
+      } else if (data.pending_actions) {
+        setPendingActions(prev => {
+          const existingById = new Map(prev.map(action => [action.id, action]));
+          return data.pending_actions.map(action => ({
+            ...action,
+            resolved: isActionResolved(action.status),
+            anchorMessageId: resolveLiveApprovalAnchor(
+              action,
+              existingById.get(action.id)?.anchorMessageId,
+              botMsgId,
+            ),
+          }));
+        });
+      }
+    };
 
-      if (res.status === 401) {
+    try {
+      for await (const data of streamAgentChat({
+        message: sentText,
+        sessionId,
+        token: authToken,
+        signal: controller.signal,
+      })) {
+        applyAgentEvent(data);
+      }
+    } catch (error) {
+      if (isApiError(error) && error.status === 401) {
         handleLogout();
         navigate('/login');
-        return;
-      }
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        const errorMsg = isZh
-          ? `出错了：${errorData.detail || '请求失败'}`
-          : `Something went wrong: ${errorData.detail || 'request failed'}`;
-        handleUpdateMessageText(botMsgId, errorMsg);
-        setIsTyping(false);
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let botText = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          if (trimmed.startsWith('data: ')) {
-            const dataStr = trimmed.slice(6).trim();
-            if (dataStr === '[DONE]') {
-              break;
-            }
-            try {
-              const data = JSON.parse(dataStr);
-              if (data.error) {
-                  botText += `\n[Error: ${data.error}]`;
-                  setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
-                } else if (data.tool_call) {
-                  setThreadMessages(prev => prev.map(m => {
-                    if (m.id !== botMsgId) return m;
-                    const existingCalls = m.toolCalls || [];
-                    const incoming = data.tool_call;
-                    const idx = existingCalls.findIndex(c => c.name === incoming.name && c.status === 'running');
-                    let updatedCalls;
-                    if (idx >= 0 && incoming.status === 'completed') {
-                      updatedCalls = [...existingCalls];
-                      updatedCalls[idx] = { ...updatedCalls[idx], ...incoming };
-                    } else if (idx < 0) {
-                      updatedCalls = [...existingCalls, incoming];
-                    } else {
-                      updatedCalls = existingCalls;
-                    }
-                    return { ...m, toolCalls: updatedCalls };
-                  }));
-                } else if (data.chunk) {
-                  botText += data.chunk;
-                  setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
-                } else if (data.final_message) {
-                  // Streamed chunks are only a typing effect. The backend sends
-                  // the authoritative reply from the same projection the history
-                  // endpoint replays, so replace rather than append - otherwise a
-                  // refresh would show different text than the live view did.
-                  botText = data.final_message;
-                  setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
-                } else if (data.title) {
-                  handleUpdateSessionTitle(sessionId, data.title);
-                } else if (data.preview) {
-                  handleUpdateSessionPreview(sessionId, data.preview);
-                } else if (data.pending_actions) {
-                  setPendingActions(prev => {
-                    const existingById = new Map(prev.map(action => [action.id, action]));
-                    return data.pending_actions.map(action => ({
-                      ...action,
-                      resolved: isActionResolved(action.status),
-                      anchorMessageId: resolveLiveApprovalAnchor(
-                        action,
-                        existingById.get(action.id)?.anchorMessageId,
-                        botMsgId,
-                      ),
-                    }));
-                  });
-                }
-            } catch (err) {
-              console.error('Failed to parse SSE data', err);
-            }
-          }
-        }
-      }
-
-      // Flush final buffer if any
-      if (buffer.startsWith('data: ')) {
-        const dataStr = buffer.slice(6).trim();
-        if (dataStr !== '[DONE]') {
-          try {
-            const data = JSON.parse(dataStr);
-            if (data.chunk) {
-              botText += data.chunk;
-              setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
-            } else if (data.final_message) {
-              botText = data.final_message;
-              setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: botText } : m));
-            } else if (data.title) {
-              handleUpdateSessionTitle(sessionId, data.title);
-            } else if (data.preview) {
-              handleUpdateSessionPreview(sessionId, data.preview);
-            } else if (data.pending_actions) {
-              setPendingActions(prev => {
-                const existingById = new Map(prev.map(action => [action.id, action]));
-                return data.pending_actions.map(action => ({
-                  ...action,
-                  resolved: isActionResolved(action.status),
-                  anchorMessageId: resolveLiveApprovalAnchor(
-                    action,
-                    existingById.get(action.id)?.anchorMessageId,
-                    botMsgId,
-                  ),
-                }));
-              });
-            }
-          } catch (err) {
-            console.error('Failed to parse final SSE data', err);
-          }
-        }
-      }
-
-    } catch (error) {
-      if (error.name === 'AbortError') {
+      } else if (error.name === 'AbortError') {
         // User-initiated stop, not a failure - keep whatever text already streamed in.
       } else {
         console.error('Stream reading error', error);
-        const errMsg = isZh
-          ? '无法连接到助手服务，请稍后再试。'
-          : "Couldn't reach the assistant service, please try again later.";
+        const errMsg = isApiError(error)
+          ? isZh ? `出错了：${error.message}` : `Something went wrong: ${error.message}`
+          : isZh
+            ? '无法连接到助手服务，请稍后再试。'
+            : "Couldn't reach the assistant service, please try again later.";
         setThreadMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: errMsg } : m));
       }
     } finally {
