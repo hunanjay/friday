@@ -1,17 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../supabaseClient';
+import { useAuth } from '../features/auth/useAuth';
+import { useUi } from '../hooks/useUi';
 import { WorkspaceContext } from './workspace-context';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-
-// All keys written to localStorage for this app's workspace data.
-// Clearing all of them on logout prevents a subsequent user on the same
-// machine from reading prior session data via DevTools.
-const _WORKSPACE_KEYS = ['user', 'emails', 'events', 'messages'];
-
-function clearWorkspaceStorage() {
-  _WORKSPACE_KEYS.forEach(k => localStorage.removeItem(k));
-}
 
 // Safe localStorage.setItem: if the storage quota is exceeded (common with
 // large inboxes), log a warning and keep the in-memory state intact rather
@@ -43,11 +35,19 @@ function mapMemo(memo) {
 }
 
 export function WorkspaceProvider({ children }) {
-  // User state
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const {
+    user,
+    authToken,
+    isAuthReady,
+    handleLogin,
+    handleLogout,
+  } = useAuth();
+  const {
+    isSidebarCollapsed,
+    setIsSidebarCollapsed,
+    toast,
+    showToast,
+  } = useUi();
 
   const [emails, setEmails] = useState(() => {
     const saved = localStorage.getItem('emails');
@@ -72,42 +72,6 @@ export function WorkspaceProvider({ children }) {
   // localStorage - fetched once authToken is available (see effect below).
   const [memos, setMemos] = useState([]);
 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    return localStorage.getItem('sidebar_collapsed') === 'true';
-  });
-
-  // Toast State
-  const [toast, setToast] = useState({ message: '', visible: false });
-
-  const showToast = useCallback((message) => {
-    setToast({ message, visible: true });
-  }, []);
-
-  const handleLogin = useCallback((userInfo) => {
-    setUser(userInfo);
-    localStorage.setItem('user', JSON.stringify(userInfo));
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    supabase.auth.signOut();
-    // Wipe all workspace data from both memory and localStorage so the next
-    // user on this machine can't see prior session data.
-    clearWorkspaceStorage();
-    setUser(null);
-    setEmails([]);
-    setEvents([]);
-    setMessages([]);
-  }, []);
-
-  useEffect(() => {
-    if (toast.visible) {
-      const timer = setTimeout(() => {
-        setToast({ message: '', visible: false });
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast.visible]);
-
   // Sync to Local Storage
   // emails and events are cached for fast initial render; messages are NOT
   // cached here (they come from the backend checkpoint - see 1.1).
@@ -118,14 +82,6 @@ export function WorkspaceProvider({ children }) {
   useEffect(() => {
     safeSetItem('events', JSON.stringify(events));
   }, [events]);
-
-  useEffect(() => {
-    localStorage.setItem('sidebar_collapsed', String(isSidebarCollapsed));
-  }, [isSidebarCollapsed]);
-
-  // Supabase access token: sent to our backend so it can look up the
-  // Microsoft Graph token it stored for this user (never held/used client-side).
-  const [authToken, setAuthToken] = useState(null);
 
   // { connected: bool } | null (null = not checked yet). No polling like the
   // Graph status check below - GitHub OAuth App tokens don't expire, only
@@ -150,59 +106,14 @@ export function WorkspaceProvider({ children }) {
     setInboxUnread(n => (n == null ? n : Math.max(0, n + delta)));
   }, []);
 
-  // Apply Auth session
+  // Auth owns the Supabase session. Keep the legacy workspace cache in sync
+  // until each domain moves to its own query-backed feature module.
   useEffect(() => {
-    const applySession = async (session) => {
-      if (!session) {
-        // Supabase session gone (expired refresh_token, signed out elsewhere,
-        // or never logged in) - wipe all cached workspace data so a subsequent
-        // user on the same machine can't read it from DevTools / localStorage.
-        clearWorkspaceStorage();
-        setUser(null);
-        setEmails([]);
-        setEvents([]);
-        setMessages([]);
-        setAuthToken(null);
-        return;
-      }
-      handleLogin({
-        name: session.user.user_metadata?.full_name || session.user.email.split('@')[0],
-        email: session.user.email,
-        avatarUrl: session.user.user_metadata?.avatar_url,
-      });
-      // provider_token only comes back on fresh sign-in, not after a page reload;
-      // hand it (plus the refresh_token, if Microsoft granted one) to the
-      // backend once so it can refresh silently and reuse it across reloads.
-      // Awaited (not fire-and-forget) so setAuthToken below can't fire the
-      // /api/graph/status check before the fresh token is actually persisted -
-      // that race used to make the status check see the old expired token,
-      // self-inflict a logout right after a successful sign-in, and force the
-      // user to log in a second time.
-      if (session.provider_token) {
-        await fetch(`${API_URL}/api/graph/token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            ms_token: session.provider_token,
-            refresh_token: session.provider_refresh_token,
-          }),
-        }).catch(() => {});
-      }
-      setAuthToken(prev => (prev === session.access_token ? prev : session.access_token));
-    };
-
-    // onAuthStateChange fires once immediately with the current session
-    // (INITIAL_SESSION), so a separate getSession() call would double-fire
-    // applySession on every mount.
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      applySession(session);
-    });
-
-    return () => listener.subscription.unsubscribe();
-  }, [handleLogin]);
+    if (!isAuthReady || authToken) return;
+    setEmails([]);
+    setEvents([]);
+    setMessages([]);
+  }, [authToken, isAuthReady]);
 
   // Periodically confirm the backend can still use the stored Microsoft
   // token (it silently refreshes on our behalf). If the Microsoft connection

@@ -1,21 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useAuth } from '../../features/auth/useAuth';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useTheme } from '../../hooks/useTheme';
+import { useUi } from '../../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import { Mail, Calendar, MessageSquare, Edit3, Users, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen, X } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 import { Grid24Regular } from '@fluentui/react-icons';
 
 export default function MainLayout() {
+  const { user, handleLogout } = useAuth();
+  const { isSidebarCollapsed, setIsSidebarCollapsed, toast } = useUi();
   const {
-    user,
     emails,
     inboxUnread,
-    isSidebarCollapsed,
-    setIsSidebarCollapsed,
-    handleLogout,
-    toast,
     isSyncingInbox,
     isSyncingEvents,
     assistantName,

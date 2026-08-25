@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Github, Globe, Info, MicrosoftIcon, Moon, Sun } from '../components/common/Icons';
+import { useAuth } from '../features/auth/useAuth';
 import { supabase } from '../supabaseClient';
-import { useWorkspace } from '../hooks/useWorkspace';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
 
 export default function LoginPage() {
   const [error, setError] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const { user } = useWorkspace();
+  const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
