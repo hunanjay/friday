@@ -25,22 +25,25 @@ async def init_checkpointer():
     # sees version 0 and tries to re-run all migrations inside a tx, failing again.
     #
     # Workaround: run all migrations outside a transaction and insert version
-    # records ourselves, then setup() sees version N and becomes a no-op.
+    # records ourselves, then setup() sees version N and becomes a no-op. Every
+    # migration in MIGRATIONS is itself idempotent (IF NOT EXISTS / ADD COLUMN IF
+    # NOT EXISTS), so re-running an already-applied one is a safe no-op — a real
+    # failure (bad SQL, permissions, connection loss) must abort startup instead
+    # of being swallowed, and the version row must only land for a migration that
+    # actually ran.
     conn = await pool.getconn()
     try:
         await conn.set_autocommit(True)
-        async with conn.cursor() as cur:
-            for idx, migration in enumerate(MIGRATIONS, start=1):
-                try:
+        try:
+            async with conn.cursor() as cur:
+                for idx, migration in enumerate(MIGRATIONS, start=1):
                     await cur.execute(migration)
-                except Exception:
-                    # Migration already applied or cannot be re-run — skip
-                    pass
-                await cur.execute(
-                    "INSERT INTO checkpoint_migrations (v) VALUES (%s) ON CONFLICT DO NOTHING",
-                    (idx,),
-                )
-        await conn.set_autocommit(False)
+                    await cur.execute(
+                        "INSERT INTO checkpoint_migrations (v) VALUES (%s) ON CONFLICT DO NOTHING",
+                        (idx,),
+                    )
+        finally:
+            await conn.set_autocommit(False)
     finally:
         await pool.putconn(conn)
 

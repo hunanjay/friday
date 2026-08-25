@@ -24,15 +24,6 @@ from app.api import (
 )
 from app.core.config import settings
 from app.infrastructure.db import pool as db_pool
-from app.infrastructure.db.repositories import (
-    chat_sessions,
-    contacts as contacts_db,
-    hitl_audit,
-    memos as memos_db,
-    todos as todos_db,
-    user_memory as user_memory_db,
-    user_settings as user_settings_db,
-)
 from app.infrastructure.github import client as github_client
 from app.infrastructure.graph import client as graph_client
 from app.infrastructure.vector import qdrant as vector_store
@@ -40,16 +31,12 @@ from app.infrastructure.vector import qdrant as vector_store
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Initialize infrastructure & connections
+    # Initialize infrastructure & connections. Business-table schema (chat
+    # sessions, HITL audit, contacts, memos, todos, user memory/settings) is
+    # migrated via `alembic upgrade head` as an independent pre-deploy step
+    # (see backend/docs/migrations.md), not on instance startup.
     await db_pool.init_db_pool()
     await checkpointer.init_checkpointer()
-    await chat_sessions.init_schema()
-    await hitl_audit.init_schema()
-    await contacts_db.init_schema()
-    await memos_db.init_schema()
-    await todos_db.init_schema()
-    await user_memory_db.init_schema()
-    await user_settings_db.init_schema()
     await vector_store.init_collection()
 
     yield

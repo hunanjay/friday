@@ -781,7 +781,11 @@ check("todo API exposes CRUD routes", all(route in todos_api_source for route in
 
 main_source = (backend_dir / "app/main.py").read_text()
 check("todo router is registered", "app.include_router(todos.router)" in main_source)
-check("todo schema is initialized", "await todos_db.init_schema()" in main_source)
+check(
+    "todo schema is migrated via Alembic, not on startup",
+    "todos_db.init_schema()" not in main_source
+    and "TODOS_SCHEMA" in (backend_dir / "alembic/versions/36058cde5a0c_baseline_business_schema.py").read_text(),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -874,10 +878,11 @@ for tool_fn in ["search_contacts", "record_contact_fact", "extract_contact_memor
         f"def {tool_fn}" in tools_source,
     )
 
-# ── 13-I. schema 初始化注册进了 lifespan ────────────────────────────────────
+# ── 13-I. schema 迁移改由 Alembic 管理，不再由 lifespan 触发 ─────────────────
 check(
-    "contacts schema init registered in lifespan",
-    "contacts_db.init_schema()" in main_source_fresh,
+    "contacts schema is migrated via Alembic, not on startup",
+    "contacts_db.init_schema()" not in main_source_fresh
+    and "CONTACTS_SCHEMA" in (backend_dir / "alembic/versions/36058cde5a0c_baseline_business_schema.py").read_text(),
 )
 
 # ── 13-J. 纯逻辑单元测试：fact 维度/分类标签归一化 ───────────────────────────
