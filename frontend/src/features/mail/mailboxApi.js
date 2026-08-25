@@ -143,6 +143,18 @@ export function deleteMailMessage(token, messageId, { permanent = false } = {}) 
   });
 }
 
+export function generateMailReply(token, { emailId, intent, userName = '' }) {
+  return apiRequest('/api/agent/draft-reply', {
+    method: 'POST',
+    token,
+    body: {
+      email_id: emailId,
+      intent,
+      my_name: userName,
+    },
+  });
+}
+
 export async function getInboxUnread(token, accountIds) {
   const requests = [
     apiRequest('/api/graph/mail/folders/inbox', { token }),

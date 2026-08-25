@@ -8,6 +8,7 @@ import {
 } from '../features/mail/mailboxApi';
 import { useMailFolderSync } from '../features/mail/useMailFolderSync';
 import { useMailCompose } from '../features/mail/useMailCompose';
+import { useMailActions } from '../features/mail/useMailActions';
 import { EmailComposer } from '../features/mail/components/EmailComposer';
 import { EmailList } from '../features/mail/components/EmailList';
 import { useMailSearch } from '../features/mail/useMailSearch';
@@ -19,9 +20,6 @@ import { Mail, Send, Trash, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAl
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
 import EmailAttachments from '../components/common/EmailAttachments';
 import ApprovalCard from '../components/common/ApprovalCard';
-import { mailMessageUrl } from '../utils/mailApi';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
 export default function EmailPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -35,7 +33,7 @@ export default function EmailPage() {
     moveEmailToTrash: handleDeleteEmail,
   } = useMailMessages();
   const { inboxUnread, adjustInboxUnread } = useInboxUnread();
-  const { user, authToken, handleLogout } = useAuth();
+  const { authToken } = useAuth();
   const { showToast, setIsSidebarCollapsed } = useUi();
 
   const { t, i18n } = useTranslation();
@@ -97,11 +95,7 @@ export default function EmailPage() {
     threadMessages,
     toggleMessageExpanded: toggleMsgExpand,
   } = useMailThread({ onOpen: handleThreadOpen });
-  // Dora AI Assistant states
   const [isDoraActive, setIsDoraActive] = useState(true);
-  const [aiDraft, setAiDraft] = useState('');
-  const [isDrafting, setIsDrafting] = useState(false);
-  const [aiInstruction, setAiInstruction] = useState('');
 
   // Outlook Graph API Date Format Helpers
   const formatEmailTime = (isoString) => {
@@ -116,37 +110,30 @@ export default function EmailPage() {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // Clear AI draft when selecting a new email
-  useEffect(() => {
-    setAiDraft('');
-    setAiInstruction('');
-  }, [selectedConvKey]);
-
   // The "active" email for Dora / reply: the latest message in the thread.
   const selectedEmail = threadMessages.length > 0
     ? threadMessages[threadMessages.length - 1]
     : null;
-
-
-  const handleDelete = (id) => {
-    // Find the message in the open thread (most precise) or fall back to store
-    const target = threadMessages.find(e => e.id === id)
-      || emails.find(e => e.id === id);
-    if (target && !target.isRead && target.parentFolderId === 'inbox') adjustInboxUnread(-1);
-    handleDeleteEmail(id);
-    // IMAP accounts have no trash - deletion is permanent.
-    const isImap = target?.provider && target.provider !== MICROSOFT;
-    showToast(isImap
-      ? (i18n.language === 'zh' ? '邮件已永久删除（IMAP 无回收站）' : 'Email permanently deleted (no trash on IMAP)')
-      : t('email.movedToTrash'));
-
-    removeThreadMessage(id);
-
-    fetch(mailMessageUrl(id), {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${authToken}` },
-    }).catch(() => {});
-  };
+  const {
+    aiDraft,
+    aiInstruction,
+    deleteMessage: handleDelete,
+    generateReply: handleGenerateReply,
+    isDrafting,
+    setAiInstruction,
+  } = useMailActions({
+    adjustInboxUnread,
+    assistantDraftedMessage: t('email.assistantDrafted', { name: assistantName }),
+    emails,
+    isZh: i18n.language === 'zh',
+    movedToTrashMessage: t('email.movedToTrash'),
+    moveEmailToTrash: handleDeleteEmail,
+    onToast: showToast,
+    removeThreadMessage,
+    selectedConversationKey: selectedConvKey,
+    selectedEmail,
+    threadMessages,
+  });
 
   const searchParams = new URLSearchParams(location.search);
   const targetEmailId = location.state?.emailId || searchParams.get('emailId');
@@ -193,39 +180,6 @@ export default function EmailPage() {
     targetEmailId,
     targetEmailProvider,
   ]);
-
-
-  // Dora reply generator: sends the selected email's id + the user's intent to
-  // the backend, which fetches & sanitizes the original mail and asks the LLM
-  // to write a reply carrying out that intent (not restating it).
-  const handleGenerateReply = async (intent) => {
-    if (!selectedEmail || !intent.trim()) return;
-    const isZh = i18n.language === 'zh';
-    setIsDrafting(true);
-    setAiDraft('');
-    try {
-      const res = await fetch(`${API_URL}/api/agent/draft-reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ email_id: selectedEmail.id, intent, my_name: user?.name || '' }),
-      });
-      if (res.status === 401) {
-        handleLogout();
-        return;
-      }
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setAiDraft(data.draft);
-        showToast(t('email.assistantDrafted', { name: assistantName }));
-      } else {
-        setAiDraft(isZh ? `出错了：${data.detail || '生成失败'}` : `Something went wrong: ${data.detail || 'failed'}`);
-      }
-    } catch {
-      setAiDraft(isZh ? '无法连接到助手服务，请稍后再试。' : "Couldn't reach the assistant service, please try again later.");
-    } finally {
-      setIsDrafting(false);
-    }
-  };
 
   // 'reply' | 'replyAll' hit {id}/reply, 'forward' hits {id}/forward, and a
   // null mode is a fresh /send. The submit handler branches on this alone.

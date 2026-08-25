@@ -7,6 +7,7 @@ import {
   getMailFolderPage,
   getMailThread,
   getMailThreadResource,
+  generateMailReply,
   mailChannelPath,
   markMailMessageRead,
   normalizeMailMessage,
@@ -209,6 +210,25 @@ describe('mailbox API', () => {
       method: 'DELETE',
       token: 'token',
       query: { permanent: true },
+    });
+  });
+
+  it('requests an assistant reply through the shared JSON client', async () => {
+    apiRequest.mockResolvedValue({ draft: 'Suggested reply' });
+
+    await expect(generateMailReply('token', {
+      emailId: 'message-1',
+      intent: 'Accept the meeting',
+      userName: 'Ada',
+    })).resolves.toEqual({ draft: 'Suggested reply' });
+    expect(apiRequest).toHaveBeenCalledWith('/api/agent/draft-reply', {
+      method: 'POST',
+      token: 'token',
+      body: {
+        email_id: 'message-1',
+        intent: 'Accept the meeting',
+        my_name: 'Ada',
+      },
     });
   });
 });
