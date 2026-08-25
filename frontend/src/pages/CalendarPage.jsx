@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useCalendarEvents } from '../features/calendar/hooks';
+import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronLeft, ChevronRight, X, Trash } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
 
 function hasVisibleEventBody(body) {
   const content = body?.content || '';
@@ -20,67 +19,28 @@ function hasVisibleEventBody(body) {
 export default function CalendarPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const {
-    events,
-    handleAddEvent,
-    handleDeleteEvent,
-    showToast,
-    authToken,
-    setIsSyncingEvents,
-    handleSyncEvents,
-    handleLogout
-  } = useWorkspace();
-
   const { t, i18n } = useTranslation();
+  const { showToast } = useUi();
 
   const [currentDate, setCurrentDate] = useState(() => new Date());
+  const calendarRange = useMemo(() => ({
+    start: new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).toISOString(),
+    end: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1).toISOString(),
+  }), [currentDate]);
+  const {
+    events,
+    addCalendarEvent,
+    deleteCalendarEvent,
+    calendarError,
+  } = useCalendarEvents(calendarRange);
 
   // Pull real events via our backend, which proxies Microsoft Graph and
   // holds the Graph token server-side. Scoped to the visible month only,
-  // refetched on navigation, so we don't pull the whole account history.
-  // Gated on presence (hasAuthToken), not the token's exact value, so
-  // periodic Supabase token refreshes don't re-trigger a refetch.
-  const hasAuthToken = Boolean(authToken);
-  const authTokenRef = useRef(authToken);
+  // cached by range so month navigation doesn't overwrite another consumer.
   useEffect(() => {
-    authTokenRef.current = authToken;
-  }, [authToken]);
-  useEffect(() => {
-    if (!hasAuthToken) return;
-    const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
-    const params = new URLSearchParams({
-      start: monthStart.toISOString(),
-      end: monthEnd.toISOString(),
-    });
-
-    setIsSyncingEvents(true);
-    fetch(`${API_URL}/api/graph/calendar/events?${params}`, {
-      headers: { Authorization: `Bearer ${authTokenRef.current}` },
-    })
-      .then(res => {
-        if (res.status === 401) {
-          handleLogout();
-          return null;
-        }
-        return res.json();
-      })
-      .then(data => {
-        if (!data) return;
-        const calendarEvents = (data.value || []).map(ev => ({
-          id: ev.id,
-          subject: ev.subject,
-          start: ev.start,
-          end: ev.end,
-          body: ev.body,
-          categories: ev.categories,
-          location: ev.location,
-        }));
-        handleSyncEvents(calendarEvents);
-      })
-      .catch(() => showToast(t('calendar.syncFailed', { defaultValue: 'Failed to sync calendar from Outlook' })))
-      .finally(() => setIsSyncingEvents(false));
-  }, [hasAuthToken, currentDate, showToast, setIsSyncingEvents, handleSyncEvents, t, handleLogout]);
+    if (!calendarError) return;
+    showToast(t('calendar.syncFailed', { defaultValue: 'Failed to sync calendar from Outlook' }));
+  }, [calendarError, showToast, t]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState('');
   const [eventTitle, setEventTitle] = useState('');
@@ -172,34 +132,13 @@ export default function CalendarPage() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/graph/calendar/events`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          subject: eventTitle,
-          start: `${selectedDateStr}T${eventStart}:00`,
-          end: `${selectedDateStr}T${eventEnd}:00`,
-          location: eventLocation || 'Microsoft Teams Meeting',
-        }),
-      });
-      if (res.status === 401) {
-        handleLogout();
-        return;
-      }
-      if (!res.ok) throw new Error('create failed');
-      const created = await res.json();
-
-      handleAddEvent({
-        id: created.id,
-        subject: created.subject,
-        start: created.start,
-        end: created.end,
+      await addCalendarEvent({
+        subject: eventTitle,
+        start: `${selectedDateStr}T${eventStart}:00`,
+        end: `${selectedDateStr}T${eventEnd}:00`,
+        location: eventLocation || 'Microsoft Teams Meeting',
         body: { content: eventDesc, contentType: 'text' },
         categories: [eventCategory.charAt(0).toUpperCase() + eventCategory.slice(1)],
-        location: created.location,
       });
       setIsModalOpen(false);
 
@@ -220,16 +159,7 @@ export default function CalendarPage() {
   const handleDeleteEventClick = async (eventId, e) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`${API_URL}/api/graph/calendar/events/${encodeURIComponent(eventId)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.status === 401) {
-        handleLogout();
-        return;
-      }
-      if (!res.ok) throw new Error('delete failed');
-      handleDeleteEvent(eventId);
+      await deleteCalendarEvent(eventId);
       setSelectedEvent(null);
       showToast(t('calendar.deletedSuccess'));
     } catch {

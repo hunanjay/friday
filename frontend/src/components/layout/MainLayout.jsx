@@ -1,26 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
-import { useWorkspace } from '../../hooks/useWorkspace';
+import { useAuth } from '../../features/auth/useAuth';
+import { useCalendarSyncStatus } from '../../features/calendar/hooks';
+import { useInboxUnread, useMailMessages, useMailSyncStatus } from '../../features/mail/mailboxHooks';
+import { useAssistantName, useAvatar } from '../../features/settings/hooks';
 import { useTheme } from '../../hooks/useTheme';
+import { useUi } from '../../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import { Mail, Calendar, MessageSquare, Edit3, Users, LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen, X } from '../common/Icons';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 import { Grid24Regular } from '@fluentui/react-icons';
 
 export default function MainLayout() {
-  const {
-    user,
-    emails,
-    inboxUnread,
-    isSidebarCollapsed,
-    setIsSidebarCollapsed,
-    handleLogout,
-    toast,
-    isSyncingInbox,
-    isSyncingEvents,
-    assistantName,
-    avatarUrl,
-  } = useWorkspace();
+  const { user, handleLogout } = useAuth();
+  const { isSidebarCollapsed, setIsSidebarCollapsed, toast } = useUi();
+  const { assistantName } = useAssistantName();
+  const { avatarUrl } = useAvatar();
+  const isSyncingEvents = useCalendarSyncStatus();
+  const { emails } = useMailMessages();
+  const { inboxUnread } = useInboxUnread();
+  const { isSyncingInbox } = useMailSyncStatus();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();

@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { useWorkspace } from '../../hooks/useWorkspace';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useGitHubConnection, useGitHubRepositories } from '../../features/github/hooks';
+import { useUi } from '../../hooks/useUi';
 import { ChevronLeft, Github, Search, X } from './Icons';
 
 function RepoSection({ label, repos, checked, onToggle }) {
@@ -43,19 +44,20 @@ function RepoSection({ label, repos, checked, onToggle }) {
 }
 
 export default function GithubRepoDropdown({ onBack }) {
-  const {
-    githubStatus,
-    githubRepos,
-    handleConnectGithub,
-    handleDisconnectGithub,
-    handleSaveGithubRepos,
-    showToast,
-  } = useWorkspace();
+  const { githubStatus, connectGitHub, disconnectGitHub } = useGitHubConnection();
+  const { githubRepositories, saveGitHubRepositories } = useGitHubRepositories({
+    enabled: Boolean(githubStatus?.connected),
+  });
+  const { showToast } = useUi();
 
-  const [checked, setChecked] = useState(() => new Set(githubRepos.selected));
+  const [checked, setChecked] = useState(() => new Set(githubRepositories.selected));
   const [isSaving, setIsSaving] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    setChecked(new Set(githubRepositories.selected));
+  }, [githubRepositories]);
 
   const toggleRepo = (fullName) => {
     setChecked(prev => {
@@ -72,7 +74,7 @@ export default function GithubRepoDropdown({ onBack }) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await handleSaveGithubRepos(Array.from(checked));
+      await saveGitHubRepositories(Array.from(checked));
       showToast('GitHub repos updated');
       onBack();
     } catch {
@@ -84,18 +86,23 @@ export default function GithubRepoDropdown({ onBack }) {
 
   const handleDisconnect = async () => {
     setIsDisconnecting(true);
-    await handleDisconnectGithub();
-    showToast('GitHub disconnected');
-    onBack();
+    try {
+      await disconnectGitHub();
+      showToast('GitHub disconnected');
+      onBack();
+    } catch {
+      showToast('Failed to disconnect GitHub');
+    } finally {
+      setIsDisconnecting(false);
+    }
   };
 
   // Filter and group repos
   const filteredRepos = useMemo(() => {
-    if (!githubRepos.available) return [];
-    return githubRepos.available.filter(r =>
+    return githubRepositories.available.filter(r =>
       r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [githubRepos.available, searchQuery]);
+  }, [githubRepositories.available, searchQuery]);
 
   const privateRepos = useMemo(() => filteredRepos.filter(r => r.private), [filteredRepos]);
   const publicRepos = useMemo(() => filteredRepos.filter(r => !r.private), [filteredRepos]);
@@ -141,7 +148,7 @@ export default function GithubRepoDropdown({ onBack }) {
       )}
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-        <button type="button" className="cancel-btn" onClick={handleConnectGithub} title="Refresh permissions/scope" style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}>
+        <button type="button" className="cancel-btn" onClick={connectGitHub} title="Refresh permissions/scope" style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}>
           Reconnect
         </button>
         <button type="button" className="delete-event-btn" onClick={handleDisconnect} disabled={isDisconnecting} style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}>
@@ -179,7 +186,7 @@ export default function GithubRepoDropdown({ onBack }) {
       )}
 
       <div className="repo-picker-scroll">
-        {githubRepos.available.length === 0 ? (
+        {githubRepositories.available.length === 0 ? (
           <p className="repo-picker-empty">No repos found on your GitHub account.</p>
         ) : filteredRepos.length === 0 ? (
           <p className="repo-picker-empty">No repositories match your search.</p>

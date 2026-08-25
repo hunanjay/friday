@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import { useMailAccounts, useMailProviders } from '../features/mail/accountHooks';
 import { X, Mail, Sparkles } from './common/Icons';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
 
 // 绑定邮箱弹窗：选择提供商 → 填账号+授权码 → （自定义时填服务器）→ 验证绑定。
 // 通用 IMAP/SMTP 方案：163/QQ/Gmail/iCloud/Outlook 走预设服务器，
 // "自定义"允许手填 IMAP/SMTP 地址（后端会做 SSRF 校验）。
-export default function BindMailAccountModal({ isOpen, onClose, authToken, onBound, isZh }) {
-  const [providers, setProviders] = useState([]);
+export default function BindMailAccountModal({ isOpen, onClose, onBound, isZh }) {
+  const { bindMailAccount } = useMailAccounts();
+  const { mailProviders } = useMailProviders({ enabled: isOpen });
   const [provider, setProvider] = useState('netease');
   const [emailAddress, setEmailAddress] = useState('');
   const [authCode, setAuthCode] = useState('');
@@ -27,20 +27,13 @@ export default function BindMailAccountModal({ isOpen, onClose, authToken, onBou
     if (!isOpen) return;
     setError('');
     setAuthCode('');
-    fetch(`${API_URL}/api/mail-providers`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { providers: [] }))
-      .then(data => {
-        const list = data.providers || [];
-        setProviders(list);
-        if (list.length > 0 && !list.some(p => p.provider === provider)) {
-          setProvider(list[0].provider);
-        }
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, authToken]);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (mailProviders.length > 0 && !mailProviders.some(item => item.provider === provider)) {
+      setProvider(mailProviders[0].provider);
+    }
+  }, [mailProviders, provider]);
 
   if (!isOpen) return null;
 
@@ -65,14 +58,8 @@ export default function BindMailAccountModal({ isOpen, onClose, authToken, onBou
         body.smtp_port = parseInt(smtpPort, 10);
         body.smtp_security = smtpSecurity;
       }
-      const res = await fetch(`${API_URL}/api/mail-accounts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || (isZh ? '绑定失败' : 'Failed to bind'));
-      if (onBound) onBound(data.account);
+      const account = await bindMailAccount(body);
+      if (onBound) onBound(account);
       onClose();
     } catch (err) {
       setError(err.message);
@@ -104,7 +91,7 @@ export default function BindMailAccountModal({ isOpen, onClose, authToken, onBou
           <div className="form-group">
             <label>{isZh ? '邮箱类型' : 'Provider'}</label>
             <select value={provider} onChange={(e) => setProvider(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--bg-app)', color: 'var(--text-primary)' }}>
-              {providers.map(p => (
+              {mailProviders.map(p => (
                 <option key={p.provider} value={p.provider}>{p.name}</option>
               ))}
             </select>

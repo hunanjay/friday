@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useMemos } from '../features/memos/hooks';
+import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import { Edit3, Plus, Search, Trash, Pin, X, Paperclip, FileText, Image as ImageIcon } from '../components/common/Icons';
 
@@ -17,12 +18,12 @@ export default function MemosPage() {
   const navigate = useNavigate();
   const {
     memos,
-    handleAddMemo,
-    handleUpdateMemo,
-    handleDeleteMemo,
-    authToken,
-    showToast
-  } = useWorkspace();
+    addMemo,
+    updateMemo,
+    deleteMemo,
+    uploadMemoAttachment,
+  } = useMemos();
+  const { showToast } = useUi();
 
   const { t, i18n } = useTranslation();
 
@@ -80,8 +81,6 @@ export default function MemosPage() {
 
   const handleFileUpload = async (file, isEditing = false) => {
     if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
 
     if (isEditing) {
       setIsUploadingEdit(true);
@@ -90,29 +89,19 @@ export default function MemosPage() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/memos/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: formData,
-      });
-
-      if (res.ok) {
-        const att = await res.json();
-        showToast(i18n.language === 'zh' ? '文件解析与提取成功！' : 'File parsed successfully!');
-        if (isEditing) {
-          setEditingMemo(prev => ({
-            ...prev,
-            attachments: [...(prev.attachments || []), att],
-          }));
-        } else {
-          setNewAttachments(prev => [...prev, att]);
-        }
+      const att = await uploadMemoAttachment(file);
+      showToast(i18n.language === 'zh' ? '文件解析与提取成功！' : 'File parsed successfully!');
+      if (isEditing) {
+        setEditingMemo(prev => ({
+          ...prev,
+          attachments: [...(prev.attachments || []), att],
+        }));
       } else {
-        const err = await res.json();
-        alert(err.detail || (i18n.language === 'zh' ? '上传失败' : 'Upload failed'));
+        setNewAttachments(prev => [...prev, att]);
       }
     } catch (err) {
       console.error('Error uploading file:', err);
+      alert(err.message || (i18n.language === 'zh' ? '上传失败' : 'Upload failed'));
     } finally {
       if (isEditing) {
         setIsUploadingEdit(false);
@@ -161,7 +150,7 @@ export default function MemosPage() {
       return;
     }
 
-    await handleAddMemo({
+    await addMemo({
       title: newTitle || (i18n.language === 'zh' ? '无标题便签' : 'Untitled Memo'),
       content: newContent,
       category: newCategory,
@@ -182,14 +171,14 @@ export default function MemosPage() {
 
   const handleUpdateSubmit = async (e) => {
     e.preventDefault();
-    await handleUpdateMemo(editingMemo);
+    await updateMemo(editingMemo);
     setEditingMemo(null);
     showToast(i18n.language === 'zh' ? '便签已更新！' : 'Memo updated!');
   };
 
   const togglePin = async (memo, e) => {
     e.stopPropagation();
-    await handleUpdateMemo({ ...memo, pinned: !memo.pinned });
+    await updateMemo({ ...memo, pinned: !memo.pinned });
     showToast(
       memo.pinned
         ? (i18n.language === 'zh' ? '便签已取消置顶' : 'Memo unpinned')
@@ -199,7 +188,7 @@ export default function MemosPage() {
 
   const deleteMemoClick = async (id, e) => {
     e.stopPropagation();
-    await handleDeleteMemo(id);
+    await deleteMemo(id);
     showToast(i18n.language === 'zh' ? '便签已删除' : 'Memo deleted');
   };
 

@@ -782,7 +782,11 @@ check("todo API exposes CRUD routes", all(route in todos_api_source for route in
 
 main_source = (backend_dir / "app/main.py").read_text()
 check("todo router is registered", "app.include_router(todos.router)" in main_source)
-check("todo schema is initialized", "await todos_db.init_schema()" in main_source)
+check(
+    "todo schema is migrated via Alembic, not on startup",
+    "todos_db.init_schema()" not in main_source
+    and "TODOS_SCHEMA" in (backend_dir / "alembic/versions/36058cde5a0c_baseline_business_schema.py").read_text(),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -875,10 +879,11 @@ for tool_fn in ["search_contacts", "record_contact_fact", "extract_contact_memor
         f"def {tool_fn}" in tools_source,
     )
 
-# ── 13-I. schema 初始化注册进了 lifespan ────────────────────────────────────
+# ── 13-I. schema 迁移改由 Alembic 管理，不再由 lifespan 触发 ─────────────────
 check(
-    "contacts schema init registered in lifespan",
-    "contacts_db.init_schema()" in main_source_fresh,
+    "contacts schema is migrated via Alembic, not on startup",
+    "contacts_db.init_schema()" not in main_source_fresh
+    and "CONTACTS_SCHEMA" in (backend_dir / "alembic/versions/36058cde5a0c_baseline_business_schema.py").read_text(),
 )
 
 # ── 13-J. 纯逻辑单元测试：fact 维度/分类标签归一化 ───────────────────────────
@@ -1267,6 +1272,32 @@ check(
     "draft creation and update render through the same signed-body helper as every other send path",
     "_draft_message" in _mail_service_source and "render_body(user_id" in _mail_service_source,
 )
+
+
+# ---------------------------------------------------------------------------
+# 19. Microsoft account disconnect
+# ---------------------------------------------------------------------------
+
+section("19. Microsoft account disconnect")
+
+from unittest.mock import patch  # noqa: E402
+
+from app.api.auth import revoke_graph_token  # noqa: E402
+
+
+async def _revoke_graph_token_calls_through():
+    with (
+        patch("app.api.auth.delete_ms_token") as mock_delete,
+        patch("app.api.auth.invalidate_ms_token") as mock_invalidate,
+    ):
+        result = await revoke_graph_token(user_id="smoke-test-user")
+    return result, mock_delete.call_args, mock_invalidate.call_args
+
+
+_revoke_result, _delete_call, _invalidate_call = asyncio.run(_revoke_graph_token_calls_through())
+check("DELETE /api/graph/token disconnects Microsoft, returns ok", _revoke_result == {"status": "ok"})
+check("it deletes the persisted Graph token row for this user", _delete_call.args == ("smoke-test-user",))
+check("it also drops the in-memory token cache for this user", _invalidate_call.args == ("smoke-test-user",))
 
 
 # ---------------------------------------------------------------------------

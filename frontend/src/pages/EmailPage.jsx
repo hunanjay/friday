@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { readComposeDraft, writeComposeDraft } from './composeDraft';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useAuth } from '../features/auth/useAuth';
+import { useMailAccounts, useMicrosoftMailStatus } from '../features/mail/accountHooks';
+import { useInboxUnread, useMailMessages, useMailSyncStatus } from '../features/mail/mailboxHooks';
+import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
+import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
@@ -55,28 +59,25 @@ function normalizeMessage(msg, parentFolderId) {
 export default function EmailPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { assistantName } = useAssistantName();
+  const { avatarUrl } = useAvatar();
+  const { signature } = useSignature();
+  const { mailAccounts } = useMailAccounts();
+  const { msDisconnected } = useMicrosoftMailStatus();
   const {
-    user,
     emails,
-    handleDeleteEmail,
-    handleMarkEmailRead,
-    showToast,
-    authToken,
-    setIsSyncingInbox,
-    inboxUnread,
-    adjustInboxUnread,
-    handleSyncInboxEmails,
-    handleAppendInboxEmails,
-    handleSyncSentEmails,
-    handleAppendSentEmails,
-    handleLogout,
-    setIsSidebarCollapsed,
-    mailAccounts,
-    msDisconnected,
-    assistantName,
-    avatarUrl,
-    signature
-  } = useWorkspace();
+    syncInboxEmails: handleSyncInboxEmails,
+    syncSentEmails: handleSyncSentEmails,
+    appendEmails,
+    moveEmailToTrash: handleDeleteEmail,
+    markEmailRead: handleMarkEmailRead,
+  } = useMailMessages();
+  const handleAppendInboxEmails = appendEmails;
+  const handleAppendSentEmails = appendEmails;
+  const { inboxUnread, adjustInboxUnread } = useInboxUnread();
+  const { setIsSyncingInbox } = useMailSyncStatus();
+  const { user, authToken, handleLogout } = useAuth();
+  const { showToast, setIsSidebarCollapsed } = useUi();
 
   const { t, i18n } = useTranslation();
 
@@ -116,8 +117,7 @@ export default function EmailPage() {
 
   // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
   // value, so periodic Supabase token refreshes don't re-trigger a refetch.
-  // (The authoritative unread count is fetched in WorkspaceContext so the
-  // sidebar badge shares it.)
+  // The authoritative unread count lives in the shared mail query cache.
   const hasAuthToken = Boolean(authToken);
   const authTokenRef = useRef(authToken);
   useEffect(() => {

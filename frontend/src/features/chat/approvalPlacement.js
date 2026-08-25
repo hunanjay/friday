@@ -4,9 +4,6 @@ export function getApprovalPlacementMode(action) {
 
 export function resolveLiveApprovalAnchor(action, existingAnchor, optimisticBotMessageId) {
   if (getApprovalPlacementMode(action) !== 'after_message') return null;
-  // While the SSE request is still live, the rendered bot message has a
-  // client-generated id. The persisted LangGraph id only exists after a
-  // history reload, so prefer the optimistic id for immediate placement.
   return existingAnchor
     || optimisticBotMessageId
     || action?.placement?.anchor_message_id

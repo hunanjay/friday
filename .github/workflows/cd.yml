@@ -38,7 +38,13 @@ jobs:
             /usr/local/bin/npm run build
             cd ..
 
-            echo "==> Rebuilding and restarting backend container..."
-            sudo docker compose up -d --build backend
+            echo "==> Building backend image..."
+            sudo docker compose build backend
+
+            echo "==> Running database migrations..."
+            sudo docker compose run --rm backend alembic upgrade head
+
+            echo "==> Restarting backend container..."
+            sudo docker compose up -d backend
 
             echo "==> Deployment successful!"

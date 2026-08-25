@@ -13,6 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Dev commands
 
 ```bash
+# database migrations (run once before first startup and after pulling schema
+# changes - the backend no longer creates/alters business tables on boot)
+cd backend && source .venv/bin/activate && alembic upgrade head
+
 # backend
 cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8005
 
@@ -46,7 +50,7 @@ GitHub Actions runs the backend smoke test and frontend lint, test, and build ch
 
 **Contacts** (`app/services/contact_service.py`, `contact_brain_service.py`, `app/api/contact.py`): CRUD plus an LLM-driven "brain" that extracts/enriches contact profiles (e.g. from pasted chat logs via `ChatLogPasteModal`), backed by `infrastructure/db/repositories/contacts.py`.
 
-**Persistence** (`app/infrastructure/db/`): Supabase auth verification (`security.get_user_id` — the `Depends` on every route), Microsoft token storage (`token_store.py`), and agent data live in Postgres. `pool.py` owns one shared async psycopg pool used by the checkpointer, chat sessions, HITL audit, contacts, todos, and memos; schemas and clients are initialized in `main.py`'s lifespan.
+**Persistence** (`app/infrastructure/db/`): Supabase auth verification (`security.get_user_id` — the `Depends` on every route), Microsoft token storage (`token_store.py`), and agent data live in Postgres. `pool.py` owns one shared async psycopg pool used by the checkpointer, chat sessions, HITL audit, contacts, todos, and memos; the pool and other clients are opened in `main.py`'s lifespan, but business-table schema is migrated separately via Alembic (`backend/alembic/`, `alembic upgrade head`) as a pre-deploy step — see `backend/docs/migrations.md`. The checkpointer keeps its own migration path (`app/agents/checkpointer.py`), independent of Alembic.
 
 ## Frontend architecture
 

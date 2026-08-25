@@ -1,39 +1,38 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useAuth } from '../features/auth/useAuth';
+import { useGitHubConnection, useGitHubRepositories } from '../features/github/hooks';
+import { useMailAccounts } from '../features/mail/accountHooks';
+import { useAssistantName, useAvatar, useAvatarPresets, useSignature } from '../features/settings/hooks';
+import { useTheme } from '../hooks/useTheme';
+import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3 } from '../components/common/Icons';
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3, RefreshCw, MicrosoftIcon } from '../components/common/Icons';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { assistantName, updateAssistantName } = useAssistantName();
+  const { signature, updateSignature } = useSignature();
+  const { avatarUrl, updateAvatar } = useAvatar();
+  const { avatarPresets } = useAvatarPresets();
+  const { githubStatus, connectGitHub, disconnectGitHub } = useGitHubConnection();
+  const { githubRepositories, saveGitHubRepositories } = useGitHubRepositories({
+    enabled: Boolean(githubStatus?.connected),
+  });
+  const { mailAccounts, unbindMailAccount, verifyMailAccount } = useMailAccounts();
   const {
     user,
-    theme,
-    toggleTheme,
     handleLogout,
+    handleSwitchAccount,
+    handleMsLogout,
     authToken,
-    githubStatus,
-    githubRepos,
-    handleConnectGithub,
-    handleDisconnectGithub,
-    handleSaveGithubRepos,
-    mailAccounts,
-    handleUnbindMailAccount,
-    handleVerifyMailAccount,
-    handleRefreshMailAccounts,
-    assistantName,
-    signature = '',
-    handleUpdateSignature,
-    handleUpdateAssistantName,
-    avatarUrl,
-    avatarPresets,
-    handleUpdateAvatar,
-    showToast,
-  } = useWorkspace();
+  } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const { showToast } = useUi();
 
   const { t, i18n } = useTranslation();
   const changeLanguage = (lang) => {
@@ -117,12 +116,12 @@ export default function SettingsPage() {
     setSignatureDraft(signature);
   }, [signature]);
 
-  // Sync selection state from context when ready
+  // Sync the local picker draft whenever the server-backed selection changes.
   useEffect(() => {
-    if (githubRepos?.selected) {
-      setChecked(new Set(githubRepos.selected));
+    if (githubRepositories.selected) {
+      setChecked(new Set(githubRepositories.selected));
     }
-  }, [githubRepos]);
+  }, [githubRepositories]);
 
   const toggleRepo = (fullName) => {
     setChecked(prev => {
@@ -139,7 +138,7 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await handleSaveGithubRepos(Array.from(checked));
+      await saveGitHubRepositories(Array.from(checked));
       showToast(i18n.language === 'zh' ? 'GitHub 仓库配置已保存' : 'GitHub repos selection saved');
     } catch {
       showToast(i18n.language === 'zh' ? '保存失败' : 'Failed to save repo selection');
@@ -153,7 +152,7 @@ export default function SettingsPage() {
     if (!name || name === assistantName) return;
     setIsSavingAssistantName(true);
     try {
-      await handleUpdateAssistantName(name);
+      await updateAssistantName(name);
       showToast(isZh ? '助手名称已更新' : 'Assistant name updated');
     } catch {
       showToast(isZh ? '更新失败' : 'Failed to update assistant name');
@@ -165,7 +164,7 @@ export default function SettingsPage() {
   const handleSaveSignature = async () => {
     setIsSavingSignature(true);
     try {
-      await handleUpdateSignature(signatureDraft.trim());
+      await updateSignature(signatureDraft.trim());
       showToast(isZh ? '邮件签名已保存' : 'Email signature saved');
       setIsEditingSignature(false);
     } catch {
@@ -191,7 +190,7 @@ export default function SettingsPage() {
     }
     setIsSavingAvatar(true);
     try {
-      await handleUpdateAvatar(url);
+      await updateAvatar(url);
       showToast(isZh ? '头像已更新' : 'Avatar updated');
     } catch {
       showToast(isZh ? '更新失败' : 'Failed to update avatar');
@@ -204,7 +203,7 @@ export default function SettingsPage() {
     if (confirm(i18n.language === 'zh' ? '确定要断开与 GitHub 的连接吗？' : 'Are you sure you want to disconnect from GitHub?')) {
       setIsDisconnecting(true);
       try {
-        await handleDisconnectGithub();
+        await disconnectGitHub();
         showToast(i18n.language === 'zh' ? 'GitHub 已断开连接' : 'GitHub disconnected');
       } catch {
         showToast(i18n.language === 'zh' ? '断开连接失败' : 'Failed to disconnect');
@@ -215,17 +214,16 @@ export default function SettingsPage() {
   };
 
   const selectedRepos = useMemo(
-    () => (githubRepos?.available || []).filter(r => checked.has(r.full_name)),
-    [githubRepos?.available, checked]
+    () => githubRepositories.available.filter(r => checked.has(r.full_name)),
+    [githubRepositories.available, checked]
   );
 
   // Repos still available to add, filtered by the dropdown's search box.
   const addableRepos = useMemo(() => {
-    if (!githubRepos?.available) return [];
-    return githubRepos.available.filter(r =>
+    return githubRepositories.available.filter(r =>
       !checked.has(r.full_name) && r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [githubRepos?.available, checked, searchQuery]);
+  }, [githubRepositories.available, checked, searchQuery]);
 
   const isZh = i18n.language === 'zh';
   const closeCommitDetails = () => navigate('/settings', { replace: true, state: null });
@@ -272,6 +270,14 @@ export default function SettingsPage() {
                     <div className="settings-id-meta">{user.email}</div>
                   </div>
                   <div className="settings-row-actions">
+                    <button className="settings-btn" onClick={handleSwitchAccount}>
+                      <RefreshCw size={16} />
+                      <span>{t('common.switchMsAccount')}</span>
+                    </button>
+                    <button className="settings-btn btn-danger" onClick={handleMsLogout} title={t('common.signOutMsHint')}>
+                      <MicrosoftIcon size={16} />
+                      <span>{t('common.signOutMs')}</span>
+                    </button>
                     <button className="settings-btn btn-danger" onClick={handleLogout}>
                       <LogOut size={16} />
                       <span>{t('common.signOut')}</span>
@@ -378,7 +384,7 @@ export default function SettingsPage() {
             <div className="settings-pane-head">
               <h2>GitHub</h2>
               {githubStatus?.connected && (
-                <span className="settings-pane-count">{checked.size} / {githubRepos?.available?.length || 0} {isZh ? '仓库已选' : 'repos selected'}</span>
+                <span className="settings-pane-count">{checked.size} / {githubRepositories.available.length} {isZh ? '仓库已选' : 'repos selected'}</span>
               )}
             </div>
             <div className="settings-panel">
@@ -408,7 +414,7 @@ export default function SettingsPage() {
                 <div className="settings-row-actions">
                   {githubStatus?.connected ? (
                     <>
-                      <button type="button" className="settings-btn" onClick={handleConnectGithub} title="Reconnect GitHub">
+                      <button type="button" className="settings-btn" onClick={connectGitHub} title="Reconnect GitHub">
                         {isZh ? '重新连接' : 'Reconnect'}
                       </button>
                       <button type="button" className="settings-btn btn-danger-outline" onClick={handleDisconnect} disabled={isDisconnecting}>
@@ -416,7 +422,7 @@ export default function SettingsPage() {
                       </button>
                     </>
                   ) : (
-                    <button type="button" className="settings-btn btn-primary" onClick={handleConnectGithub}>
+                    <button type="button" className="settings-btn btn-primary" onClick={connectGitHub}>
                       {isZh ? '连接 GitHub' : 'Connect GitHub'}
                     </button>
                   )}
@@ -432,7 +438,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  {githubRepos?.available?.length === 0 ? (
+                  {githubRepositories.available.length === 0 ? (
                     <div className="repos-empty-state">
                       <Github size={32} />
                       <p>{isZh ? '在您的 GitHub 账户中未找到任何仓库。' : 'No repositories found in your GitHub account.'}</p>
@@ -627,7 +633,7 @@ export default function SettingsPage() {
                         onClick={async () => {
                           setVerifyingMailId(acc.id);
                           try {
-                            await handleVerifyMailAccount(acc.id);
+                            await verifyMailAccount(acc.id);
                             showToast(isZh ? '连接正常' : 'Connection OK');
                           } catch {
                             showToast(isZh ? '连接验证失败' : 'Verification failed');
@@ -646,7 +652,7 @@ export default function SettingsPage() {
                         onClick={async () => {
                           if (!confirm(isZh ? `解绑 ${acc.email_address}？` : `Unbind ${acc.email_address}?`)) return;
                           try {
-                            await handleUnbindMailAccount(acc.id);
+                            await unbindMailAccount(acc.id);
                             showToast(isZh ? '已解绑' : 'Unbound');
                           } catch {
                             showToast(isZh ? '解绑失败' : 'Failed to unbind');
@@ -775,10 +781,8 @@ export default function SettingsPage() {
       <BindMailAccountModal
         isOpen={showBindMail}
         onClose={() => setShowBindMail(false)}
-        authToken={authToken}
         onBound={() => {
           showToast(i18n.language === 'zh' ? '邮箱绑定成功' : 'Mail account bound');
-          handleRefreshMailAccounts();
         }}
         isZh={isZh}
       />

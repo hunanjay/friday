@@ -9,6 +9,7 @@ from app.infrastructure.graph.client import (
     graph_get_paginated,
     graph_patch,
     graph_post,
+    invalidate_ms_token,
     refresh_ms_token,
 )
 
@@ -22,5 +23,6 @@ __all__ = [
     "graph_get_paginated",
     "graph_patch",
     "graph_post",
+    "invalidate_ms_token",
     "refresh_ms_token",
 ]

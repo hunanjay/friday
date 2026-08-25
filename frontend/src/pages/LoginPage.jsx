@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Github, Globe, Info, MicrosoftIcon, Moon, Sun } from '../components/common/Icons';
-import { supabase } from '../supabaseClient';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { startAzureSignIn } from '../features/auth/azureAuth';
+import { useAuth } from '../features/auth/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
 
 export default function LoginPage() {
   const [error, setError] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const { user } = useWorkspace();
+  const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -25,13 +25,7 @@ export default function LoginPage() {
     setIsSigningIn(true);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithOAuth({
-        provider: 'azure',
-        options: {
-          redirectTo: window.location.origin,
-          scopes: 'openid email profile offline_access Mail.ReadWrite Mail.Send Calendars.ReadWrite Contacts.ReadWrite',
-        },
-      });
+      const { error: signInError } = await startAzureSignIn();
 
       if (signInError) {
         setError(signInError.message);

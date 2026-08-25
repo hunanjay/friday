@@ -1,48 +1,118 @@
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../i18n';
-import { WorkspaceContext } from '../context/workspace-context';
 import SettingsPage from '../pages/SettingsPage';
 
-// SettingsPage reads everything through useWorkspace(), which is just
-// useContext(WorkspaceContext) - so a real click-driven render doesn't need
-// the actual Supabase/OAuth login flow, only this context filled in.
+const settingsState = vi.hoisted(() => ({}));
+const githubState = vi.hoisted(() => ({}));
+const mailState = vi.hoisted(() => ({}));
+const providerState = vi.hoisted(() => ({}));
+
+vi.mock('../features/auth/useAuth', () => ({
+  useAuth: () => providerState.auth,
+}));
+
+vi.mock('../hooks/useTheme', () => ({
+  useTheme: () => providerState.theme,
+}));
+
+vi.mock('../hooks/useUi', () => ({
+  useUi: () => providerState.ui,
+}));
+
+vi.mock('../features/settings/hooks', () => ({
+  useAssistantName: () => ({
+    assistantName: settingsState.assistantName,
+    updateAssistantName: settingsState.handleUpdateAssistantName,
+  }),
+  useSignature: () => ({
+    signature: settingsState.signature,
+    updateSignature: settingsState.handleUpdateSignature,
+  }),
+  useAvatar: () => ({
+    avatarUrl: settingsState.avatarUrl,
+    updateAvatar: settingsState.handleUpdateAvatar,
+  }),
+  useAvatarPresets: () => ({ avatarPresets: settingsState.avatarPresets }),
+}));
+
+vi.mock('../features/github/hooks', () => ({
+  useGitHubConnection: () => ({
+    githubStatus: githubState.githubStatus,
+    connectGitHub: githubState.connectGitHub,
+    disconnectGitHub: githubState.disconnectGitHub,
+  }),
+  useGitHubRepositories: () => ({
+    githubRepositories: githubState.githubRepositories,
+    saveGitHubRepositories: githubState.saveGitHubRepositories,
+  }),
+}));
+
+vi.mock('../features/mail/accountHooks', () => ({
+  useMailAccounts: () => ({
+    mailAccounts: mailState.mailAccounts,
+    bindMailAccount: mailState.bindMailAccount,
+    unbindMailAccount: mailState.unbindMailAccount,
+    verifyMailAccount: mailState.verifyMailAccount,
+  }),
+  useMailProviders: () => ({ mailProviders: mailState.mailProviders }),
+}));
+
 function renderSettings(overrides = {}) {
+  Object.assign(settingsState, {
+    assistantName: 'Friday',
+    handleUpdateAssistantName: vi.fn(),
+    signature: '',
+    handleUpdateSignature: vi.fn(),
+    avatarUrl: '/avatars/avatar-01.png',
+    avatarPresets: [{ id: 'avatar-01.png', url: '/avatars/avatar-01.png' }],
+    handleUpdateAvatar: vi.fn().mockResolvedValue('/avatars/avatar-01.png'),
+  }, overrides);
+  Object.assign(githubState, {
+    githubStatus: { connected: false },
+    githubRepositories: { available: [], selected: [] },
+    connectGitHub: vi.fn(),
+    disconnectGitHub: vi.fn(),
+    saveGitHubRepositories: vi.fn(),
+  }, overrides);
+  Object.assign(mailState, {
+    mailAccounts: [],
+    mailProviders: [],
+    bindMailAccount: vi.fn(),
+    unbindMailAccount: vi.fn(),
+    verifyMailAccount: vi.fn(),
+  }, overrides);
+
   const value = {
     user: { name: 'Test User', email: 'test@example.com' },
     theme: 'light',
     toggleTheme: vi.fn(),
     handleLogout: vi.fn(),
-    githubStatus: { connected: false },
-    githubRepos: { available: [], selected: [] },
-    handleConnectGithub: vi.fn(),
-    handleDisconnectGithub: vi.fn(),
-    handleSaveGithubRepos: vi.fn(),
-    mailAccounts: [],
-    handleUnbindMailAccount: vi.fn(),
-    handleVerifyMailAccount: vi.fn(),
-    handleRefreshMailAccounts: vi.fn(),
-    assistantName: 'Friday',
-    handleUpdateAssistantName: vi.fn(),
-    avatarUrl: '/avatars/avatar-01.png',
-    avatarPresets: [{ id: 'avatar-01.png', url: '/avatars/avatar-01.png' }],
-    handleUpdateAvatar: vi.fn().mockResolvedValue('/avatars/avatar-01.png'),
     showToast: vi.fn(),
     ...overrides,
   };
+  providerState.auth = {
+    user: value.user,
+    authToken: value.authToken,
+    handleLogout: value.handleLogout,
+    handleSwitchAccount: value.handleSwitchAccount,
+    handleMsLogout: value.handleMsLogout,
+  };
+  providerState.theme = { theme: value.theme, toggleTheme: value.toggleTheme };
+  providerState.ui = { showToast: value.showToast };
   render(
     <MemoryRouter>
-      <WorkspaceContext.Provider value={value}>
-        <SettingsPage />
-      </WorkspaceContext.Provider>
+      <SettingsPage />
     </MemoryRouter>
   );
-  return value;
+  return { ...value, ...settingsState, ...githubState, ...mailState };
 }
 
 describe('SettingsPage assistant avatar', () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it('marks the currently selected preset with a check', () => {
     renderSettings();
     expect(screen.getByTitle('avatar-01.png (current)')).toHaveClass('selected');

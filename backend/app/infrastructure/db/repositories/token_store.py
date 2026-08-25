@@ -22,6 +22,10 @@ def get_ms_token(user_id: str) -> str | None:
     return row["token"] if row else None
 
 
+def delete_ms_token(user_id: str) -> None:
+    supabase_admin.table("ms_tokens").delete().eq("user_id", user_id).execute()
+
+
 def set_github_token(user_id: str, token: str) -> None:
     updated = supabase_admin.table("github_tokens").update({"token": token}).eq("user_id", user_id).execute()
     if not updated.data:
