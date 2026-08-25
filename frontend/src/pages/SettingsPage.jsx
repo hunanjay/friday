@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useAssistantName, useAvatar, useAvatarPresets, useSignature } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
 import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3 } from '../components/common/Icons';
@@ -10,6 +11,10 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 export default function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { assistantName, updateAssistantName } = useAssistantName();
+  const { signature, updateSignature } = useSignature();
+  const { avatarUrl, updateAvatar } = useAvatar();
+  const { avatarPresets } = useAvatarPresets();
   const {
     user,
     theme,
@@ -25,13 +30,6 @@ export default function SettingsPage() {
     handleUnbindMailAccount,
     handleVerifyMailAccount,
     handleRefreshMailAccounts,
-    assistantName,
-    signature = '',
-    handleUpdateSignature,
-    handleUpdateAssistantName,
-    avatarUrl,
-    avatarPresets,
-    handleUpdateAvatar,
     showToast,
   } = useWorkspace();
 
@@ -153,7 +151,7 @@ export default function SettingsPage() {
     if (!name || name === assistantName) return;
     setIsSavingAssistantName(true);
     try {
-      await handleUpdateAssistantName(name);
+      await updateAssistantName(name);
       showToast(isZh ? '助手名称已更新' : 'Assistant name updated');
     } catch {
       showToast(isZh ? '更新失败' : 'Failed to update assistant name');
@@ -165,7 +163,7 @@ export default function SettingsPage() {
   const handleSaveSignature = async () => {
     setIsSavingSignature(true);
     try {
-      await handleUpdateSignature(signatureDraft.trim());
+      await updateSignature(signatureDraft.trim());
       showToast(isZh ? '邮件签名已保存' : 'Email signature saved');
       setIsEditingSignature(false);
     } catch {
@@ -191,7 +189,7 @@ export default function SettingsPage() {
     }
     setIsSavingAvatar(true);
     try {
-      await handleUpdateAvatar(url);
+      await updateAvatar(url);
       showToast(isZh ? '头像已更新' : 'Avatar updated');
     } catch {
       showToast(isZh ? '更新失败' : 'Failed to update avatar');

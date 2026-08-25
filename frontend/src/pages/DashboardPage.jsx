@@ -25,6 +25,7 @@ import {
   TaskListLtr24Regular,
 } from '@fluentui/react-icons';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useAssistantName } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
 import './DashboardPage.css';
@@ -222,7 +223,8 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
   const { theme } = useTheme();
-  const { authToken, emails, githubStatus, inboxUnread, memos, user, mailAccounts, handleSyncInboxEmails, assistantName } = useWorkspace();
+  const { assistantName } = useAssistantName();
+  const { authToken, emails, githubStatus, inboxUnread, memos, user, mailAccounts, handleSyncInboxEmails } = useWorkspace();
   const isZh = i18n.language === 'zh';
 
   // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────

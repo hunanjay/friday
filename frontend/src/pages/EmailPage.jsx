@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { readComposeDraft, writeComposeDraft } from './composeDraft';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
@@ -55,6 +56,9 @@ function normalizeMessage(msg, parentFolderId) {
 export default function EmailPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { assistantName } = useAssistantName();
+  const { avatarUrl } = useAvatar();
+  const { signature } = useSignature();
   const {
     user,
     emails,
@@ -72,10 +76,7 @@ export default function EmailPage() {
     handleLogout,
     setIsSidebarCollapsed,
     mailAccounts,
-    msDisconnected,
-    assistantName,
-    avatarUrl,
-    signature
+    msDisconnected
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();

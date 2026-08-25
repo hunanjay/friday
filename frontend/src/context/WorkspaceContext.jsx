@@ -194,98 +194,6 @@ export function WorkspaceProvider({ children }) {
       .catch(() => {});
   }, [authToken]);
 
-  const [assistantName, setAssistantName] = useState('Friday');
-  useEffect(() => {
-    if (!authToken) {
-      setAssistantName('Friday');
-      return;
-    }
-    fetch(`${API_URL}/api/settings/assistant-name`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => data?.assistant_name && setAssistantName(data.assistant_name))
-      .catch(() => {});
-  }, [authToken]);
-
-  useEffect(() => {
-    document.title = assistantName;
-  }, [assistantName]);
-
-  const handleUpdateAssistantName = useCallback(async (name) => {
-    const res = await fetch(`${API_URL}/api/settings/assistant-name`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ assistant_name: name }),
-    });
-    if (!res.ok) throw new Error('Failed to update assistant name');
-    const data = await res.json();
-    setAssistantName(data.assistant_name);
-    return data.assistant_name;
-  }, [authToken]);
-
-  // Email signature. The backend appends it at send time (every send route
-  // shares one renderer); the compose form only previews it.
-  const [signature, setSignature] = useState('');
-  useEffect(() => {
-    if (!authToken) {
-      setSignature('');
-      return;
-    }
-    fetch(`${API_URL}/api/settings/signature`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => setSignature(data?.signature || ''))
-      .catch(() => {});
-  }, [authToken]);
-
-  const handleUpdateSignature = useCallback(async (value) => {
-    const res = await fetch(`${API_URL}/api/settings/signature`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ signature: value }),
-    });
-    if (!res.ok) throw new Error('Failed to update signature');
-    const data = await res.json();
-    setSignature(data.signature || '');
-    return data.signature || '';
-  }, [authToken]);
-
-  const [avatarUrl, setAvatarUrl] = useState(null);
-  const [avatarPresets, setAvatarPresets] = useState([]);
-  useEffect(() => {
-    if (!authToken) {
-      setAvatarUrl(null);
-      setAvatarPresets([]);
-      return;
-    }
-    fetch(`${API_URL}/api/settings/avatar`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => setAvatarUrl(data?.avatar_url ?? null))
-      .catch(() => {});
-    fetch(`${API_URL}/api/settings/avatar-presets`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { presets: [] }))
-      .then(data => setAvatarPresets(data.presets || []))
-      .catch(() => {});
-  }, [authToken]);
-
-  const handleUpdateAvatar = useCallback(async (url) => {
-    const res = await fetch(`${API_URL}/api/settings/avatar`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ avatar_url: url }),
-    });
-    if (!res.ok) throw new Error('Failed to update avatar');
-    const data = await res.json();
-    setAvatarUrl(data.avatar_url);
-    return data.avatar_url;
-  }, [authToken]);
-
   useEffect(() => {
     if (!authToken) {
       setGithubStatus(null);
@@ -527,13 +435,6 @@ export function WorkspaceProvider({ children }) {
         messages,
         chatThreads,
         memos,
-        assistantName,
-        handleUpdateAssistantName,
-        signature,
-        handleUpdateSignature,
-        avatarUrl,
-        avatarPresets,
-        handleUpdateAvatar,
         isSidebarCollapsed,
         setIsSidebarCollapsed,
         toast,

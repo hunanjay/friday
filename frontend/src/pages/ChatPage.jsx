@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useAssistantName, useAvatar } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import { Send, StopIcon, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
@@ -20,6 +21,8 @@ const AGENT_IDS = Object.keys(AGENT_ICONS);
 const isActionResolved = status => Boolean(status && status !== 'pending');
 
 export default function ChatPage() {
+  const { assistantName } = useAssistantName();
+  const { avatarUrl } = useAvatar();
   const {
     chatThreads,
     handleCreateSession,
@@ -27,9 +30,7 @@ export default function ChatPage() {
     handleUpdateSessionPreview,
     handleDeleteSession,
     handleLogout,
-    authToken,
-    assistantName,
-    avatarUrl
+    authToken
   } = useWorkspace();
   const navigate = useNavigate();
 

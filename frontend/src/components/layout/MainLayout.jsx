@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../features/auth/useAuth';
+import { useAssistantName, useAvatar } from '../../features/settings/hooks';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useTheme } from '../../hooks/useTheme';
 import { useUi } from '../../hooks/useUi';
@@ -12,13 +13,13 @@ import { Grid24Regular } from '@fluentui/react-icons';
 export default function MainLayout() {
   const { user, handleLogout } = useAuth();
   const { isSidebarCollapsed, setIsSidebarCollapsed, toast } = useUi();
+  const { assistantName } = useAssistantName();
+  const { avatarUrl } = useAvatar();
   const {
     emails,
     inboxUnread,
     isSyncingInbox,
     isSyncingEvents,
-    assistantName,
-    avatarUrl,
   } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();

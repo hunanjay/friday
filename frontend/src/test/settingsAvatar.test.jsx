@@ -1,15 +1,40 @@
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../i18n';
 import { WorkspaceContext } from '../context/workspace-context';
 import SettingsPage from '../pages/SettingsPage';
 
-// SettingsPage reads everything through useWorkspace(), which is just
-// useContext(WorkspaceContext) - so a real click-driven render doesn't need
-// the actual Supabase/OAuth login flow, only this context filled in.
+const settingsState = vi.hoisted(() => ({}));
+
+vi.mock('../features/settings/hooks', () => ({
+  useAssistantName: () => ({
+    assistantName: settingsState.assistantName,
+    updateAssistantName: settingsState.handleUpdateAssistantName,
+  }),
+  useSignature: () => ({
+    signature: settingsState.signature,
+    updateSignature: settingsState.handleUpdateSignature,
+  }),
+  useAvatar: () => ({
+    avatarUrl: settingsState.avatarUrl,
+    updateAvatar: settingsState.handleUpdateAvatar,
+  }),
+  useAvatarPresets: () => ({ avatarPresets: settingsState.avatarPresets }),
+}));
+
 function renderSettings(overrides = {}) {
+  Object.assign(settingsState, {
+    assistantName: 'Friday',
+    handleUpdateAssistantName: vi.fn(),
+    signature: '',
+    handleUpdateSignature: vi.fn(),
+    avatarUrl: '/avatars/avatar-01.png',
+    avatarPresets: [{ id: 'avatar-01.png', url: '/avatars/avatar-01.png' }],
+    handleUpdateAvatar: vi.fn().mockResolvedValue('/avatars/avatar-01.png'),
+  }, overrides);
+
   const value = {
     user: { name: 'Test User', email: 'test@example.com' },
     theme: 'light',
@@ -24,11 +49,6 @@ function renderSettings(overrides = {}) {
     handleUnbindMailAccount: vi.fn(),
     handleVerifyMailAccount: vi.fn(),
     handleRefreshMailAccounts: vi.fn(),
-    assistantName: 'Friday',
-    handleUpdateAssistantName: vi.fn(),
-    avatarUrl: '/avatars/avatar-01.png',
-    avatarPresets: [{ id: 'avatar-01.png', url: '/avatars/avatar-01.png' }],
-    handleUpdateAvatar: vi.fn().mockResolvedValue('/avatars/avatar-01.png'),
     showToast: vi.fn(),
     ...overrides,
   };
@@ -39,10 +59,12 @@ function renderSettings(overrides = {}) {
       </WorkspaceContext.Provider>
     </MemoryRouter>
   );
-  return value;
+  return { ...value, ...settingsState };
 }
 
 describe('SettingsPage assistant avatar', () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it('marks the currently selected preset with a check', () => {
     renderSettings();
     expect(screen.getByTitle('avatar-01.png (current)')).toHaveClass('selected');
