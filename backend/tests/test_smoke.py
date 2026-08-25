@@ -211,6 +211,7 @@ def _called_names(node: ast.AST) -> set[str]:
 
 for tool_name in (
     "send_email",
+    "reply_email",
     "forward_email",
     "delete_email",
     "create_event",
@@ -263,7 +264,7 @@ from app.agents.hitl import (  # noqa: E402
 )
 
 expected_hitl_tools = {
-    "send_email", "forward_email", "delete_email", "create_event", "delete_event",
+    "send_email", "reply_email", "forward_email", "delete_email", "create_event", "delete_event",
     "accept_event", "decline_event",
 }
 check("all email/calendar mutation tools have interrupt policies",
@@ -1136,6 +1137,28 @@ check(
 check(
     "an argument the tool does not take is still refused",
     "Unknown editable fields" in _edit_error(_mail_interrupt, {"reply_to": "evil@x.com"}),
+)
+_reply_interrupt = Interrupt(
+    id="reply-1",
+    value={
+        "action_requests": [
+            {"name": "reply_email", "args": {"email_id": "abc", "body": "Sounds good", "reply_all": False}}
+        ],
+        "review_configs": [{"allowed_decisions": ["approve", "edit", "reject"]}],
+    },
+)
+check(
+    "replying is offered as its own card, not the generic fallback",
+    interrupt_to_action(_reply_interrupt, "s1")["presentation"]["renderer"] == "email_reply",
+)
+check(
+    "the reply card is editable and previews the signature",
+    interrupt_to_action(_reply_interrupt, "s1", signature="Yours")["presentation"]["signature"]
+    == "Yours",
+)
+check(
+    "the agent can reply, so it never has to retype an email it was given",
+    "reply_email" in _returned_tool_names("make_mail_tools"),
 )
 _forward_interrupt = Interrupt(
     id="fwd-1",

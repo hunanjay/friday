@@ -242,6 +242,32 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         return f"Email sent to {', '.join(to_addrs + cc_addrs)}."
 
     @tool
+    async def reply_email(email_id: str, body: str, reply_all: bool = False, cc: str = "") -> str:
+        """Reply to an existing email, by id, keeping it in the same thread.
+        Set `reply_all` to reply to everyone on the thread - Graph resolves
+        that recipient list itself. Guarded by HITL: it runs only after
+        approval."""
+        action = "replyAll" if reply_all else "reply"
+        await _graph_mutation(
+            graph_post(
+                user_id,
+                f"/me/messages/{quote(email_id)}/{action}",
+                {
+                    "message": {
+                        "body": {
+                            "contentType": "HTML",
+                            "content": await render_body(user_id, body),
+                        },
+                        "ccRecipients": [
+                            {"emailAddress": {"address": a}} for a in parse_recipients(cc)
+                        ],
+                    },
+                },
+            )
+        )
+        return f"Replied to email {email_id}."
+
+    @tool
     async def forward_email(email_id: str, to: str, comment: str = "", cc: str = "") -> str:
         """Forward an existing email, by id, to other people. Graph carries the
         original body and its attachments, so `comment` is only the note added
@@ -298,6 +324,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         search_emails,
         read_email,
         send_email,
+        reply_email,
         forward_email,
         mark_email_read,
         delete_email,
