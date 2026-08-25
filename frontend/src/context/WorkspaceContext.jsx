@@ -21,20 +21,6 @@ function safeSetItem(key, value) {
   }
 }
 
-// Backend returns updated_at as an ISO string; MemosPage sorts/displays via
-// the derived updatedAt (epoch ms) and dateStr fields it already expects.
-function mapMemo(memo) {
-  return {
-    ...memo,
-    updatedAt: Date.parse(memo.updated_at),
-    dateStr: new Date(memo.updated_at).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    }),
-  };
-}
-
 export function WorkspaceProvider({ children }) {
   const {
     user,
@@ -69,10 +55,6 @@ export function WorkspaceProvider({ children }) {
   // Real chat sessions (thread_id for the LangGraph agent + Postgres
   // checkpointer), fetched from the backend rather than hardcoded.
   const [chatThreads, setChatThreads] = useState([]);
-
-  // Memos are backend-persisted (Postgres + Qdrant hybrid search index), not
-  // localStorage - fetched once authToken is available (see effect below).
-  const [memos, setMemos] = useState([]);
 
   // Sync to Local Storage
   // emails and events are cached for fast initial render; messages are NOT
@@ -146,19 +128,6 @@ export function WorkspaceProvider({ children }) {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken, mailAccounts]);
-
-  useEffect(() => {
-    if (!authToken) {
-      setMemos([]);
-      return;
-    }
-    fetch(`${API_URL}/api/memos`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { memos: [] }))
-      .then(data => setMemos((data.memos || []).map(mapMemo)))
-      .catch(() => {});
-  }, [authToken]);
 
   const handleCreateSession = useCallback(async (title) => {
     const res = await fetch(`${API_URL}/api/agent/sessions`, {
@@ -250,38 +219,6 @@ export function WorkspaceProvider({ children }) {
     setMessages(prev => prev.map(m => m.id === id ? { ...m, text: newText } : m));
   }, []);
 
-  // `memo` here is the editable fields only (title/content/category/color) -
-  // the backend assigns id/pinned/updated_at.
-  const handleAddMemo = useCallback(async (memo) => {
-    const res = await fetch(`${API_URL}/api/memos`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify(memo),
-    });
-    const created = mapMemo(await res.json());
-    setMemos(prev => [created, ...prev]);
-    return created;
-  }, [authToken]);
-
-  const handleUpdateMemo = useCallback(async (updatedMemo) => {
-    const res = await fetch(`${API_URL}/api/memos/${updatedMemo.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify(updatedMemo),
-    });
-    const saved = mapMemo(await res.json());
-    setMemos(prev => prev.map(m => m.id === saved.id ? saved : m));
-    return saved;
-  }, [authToken]);
-
-  const handleDeleteMemo = useCallback(async (id) => {
-    await fetch(`${API_URL}/api/memos/${id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    setMemos(prev => prev.filter(m => m.id !== id));
-  }, [authToken]);
-
   return (
     <WorkspaceContext.Provider
       value={{
@@ -290,7 +227,6 @@ export function WorkspaceProvider({ children }) {
         events,
         messages,
         chatThreads,
-        memos,
         isSidebarCollapsed,
         setIsSidebarCollapsed,
         toast,
@@ -320,10 +256,7 @@ export function WorkspaceProvider({ children }) {
         handleDeleteEvent,
         handleSendMessage,
         handleSimulateBotReply,
-        handleUpdateMessageText,
-        handleAddMemo,
-        handleUpdateMemo,
-        handleDeleteMemo
+        handleUpdateMessageText
       }}
     >
       {children}

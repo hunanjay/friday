@@ -27,6 +27,7 @@ import {
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useGitHubConnection } from '../features/github/hooks';
 import { useMailAccounts } from '../features/mail/accountHooks';
+import { useMemos } from '../features/memos/hooks';
 import { useAssistantName } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -228,7 +229,8 @@ export default function DashboardPage() {
   const { assistantName } = useAssistantName();
   const { githubStatus } = useGitHubConnection();
   const { mailAccounts } = useMailAccounts();
-  const { authToken, emails, inboxUnread, memos, user, handleSyncInboxEmails } = useWorkspace();
+  const { memos, isLoadingMemos } = useMemos();
+  const { authToken, emails, inboxUnread, user, handleSyncInboxEmails } = useWorkspace();
   const isZh = i18n.language === 'zh';
 
   // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────
@@ -458,18 +460,14 @@ export default function DashboardPage() {
   const [isCommitsLoading, setIsCommitsLoading] = useState(Boolean(authToken));
 
   const [isEmailsLoading, setIsEmailsLoading] = useState(Boolean(authToken) && !emails.length);
-  const [memosReady, setMemosReady] = useState(memos.length > 0);
-
   const [panelErrors, setPanelErrors] = useState({ email: false, calendar: false, github: false });
   const [retryKey, setRetryKey] = useState(0);
   const loadError = Object.values(panelErrors).some(Boolean);
   const handleRetry = () => setRetryKey(key => key + 1);
 
-  useEffect(() => { if (memos.length > 0) setMemosReady(true); }, [memos]);
   useEffect(() => {
     if (!authToken) {
       setIsEmailsLoading(false);
-      setMemosReady(true);
     }
   }, [authToken]);
 
@@ -1115,7 +1113,7 @@ export default function DashboardPage() {
                   {copy.openMemos}
                 </Button>
               </div>
-              {!memosReady ? <PanelSkeleton rows={3} swatches /> : relevantMemos.length ? (
+              {isLoadingMemos ? <PanelSkeleton rows={3} swatches /> : relevantMemos.length ? (
                 <div className="dashboard-memo-list">
                   {relevantMemos.map(memo => (
                     <button type="button" className="dashboard-list-item" key={memo.id} onClick={() => navigate('/memos', { state: { memoId: memo.id } })}>
