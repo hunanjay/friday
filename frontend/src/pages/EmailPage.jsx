@@ -8,6 +8,7 @@ import {
 } from '../features/mail/mailboxApi';
 import { useMailFolderSync } from '../features/mail/useMailFolderSync';
 import { useMailCompose } from '../features/mail/useMailCompose';
+import { EmailComposer } from '../features/mail/components/EmailComposer';
 import { useMailSearch } from '../features/mail/useMailSearch';
 import { useMailThread } from '../features/mail/useMailThread';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
@@ -57,31 +58,7 @@ export default function EmailPage() {
     void syncSent();
     void syncInbox();
   }, [syncInbox, syncSent]);
-  const {
-    addAttachments,
-    closeCompose,
-    composeAttachments,
-    composeBcc,
-    composeBody,
-    composeCc,
-    composeChannel,
-    composeSubject,
-    composeTo,
-    isComposing,
-    isSending,
-    openComposeFor: openMailComposeFor,
-    openFreshCompose,
-    removeAttachment,
-    setComposeBcc,
-    setComposeBody,
-    setComposeCc,
-    setComposeChannel,
-    setComposeSubject,
-    setComposeTo,
-    setShowCopyFields,
-    showCopyFields,
-    submitCompose: handleComposeSubmit,
-  } = useMailCompose({
+  const mailCompose = useMailCompose({
     connectionErrorMessage: i18n.language === 'zh'
       ? '无法连接到邮件服务，请稍后再试。'
       : "Couldn't reach the mail service, please try again later.",
@@ -89,6 +66,10 @@ export default function EmailPage() {
     onToast: showToast,
     sentMessage: t('email.sentSuccess'),
   });
+  const {
+    openComposeFor: openMailComposeFor,
+    openFreshCompose,
+  } = mailCompose;
 
   const [searchQuery, setSearchQuery] = useState('');
   const {
@@ -213,11 +194,6 @@ export default function EmailPage() {
   const selectedEmail = threadMessages.length > 0
     ? threadMessages[threadMessages.length - 1]
     : null;
-
-  const handleAttachmentChange = (e) => {
-    addAttachments(e.target.files, values => t('email.attachmentsTooLarge', values));
-    e.target.value = '';
-  };
 
 
   const handleDelete = (id) => {
@@ -749,125 +725,13 @@ export default function EmailPage() {
         )}
       </div>
 
-      {/* Compose Modal */}
-      {isComposing && (
-        <div className="compose-modal-overlay">
-          <div className="compose-modal">
-            <div className="compose-modal-header">
-              <h3>{i18n.language === 'zh' ? "新建邮件" : "New Message"}</h3>
-              <button className="close-compose" onClick={closeCompose}>
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleComposeSubmit} className="compose-form">
-              <div className="compose-input-group">
-                <label htmlFor="compose-provider">{i18n.language === 'zh' ? '发送账户' : 'Send from'}:</label>
-                <select
-                  id="compose-provider"
-                  value={composeChannel}
-                  onChange={(e) => setComposeChannel(e.target.value)}
-                  style={{ flex: 1, padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-light)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
-                >
-                  <option value={MICROSOFT}>{i18n.language === 'zh' ? '微软邮箱 (Outlook)' : 'Microsoft (Outlook)'}</option>
-                  {(mailAccounts || []).map(acc => (
-                    <option key={acc.id} value={acc.id}>{acc.email_address}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="compose-input-group">
-                <label htmlFor="compose-to">{t('email.to')}:</label>
-                <input
-                  type="text"
-                  id="compose-to"
-                  value={composeTo}
-                  onChange={(e) => setComposeTo(e.target.value)}
-                  placeholder="recipients@email.com"
-                  required
-                />
-                {!showCopyFields && (
-                  <button
-                    type="button"
-                    className="compose-copy-toggle"
-                    onClick={() => setShowCopyFields(true)}
-                  >
-                    {t('email.cc')} / {t('email.bcc')}
-                  </button>
-                )}
-              </div>
-              {showCopyFields && (
-                <>
-                  <div className="compose-input-group">
-                    <label htmlFor="compose-cc">{t('email.cc')}:</label>
-                    <input
-                      type="text"
-                      id="compose-cc"
-                      value={composeCc}
-                      onChange={(e) => setComposeCc(e.target.value)}
-                      placeholder="a@example.com, b@example.com"
-                    />
-                  </div>
-                  <div className="compose-input-group">
-                    <label htmlFor="compose-bcc">{t('email.bcc')}:</label>
-                    <input
-                      type="text"
-                      id="compose-bcc"
-                      value={composeBcc}
-                      onChange={(e) => setComposeBcc(e.target.value)}
-                      placeholder="a@example.com, b@example.com"
-                    />
-                  </div>
-                </>
-              )}
-              <div className="compose-input-group">
-                <label htmlFor="compose-subject">{t('email.subject')}:</label>
-                <input
-                  type="text"
-                  id="compose-subject"
-                  value={composeSubject}
-                  onChange={(e) => setComposeSubject(e.target.value)}
-                  placeholder="Conversation topic"
-                  required
-                />
-              </div>
-              <div className="compose-body-group">
-                <textarea
-                  id="compose-body"
-                  value={composeBody}
-                  onChange={(e) => setComposeBody(e.target.value)}
-                  placeholder="Write your email here..."
-                  required
-                />
-                {/* Read-only: the backend appends this at send time, for every
-                    send route. Shown so the append is never a surprise. */}
-                {signature && (
-                  <div className="compose-signature-preview">
-                    <span>{t('email.signature')}</span>
-                    <p>{signature}</p>
-                  </div>
-                )}
-              </div>
-              <div className="compose-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="compose-attachments-list" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
-                  <label className="attachment-upload-btn" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '6px 12px', backgroundColor: 'var(--bg-secondary)', borderRadius: '4px', fontSize: '0.85rem', border: '1px solid var(--border-light)' }}>
-                    <Plus size={14} style={{ marginRight: '4px' }}/> {i18n.language === 'zh' ? '添加附件' : 'Add'}
-                    <input type="file" multiple style={{ display: 'none' }} onChange={handleAttachmentChange} />
-                  </label>
-                  {composeAttachments.map((att, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', backgroundColor: 'var(--bg-hover)', borderRadius: '4px', fontSize: '0.8rem', border: '1px solid var(--border-light)' }}>
-                      <span style={{ maxWidth: '100px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={att.name}>{att.name}</span>
-                      <X size={12} style={{ cursor: 'pointer', color: 'var(--text-tertiary)' }} onClick={() => removeAttachment(idx)} />
-                    </div>
-                  ))}
-                </div>
-                <button type="submit" className="send-btn" disabled={isSending}>
-                  <Send size={16} />
-                  <span>{isSending ? `${t('email.send')}...` : t('email.send')}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <EmailComposer
+        compose={mailCompose}
+        isZh={i18n.language === 'zh'}
+        mailAccounts={mailAccounts}
+        signature={signature}
+        t={t}
+      />
     </div>
   );
 }
