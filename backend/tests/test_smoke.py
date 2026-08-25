@@ -1200,7 +1200,7 @@ check(
     assert_attachments_fit([{"content": b"x" * 1024}], GRAPH_ATTACHMENT_LIMIT) is None
     and assert_attachments_fit(None, GRAPH_ATTACHMENT_LIMIT) is None,
 )
-_compose_source = (backend_dir.parent / "frontend/src/pages/EmailPage.jsx").read_text()
+_compose_source = (backend_dir.parent / "frontend/src/features/mail/useMailCompose.js").read_text()
 check(
     # The UI checks before uploading, so it carries its own copy of the numbers.
     "the compose form's limits still match the ones the backend enforces",
