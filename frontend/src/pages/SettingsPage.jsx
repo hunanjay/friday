@@ -6,7 +6,7 @@ import { useMailAccounts } from '../features/mail/accountHooks';
 import { useAssistantName, useAvatar, useAvatarPresets, useSignature } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3 } from '../components/common/Icons';
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3, RefreshCw, MicrosoftIcon } from '../components/common/Icons';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -27,6 +27,8 @@ export default function SettingsPage() {
     theme,
     toggleTheme,
     handleLogout,
+    handleSwitchAccount,
+    handleMsLogout,
     authToken,
     showToast,
   } = useWorkspace();
@@ -267,6 +269,14 @@ export default function SettingsPage() {
                     <div className="settings-id-meta">{user.email}</div>
                   </div>
                   <div className="settings-row-actions">
+                    <button className="settings-btn" onClick={handleSwitchAccount}>
+                      <RefreshCw size={16} />
+                      <span>{t('common.switchMsAccount')}</span>
+                    </button>
+                    <button className="settings-btn btn-danger" onClick={handleMsLogout} title={t('common.signOutMsHint')}>
+                      <MicrosoftIcon size={16} />
+                      <span>{t('common.signOutMs')}</span>
+                    </button>
                     <button className="settings-btn btn-danger" onClick={handleLogout}>
                       <LogOut size={16} />
                       <span>{t('common.signOut')}</span>

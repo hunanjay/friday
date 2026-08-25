@@ -1252,6 +1252,32 @@ check(
 
 
 # ---------------------------------------------------------------------------
+# 19. Microsoft account disconnect
+# ---------------------------------------------------------------------------
+
+section("19. Microsoft account disconnect")
+
+from unittest.mock import patch  # noqa: E402
+
+from app.api.auth import revoke_graph_token  # noqa: E402
+
+
+async def _revoke_graph_token_calls_through():
+    with (
+        patch("app.api.auth.delete_ms_token") as mock_delete,
+        patch("app.api.auth.invalidate_ms_token") as mock_invalidate,
+    ):
+        result = await revoke_graph_token(user_id="smoke-test-user")
+    return result, mock_delete.call_args, mock_invalidate.call_args
+
+
+_revoke_result, _delete_call, _invalidate_call = asyncio.run(_revoke_graph_token_calls_through())
+check("DELETE /api/graph/token disconnects Microsoft, returns ok", _revoke_result == {"status": "ok"})
+check("it deletes the persisted Graph token row for this user", _delete_call.args == ("smoke-test-user",))
+check("it also drops the in-memory token cache for this user", _invalidate_call.args == ("smoke-test-user",))
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

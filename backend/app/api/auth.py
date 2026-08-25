@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from app.core.security import get_user_id
-from app.infrastructure.db.repositories.token_store import set_ms_token
-from app.tools.graph_client import cache_ms_token, graph_get, refresh_ms_token
+from app.infrastructure.db.repositories.token_store import delete_ms_token, set_ms_token
+from app.tools.graph_client import cache_ms_token, graph_get, invalidate_ms_token, refresh_ms_token
 
 router = APIRouter(prefix="/api/graph", tags=["auth"])
 
@@ -17,6 +17,17 @@ async def store_graph_token(body: dict, user_id: str = Depends(get_user_id)):
         set_ms_token, user_id, ms_token, body.get("refresh_token"), body.get("expires_in")
     )
     cache_ms_token(user_id, ms_token)
+    return {"status": "ok"}
+
+
+@router.delete("/token")
+async def revoke_graph_token(user_id: str = Depends(get_user_id)):
+    """Disconnects Microsoft from this account: drops the stored Graph
+    token/refresh token so mail/calendar tools stop working for this user
+    until they sign in again. Does not touch the browser's Azure AD SSO
+    session - the frontend handles that separately."""
+    await run_in_threadpool(delete_ms_token, user_id)
+    invalidate_ms_token(user_id)
     return {"status": "ok"}
 
 

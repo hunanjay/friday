@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   apiRequest: vi.fn(),
   onAuthStateChange: vi.fn(),
   signOut: vi.fn(),
+  signInWithOAuth: vi.fn(),
   unsubscribe: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock('../supabaseClient', () => ({
     auth: {
       onAuthStateChange: mocks.onAuthStateChange,
       signOut: mocks.signOut,
+      signInWithOAuth: mocks.signInWithOAuth,
     },
   },
 }));
@@ -24,13 +26,15 @@ vi.mock('../supabaseClient', () => ({
 let authCallback;
 
 function AuthProbe() {
-  const { user, authToken, isAuthReady, handleLogout } = useAuth();
+  const { user, authToken, isAuthReady, handleLogout, handleSwitchAccount, handleMsLogout } = useAuth();
   return (
     <div>
       <span data-testid="user">{user?.email || 'none'}</span>
       <span data-testid="token">{authToken || 'none'}</span>
       <span data-testid="ready">{String(isAuthReady)}</span>
       <button type="button" onClick={handleLogout}>logout</button>
+      <button type="button" onClick={handleSwitchAccount}>switch</button>
+      <button type="button" onClick={handleMsLogout}>ms-logout</button>
     </div>
   );
 }
@@ -40,6 +44,7 @@ beforeEach(() => {
   authCallback = null;
   mocks.apiRequest.mockReset().mockResolvedValue({ status: 'ok' });
   mocks.signOut.mockReset().mockResolvedValue({ error: null });
+  mocks.signInWithOAuth.mockReset().mockResolvedValue({ error: null });
   mocks.unsubscribe.mockReset();
   mocks.onAuthStateChange.mockReset().mockImplementation(callback => {
     authCallback = callback;
@@ -133,6 +138,46 @@ describe('AuthProvider', () => {
 
     await waitFor(() => expect(screen.getByTestId('ready')).toHaveTextContent('true'));
     expect(screen.getByTestId('token')).toHaveTextContent('none');
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+  });
+
+  it('switching accounts signs out locally then reopens Microsoft with an account picker', async () => {
+    localStorage.setItem('user', '{}');
+    render(<AuthProvider><AuthProbe /></AuthProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'switch' }));
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalledOnce());
+    expect(mocks.signInWithOAuth).toHaveBeenCalledOnce();
+    const [[call]] = mocks.signInWithOAuth.mock.calls;
+    expect(call.provider).toBe('azure');
+    expect(call.options.queryParams).toEqual({ prompt: 'select_account' });
+    // Only this app's session is cleared - the backend never hears about it,
+    // since the previous Microsoft account's Graph token is still valid.
+    expect(mocks.apiRequest).not.toHaveBeenCalled();
+    expect(screen.getByTestId('user')).toHaveTextContent('none');
+  });
+
+  it('a real Microsoft sign-out revokes the stored Graph token before ending the browser SSO session', async () => {
+    localStorage.setItem('user', '{}');
+    render(<AuthProvider><AuthProbe /></AuthProvider>);
+    const session = {
+      access_token: 'supabase-token',
+      user: { email: 'logan@example.com', user_metadata: {} },
+    };
+    act(() => authCallback('SIGNED_IN', session));
+    await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('supabase-token'));
+    delete window.location;
+    window.location = { origin: 'http://localhost:3000', href: '' };
+
+    fireEvent.click(screen.getByRole('button', { name: 'ms-logout' }));
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalledOnce());
+    expect(mocks.apiRequest).toHaveBeenCalledWith('/api/graph/token', {
+      method: 'DELETE',
+      token: 'supabase-token',
+    });
+    expect(window.location.href).toContain('login.microsoftonline.com');
     expect(screen.getByTestId('user')).toHaveTextContent('none');
   });
 });
