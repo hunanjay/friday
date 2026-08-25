@@ -33,6 +33,14 @@ export async function disconnectGitHub(token) {
   });
 }
 
+export async function getGitHubCommits(token, { since, until }) {
+  const data = await apiRequest('/api/github/commits', {
+    token,
+    query: { since, until },
+  });
+  return data?.commits || [];
+}
+
 export function githubConnectUrl(token) {
   const apiUrl = import.meta.env.VITE_API_URL || '';
   return `${apiUrl}/api/github/connect?token=${encodeURIComponent(token)}`;

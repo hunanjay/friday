@@ -1,9 +1,12 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '../../api/errors';
 import { useAuth } from '../auth/useAuth';
 import {
   disconnectGitHub,
   EMPTY_GITHUB_REPOSITORIES,
   getGitHubRepositories,
+  getGitHubCommits,
   getGitHubStatus,
   githubConnectUrl,
   updateGitHubRepositories,
@@ -11,10 +14,29 @@ import {
 import { githubKeys } from './queryKeys';
 
 function useGitHubAccess() {
-  const { authToken, user } = useAuth();
+  const { authToken, handleLogout, user } = useAuth();
   return {
     authToken,
+    handleLogout,
     scope: user?.id || user?.email || 'anonymous',
+  };
+}
+
+export function useGitHubCommits({ since, until }) {
+  const { authToken, handleLogout, scope } = useGitHubAccess();
+  const query = useQuery({
+    queryKey: githubKeys.commits(scope, since, until),
+    queryFn: () => getGitHubCommits(authToken, { since, until }),
+    enabled: Boolean(authToken && since && until),
+  });
+  useEffect(() => {
+    if (isApiError(query.error) && query.error.status === 401) void handleLogout();
+  }, [handleLogout, query.error]);
+  return {
+    commits: query.data || [],
+    commitsError: query.isError,
+    isLoadingCommits: Boolean(authToken && since && until) && query.isPending,
+    refetchCommits: query.refetch,
   };
 }
 

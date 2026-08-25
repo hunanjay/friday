@@ -28,15 +28,13 @@ import { useAuth } from '../features/auth/useAuth';
 import { useCalendarEvents } from '../features/calendar/hooks';
 import { useDashboardInbox } from '../features/dashboard/useDashboardInbox';
 import { useTodos } from '../features/dashboard/useTodos';
-import { useGitHubConnection } from '../features/github/hooks';
+import { useGitHubCommits, useGitHubConnection } from '../features/github/hooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
 import { useMemos } from '../features/memos/hooks';
 import { useAssistantName } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
 import './DashboardPage.css';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
 
 const doraLightTheme = {
   ...webLightTheme,
@@ -222,7 +220,7 @@ export default function DashboardPage() {
   const { emails } = useMailMessages();
   const { inboxUnread } = useInboxUnread();
   const { memos, isLoadingMemos } = useMemos();
-  const { authToken, user } = useAuth();
+  const { user } = useAuth();
   const isZh = i18n.language === 'zh';
 
   // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────
@@ -383,10 +381,6 @@ export default function DashboardPage() {
   const completedTodosCount = useMemo(() => todos.filter(t => t.completed).length, [todos]);
 
   // ── Independent panel queries ────────────────────────────────────────────
-  const [commits, setCommits] = useState([]);
-  const [isCommitsLoading, setIsCommitsLoading] = useState(Boolean(authToken));
-  const [githubError, setGithubError] = useState(false);
-  const [retryKey, setRetryKey] = useState(0);
   const dashboardCalendarRange = useMemo(() => {
     const start = new Date();
     const end = new Date(start);
@@ -404,45 +398,26 @@ export default function DashboardPage() {
     isLoadingInbox: isEmailsLoading,
     refetchInbox,
   } = useDashboardInbox();
-  const loadError = inboxError || isCalendarError || githubError;
-  const handleRetry = () => {
-    setRetryKey(key => key + 1);
-    void refetchCalendarEvents();
-    void refetchInbox();
-  };
 
   // ── GitHub Commits Week Window & Pagination ──────────────────────────────
   const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, -1 = last week
   const [commitsPage, setCommitsPage] = useState(1);
   const commitsPerPage = 3;
-
   const currentWeekInfo = useMemo(() => getWeekWindow(weekOffset), [weekOffset]);
+  const {
+    commits,
+    commitsError,
+    isLoadingCommits: isCommitsLoading,
+    refetchCommits,
+  } = useGitHubCommits(currentWeekInfo);
+  useEffect(() => setCommitsPage(1), [currentWeekInfo]);
 
-  // ── Fetch Commits (Monday to Sunday Window) ──────────────────────────────
-  useEffect(() => {
-    if (!authToken) { setIsCommitsLoading(false); return; }
-    let active = true;
-    setIsCommitsLoading(true);
-    setCommitsPage(1);
-    setGithubError(false);
-
-    const { since, until } = currentWeekInfo;
-    const params = new URLSearchParams({ since, until });
-
-    fetch(`${API_URL}/api/github/commits?${params}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-      .then(data => { if (active) setCommits(data.commits || []); })
-      .catch(() => {
-        if (!active) return;
-        setCommits([]);
-        setGithubError(true);
-      })
-      .finally(() => { if (active) setIsCommitsLoading(false); });
-
-    return () => { active = false; };
-  }, [authToken, currentWeekInfo, retryKey]);
+  const loadError = inboxError || isCalendarError || commitsError;
+  const handleRetry = () => {
+    void refetchCalendarEvents();
+    void refetchInbox();
+    void refetchCommits();
+  };
 
   const totalCommitPages = useMemo(() => Math.max(1, Math.ceil(commits.length / commitsPerPage)), [commits]);
   const pagedCommits = useMemo(() => {

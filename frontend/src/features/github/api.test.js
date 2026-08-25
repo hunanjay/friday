@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiRequest } from '../../api/client';
 import {
   disconnectGitHub,
+  getGitHubCommits,
   getGitHubRepositories,
   getGitHubStatus,
   githubConnectUrl,
@@ -51,6 +52,22 @@ describe('GitHub API', () => {
     expect(apiRequest).toHaveBeenCalledWith('/api/github/token', {
       method: 'DELETE',
       token: 'token',
+    });
+  });
+
+  it('loads a commit window with encoded query parameters through the client', async () => {
+    apiRequest.mockResolvedValueOnce({ commits: [{ sha: 'abc123' }] });
+
+    await expect(getGitHubCommits('token', {
+      since: '2026-08-24T00:00:00Z',
+      until: '2026-08-30T23:59:59Z',
+    })).resolves.toEqual([{ sha: 'abc123' }]);
+    expect(apiRequest).toHaveBeenCalledWith('/api/github/commits', {
+      token: 'token',
+      query: {
+        since: '2026-08-24T00:00:00Z',
+        until: '2026-08-30T23:59:59Z',
+      },
     });
   });
 
