@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isApiError } from '../api/errors';
-import { streamAgentChat } from '../api/agentStream';
 import { useAuth } from '../features/auth/useAuth';
 import {
   decideChatAction,
@@ -9,6 +8,7 @@ import {
   getPendingChatActions,
 } from '../features/chat/api';
 import { useChatSessions } from '../features/chat/hooks';
+import { useAgentChatStream } from '../features/chat/useAgentChatStream';
 import { useAssistantName, useAvatar } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import { Send, StopIcon, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
@@ -39,6 +39,11 @@ export default function ChatPage() {
     updateChatSessionPreview: handleUpdateSessionPreview,
     deleteChatSession: handleDeleteSession,
   } = useChatSessions();
+  const {
+    isStreaming: isTyping,
+    startAgentStream,
+    stopAgentStream,
+  } = useAgentChatStream();
   const navigate = useNavigate();
 
   const { t, i18n } = useTranslation();
@@ -47,11 +52,9 @@ export default function ChatPage() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [inputText, setInputText] = useState('');
   const [selectedAgent, setSelectedAgent] = useState(null);
-  const [isTyping, setIsTyping] = useState(false);
   // State updates are asynchronous; this ref closes the small window where a
   // double click can invoke handleSend twice before the button re-renders.
   const isSendingRef = useRef(false);
-  const abortControllerRef = useRef(null);
   const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -250,10 +253,6 @@ export default function ChatPage() {
     handleDeleteSession(sessionId);
   };
 
-  const handleUpdateMessageText = (id, newText) => {
-    setThreadMessages(prev => prev.map(m => m.id === id ? { ...m, text: newText } : m));
-  };
-
   const handleActionDecision = async (action, decision, edits) => {
     setPendingActions(prev => prev.map(item => (
       item.id === action.id ? { ...item, busy: true, error: '' } : item
@@ -344,48 +343,19 @@ export default function ChatPage() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setThreadMessages(prev => [...prev, botMsg]);
-    
-    setIsTyping(true);
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
 
-    let botText = '';
-    const applyAgentEvent = (data) => {
-      if (data.error) {
-        botText += `\n[Error: ${data.error}]`;
-        handleUpdateMessageText(botMsgId, botText);
-      } else if (data.tool_call) {
-        setThreadMessages(prev => prev.map(message => {
-          if (message.id !== botMsgId) return message;
-          const existingCalls = message.toolCalls || [];
-          const incoming = data.tool_call;
-          const index = existingCalls.findIndex(call => (
-            call.name === incoming.name && call.status === 'running'
-          ));
-          if (index >= 0 && incoming.status === 'completed') {
-            const updatedCalls = [...existingCalls];
-            updatedCalls[index] = { ...updatedCalls[index], ...incoming };
-            return { ...message, toolCalls: updatedCalls };
-          }
-          return index < 0
-            ? { ...message, toolCalls: [...existingCalls, incoming] }
-            : message;
-        }));
-      } else if (data.chunk) {
-        botText += data.chunk;
-        handleUpdateMessageText(botMsgId, botText);
-      } else if (data.final_message) {
-        // The final projection is authoritative; chunks are only a typing effect.
-        botText = data.final_message;
-        handleUpdateMessageText(botMsgId, botText);
-      } else if (data.title) {
-        handleUpdateSessionTitle(sessionId, data.title);
-      } else if (data.preview) {
-        handleUpdateSessionPreview(sessionId, data.preview);
-      } else if (data.pending_actions) {
+    const applyStreamTransition = (effect) => {
+      if (effect.message) {
+        setThreadMessages(prev => prev.map(message => (
+          message.id === botMsgId ? { ...message, ...effect.message } : message
+        )));
+      }
+      if (effect.sessionTitle) handleUpdateSessionTitle(sessionId, effect.sessionTitle);
+      if (effect.sessionPreview) handleUpdateSessionPreview(sessionId, effect.sessionPreview);
+      if (effect.pendingActions) {
         setPendingActions(prev => {
           const existingById = new Map(prev.map(action => [action.id, action]));
-          return data.pending_actions.map(action => ({
+          return effect.pendingActions.map(action => ({
             ...action,
             resolved: isActionResolved(action.status),
             anchorMessageId: resolveLiveApprovalAnchor(
@@ -399,14 +369,12 @@ export default function ChatPage() {
     };
 
     try {
-      for await (const data of streamAgentChat({
+      await startAgentStream({
         message: sentText,
         sessionId,
         token: authToken,
-        signal: controller.signal,
-      })) {
-        applyAgentEvent(data);
-      }
+        onTransition: applyStreamTransition,
+      });
     } catch (error) {
       if (isApiError(error) && error.status === 401) {
         handleLogout();
@@ -424,14 +392,10 @@ export default function ChatPage() {
       }
     } finally {
       isSendingRef.current = false;
-      setIsTyping(false);
-      abortControllerRef.current = null;
     }
   };
 
-  const handleStop = () => {
-    abortControllerRef.current?.abort();
-  };
+  const handleStop = stopAgentStream;
 
   const handleKeyDown = (e) => {
     if (showContactMenu && contactList.length > 0) {
