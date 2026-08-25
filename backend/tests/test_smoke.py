@@ -1234,6 +1234,41 @@ check(
 )
 
 
+section("18. draft mail sync")
+
+_mail_route_source = (backend_dir / "app/api/mail.py").read_text()
+check(
+    "a fresh compose can create a real Outlook draft",
+    '@router.post("/drafts")' in _mail_route_source
+    and "MailService.create_draft" in _mail_route_source,
+)
+check(
+    "an existing draft is updated in place, not recreated",
+    '@router.patch("/drafts/{draft_id}")' in _mail_route_source
+    and "MailService.update_draft" in _mail_route_source,
+)
+check(
+    "discarding a draft reuses the existing message-delete route rather than a new one",
+    '@router.delete("/drafts' not in _mail_route_source,
+)
+
+_mail_service_source = (backend_dir / "app/services/mail_service.py").read_text()
+check(
+    "create_draft posts a real Graph message, not a local stand-in",
+    "async def create_draft" in _mail_service_source
+    and "client.me.messages.post(msg)" in _mail_service_source,
+)
+check(
+    "update_draft patches the same Graph message by id",
+    "async def update_draft" in _mail_service_source
+    and "by_message_id(draft_id).patch(msg)" in _mail_service_source,
+)
+check(
+    "draft creation and update render through the same signed-body helper as every other send path",
+    "_draft_message" in _mail_service_source and "render_body(user_id" in _mail_service_source,
+)
+
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

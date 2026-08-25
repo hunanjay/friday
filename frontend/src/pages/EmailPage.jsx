@@ -249,9 +249,54 @@ export default function EmailPage() {
   const [replyToEmailId, setReplyToEmailId] = useState(null);
   const [composeMode, setComposeMode] = useState(null);
 
+  // Graph message id of the Outlook draft mirroring the current fresh compose
+  // (null until the first debounced sync below creates one). A ref, not
+  // state - it must not itself retrigger that sync effect.
+  const draftIdRef = useRef(restoredDraft.draftId);
+  const draftSyncTimer = useRef(null);
+
   useEffect(() => {
-    writeComposeDraft({ to: composeTo, cc: composeCc, bcc: composeBcc, subject: composeSubject, body: composeBody });
+    writeComposeDraft({
+      to: composeTo, cc: composeCc, bcc: composeBcc, subject: composeSubject, body: composeBody,
+      draftId: draftIdRef.current,
+    });
   }, [composeTo, composeCc, composeBcc, composeSubject, composeBody]);
+
+  // Mirrors a fresh (not reply/forward) Microsoft compose into a real Outlook
+  // draft, debounced, so it is recoverable from Outlook itself and not just
+  // this browser's storage. Reply/forward stays local-only: Graph drafts a
+  // reply through a separate createReply/createForward call this doesn't use.
+  useEffect(() => {
+    if (!isComposing || replyToEmailId || composeChannel !== MICROSOFT) return;
+    if (!(composeTo || composeCc || composeBcc || composeSubject || composeBody)) return;
+    clearTimeout(draftSyncTimer.current);
+    draftSyncTimer.current = setTimeout(() => {
+      const formData = new FormData();
+      formData.append('to', composeTo);
+      formData.append('cc', composeCc);
+      formData.append('bcc', composeBcc);
+      formData.append('subject', composeSubject);
+      formData.append('body', composeBody);
+      const id = draftIdRef.current;
+      fetch(
+        id ? `${mailApiBase(MICROSOFT)}/drafts/${encodeURIComponent(id)}` : `${mailApiBase(MICROSOFT)}/drafts`,
+        { method: id ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData },
+      )
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => {
+          if (!data?.id) return;
+          draftIdRef.current = data.id;
+          writeComposeDraft({
+            to: composeTo, cc: composeCc, bcc: composeBcc, subject: composeSubject, body: composeBody,
+            draftId: data.id,
+          });
+        })
+        // Best-effort: local storage stays the source of truth for what's
+        // typed, so a sync failure never blocks composing or sending.
+        .catch(() => {});
+    }, 2000);
+    return () => clearTimeout(draftSyncTimer.current);
+  }, [composeTo, composeCc, composeBcc, composeSubject, composeBody, isComposing, replyToEmailId, composeChannel, authToken]);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   // Dora AI Assistant states
@@ -496,6 +541,16 @@ export default function EmailPage() {
         const failure = await res.json().catch(() => ({}));
         showToast(failure.detail || (isZh ? '发送失败，请稍后重试' : 'Failed to send, please try again'));
         return;
+      }
+
+      // A fresh compose that synced to an Outlook draft is now sent - drop
+      // the draft so it doesn't linger as a duplicate of the sent message.
+      if (draftIdRef.current && !replyToEmailId) {
+        fetch(mailMessageUrl(draftIdRef.current, '?permanent=true'), {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${authToken}` },
+        }).catch(() => {});
+        draftIdRef.current = null;
       }
 
       // Refresh the sent list so the real Graph message (with its true ID)
@@ -805,6 +860,10 @@ export default function EmailPage() {
   const openComposeFor = (mode, { body = '' } = {}) => {
     if (!selectedEmail) return;
     const senderAddress = selectedEmail.sender?.emailAddress?.address || selectedEmail.sender?.emailAddress?.name || '';
+    // A reply/forward never mirrors to an Outlook draft (see the sync effect
+    // above), so drop any leftover fresh-compose draft id rather than let a
+    // later fresh compose silently resume and overwrite it.
+    draftIdRef.current = null;
     setComposeMode(mode);
     setReplyToEmailId(selectedEmail.id);
     setComposeChannel(selectedEmail.provider || MICROSOFT);
