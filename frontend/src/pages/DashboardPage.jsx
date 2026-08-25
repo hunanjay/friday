@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Badge,
   Button,
   FluentProvider,
   Text,
@@ -21,12 +20,16 @@ import {
   Edit24Regular,
   Mail24Regular,
   NoteAdd24Regular,
-  Open24Regular,
   TaskListLtr24Regular,
 } from '@fluentui/react-icons';
 import { useAuth } from '../features/auth/useAuth';
 import { useCalendarEvents } from '../features/calendar/hooks';
 import { useDashboardInbox } from '../features/dashboard/useDashboardInbox';
+import {
+  DashboardSecondaryPanels,
+  EmptyState,
+  PanelSkeleton,
+} from '../features/dashboard/components/DashboardSecondaryPanels';
 import { useTodos } from '../features/dashboard/useTodos';
 import { useGitHubCommits, useGitHubConnection } from '../features/github/hooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
@@ -883,218 +886,36 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* ── COLUMN 2: CALENDAR + INBOX ── */}
-          <div className="dashboard-column-stack">
-            {/* Agenda Panel */}
-            <div className="dashboard-panel dashboard-agenda-panel">
-              <div className="dashboard-panel-header">
-                <div className="dashboard-panel-title-group">
-                  <CalendarLtr24Regular className="panel-title-icon" />
-                  <h2 className="panel-title-text">{copy.agenda}</h2>
-                  <span className="dashboard-panel-tag">{isZh ? '7天内' : 'Next 7d'}</span>
-                </div>
-                <Button appearance="subtle" size="small" icon={<Open24Regular />} onClick={() => navigate('/calendar')}>
-                  {copy.openCalendar}
-                </Button>
-              </div>
-              {isLoadingCalendarEvents ? <PanelSkeleton rows={3} times /> : upcomingEvents.length ? (
-                <div className="dashboard-agenda-list">
-                  {upcomingEvents.map(event => (
-                    <button type="button" className="dashboard-list-item" key={event.id} onClick={() => navigate('/calendar', { state: { eventId: event.id, eventStart: eventDateTime(event) } })}>
-                      <span className="dashboard-agenda-time">{event.isAllDay ? copy.allDay : eventTime(event, i18n.language)}</span>
-                      <div className="dashboard-item-text">
-                        <strong className="dashboard-item-title">{event.subject || (isZh ? '未命名日程' : 'Untitled event')}</strong>
-                        <span className="dashboard-item-sub">{event.location?.displayName || (isZh ? '未设置地点' : 'No location set')}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : <EmptyState icon={<CalendarLtr24Regular />} message={copy.noEvents} action={copy.openCalendar} onAction={() => navigate('/calendar')} />}
-            </div>
-
-            {/* Email Panel */}
-            <div className="dashboard-panel dashboard-inbox-panel">
-              <div className="dashboard-panel-header">
-                <div className="dashboard-panel-title-group">
-                  <Mail24Regular className="panel-title-icon" />
-                  <h2 className="panel-title-text">{copy.inbox}</h2>
-                  <span className="dashboard-panel-tag">{unreadCount} {copy.unread}</span>
-                </div>
-                <Button appearance="subtle" size="small" icon={<Open24Regular />} onClick={() => navigate('/email')}>
-                  {copy.openEmail}
-                </Button>
-              </div>
-              {isEmailsLoading ? <PanelSkeleton rows={3} avatars dates /> : displayEmails.length ? (
-                <div className="dashboard-inbox-list">
-                  {displayEmails.map(email => (
-                    <button type="button" className="dashboard-list-item" key={email.id} onClick={() => navigate('/email', { state: { emailId: email.id, email } })}>
-                      <span className="dashboard-email-avatar">{(email.from?.emailAddress?.name || email.sender?.emailAddress?.name || '?')[0]}</span>
-                      <div className="dashboard-item-text">
-                        <strong className="dashboard-item-title">{email.subject || (isZh ? '无主题' : 'No subject')}</strong>
-                        <span className="dashboard-item-sub">{email.from?.emailAddress?.name || email.sender?.emailAddress?.name || email.from?.emailAddress?.address || ''}</span>
-                      </div>
-                      {email.receivedDateTime && (
-                        <span className="dashboard-item-date">{formatEmailDate(email.receivedDateTime, i18n.language)}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              ) : <EmptyState icon={<Mail24Regular />} message={copy.noEmails} action={copy.openEmail} onAction={() => navigate('/email')} />}
-            </div>
-          </div>
-
-          {/* ── COLUMN 3: MEMOS + GITHUB ── */}
-          <div className="dashboard-column-stack">
-            {/* Memos Panel */}
-            <div className="dashboard-panel dashboard-memo-panel">
-              <div className="dashboard-panel-header">
-                <div className="dashboard-panel-title-group">
-                  <DocumentBulletList24Regular className="panel-title-icon" />
-                  <h2 className="panel-title-text">{copy.memoTitle}</h2>
-                  <span className="dashboard-panel-tag">{isZh ? '知识库' : 'Knowledge'}</span>
-                </div>
-                <Button appearance="subtle" size="small" icon={<Open24Regular />} onClick={() => navigate('/memos')}>
-                  {copy.openMemos}
-                </Button>
-              </div>
-              {isLoadingMemos ? <PanelSkeleton rows={3} swatches /> : relevantMemos.length ? (
-                <div className="dashboard-memo-list">
-                  {relevantMemos.map(memo => (
-                    <button type="button" className="dashboard-list-item" key={memo.id} onClick={() => navigate('/memos', { state: { memoId: memo.id } })}>
-                      <span className={`dashboard-memo-swatch memo-${memo.color || 'beige'}`} />
-                      <div className="dashboard-item-text">
-                        <strong className="dashboard-item-title">{memo.title}</strong>
-                        <span className="dashboard-item-sub">{memo.content || (isZh ? '暂无内容' : 'No content')}</span>
-                      </div>
-                      {memo.pinned && <Badge appearance="tint" color="important">{isZh ? '置顶' : 'Pinned'}</Badge>}
-                    </button>
-                  ))}
-                </div>
-              ) : <EmptyState icon={<DocumentBulletList24Regular />} message={copy.noMemos} action={copy.openMemos} onAction={() => navigate('/memos')} />}
-            </div>
-
-            {/* GitHub Panel */}
-            <div className="dashboard-panel dashboard-github-panel">
-              <div className="dashboard-panel-header">
-                <div className="dashboard-panel-title-group">
-                  <NoteAdd24Regular className="panel-title-icon" />
-                  <h2 className="panel-title-text">{copy.githubTitle}</h2>
-                  <span className="dashboard-panel-tag">
-                    {weekOffset === 0
-                      ? (isZh ? `本周 ${currentWeekInfo.mondayStr}-${currentWeekInfo.sundayStr}` : `This week ${currentWeekInfo.mondayStr}-${currentWeekInfo.sundayStr}`)
-                      : `${currentWeekInfo.mondayStr}-${currentWeekInfo.sundayStr}`}
-                  </span>
-                </div>
-                <div className="dashboard-panel-header-actions">
-                  <button
-                    type="button"
-                    className="dashboard-week-btn"
-                    onClick={() => setWeekOffset(prev => prev - 1)}
-                    title={isZh ? "上一周" : "Previous week"}
-                  >
-                    ‹
-                  </button>
-                  {weekOffset !== 0 && (
-                    <button
-                      type="button"
-                      className="dashboard-week-btn reset"
-                      onClick={() => setWeekOffset(0)}
-                      title={isZh ? "回到本周" : "Current week"}
-                    >
-                      ●
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="dashboard-week-btn"
-                    onClick={() => setWeekOffset(prev => prev + 1)}
-                    disabled={weekOffset >= 0}
-                    title={isZh ? "下一周" : "Next week"}
-                  >
-                    ›
-                  </button>
-                  <Button appearance="subtle" size="small" icon={<Open24Regular />} onClick={() => navigate('/settings')}>
-                    {copy.openGithub}
-                  </Button>
-                </div>
-              </div>
-
-              {isCommitsLoading ? <PanelSkeleton rows={3} badges /> : githubStatus?.connected ? (
-                commits.length ? (
-                  <div className="dashboard-panel-body-with-footer">
-                    <div className="dashboard-commit-list">
-                      {pagedCommits.map(commit => (
-                        <button type="button" className="dashboard-list-item dashboard-commit-item" key={`${commit.repo}-${commit.sha}`} onClick={() => navigate('/settings', { state: { commit } })}>
-                          <span className="dashboard-commit-repo">{commit.repo}</span>
-                          <div className="dashboard-item-text">
-                            <strong className="dashboard-item-title">{commit.message?.split('\n')[0]}</strong>
-                            <div className="dashboard-commit-meta">
-                              <span className="dashboard-item-sub">{commit.author}</span>
-                              {commit.date && <span className="dashboard-commit-date">{formatCommitDate(commit.date, i18n.language)}</span>}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    {totalCommitPages > 1 && (
-                      <div className="dashboard-panel-footer-pagination">
-                        <button
-                          type="button"
-                          className="dashboard-page-btn"
-                          disabled={commitsPage <= 1}
-                          onClick={() => setCommitsPage(p => Math.max(1, p - 1))}
-                        >
-                          ‹
-                        </button>
-                        <span className="dashboard-page-num">{commitsPage} / {totalCommitPages}</span>
-                        <button
-                          type="button"
-                          className="dashboard-page-btn"
-                          disabled={commitsPage >= totalCommitPages}
-                          onClick={() => setCommitsPage(p => Math.min(totalCommitPages, p + 1))}
-                        >
-                          ›
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : <EmptyState icon={<NoteAdd24Regular />} message={copy.noCommits} action={copy.openGithub} onAction={() => navigate('/settings')} />
-              ) : <EmptyState icon={<NoteAdd24Regular />} message={copy.disconnected} action={copy.connect} onAction={() => navigate('/settings')} />}
-            </div>
-          </div>
+          <DashboardSecondaryPanels
+            agenda={{ events: upcomingEvents, isLoading: isLoadingCalendarEvents }}
+            copy={copy}
+            eventDateTime={eventDateTime}
+            eventTime={eventTime}
+            formatCommitDate={formatCommitDate}
+            formatEmailDate={formatEmailDate}
+            github={{
+              commits: pagedCommits,
+              isConnected: Boolean(githubStatus?.connected),
+              isLoading: isCommitsLoading,
+              page: commitsPage,
+              setPage: setCommitsPage,
+              setWeekOffset,
+              totalPages: totalCommitPages,
+              weekInfo: currentWeekInfo,
+              weekOffset,
+            }}
+            inbox={{
+              emails: displayEmails,
+              isLoading: isEmailsLoading,
+              unreadCount,
+            }}
+            isZh={isZh}
+            locale={i18n.language}
+            memos={{ items: relevantMemos, isLoading: isLoadingMemos }}
+            navigate={navigate}
+          />
         </main>
       </div>
     </FluentProvider>
-  );
-}
-
-function PanelSkeleton({ rows = 3, avatars = false, swatches = false, times = false, badges = false, dates = false }) {
-  return (
-    <div className="dashboard-panel-skeleton" aria-hidden="true">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="dashboard-skeleton-row">
-          {times && <span className="dashboard-skeleton-time" />}
-          {avatars && <span className="dashboard-skeleton-avatar" />}
-          {swatches && <span className="dashboard-skeleton-swatch" />}
-          {badges && <span className="dashboard-skeleton-badge" />}
-          <span className="dashboard-skeleton-lines">
-            <span className="dashboard-skeleton-line" style={{ width: `${70 + (i % 3) * 10}%` }} />
-            <span className="dashboard-skeleton-line dashboard-skeleton-line--short" style={{ width: `${40 + (i % 2) * 15}%` }} />
-          </span>
-          {dates && <span className="dashboard-skeleton-date" />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EmptyState({ icon, message, action, onAction }) {
-  return (
-    <div className="dashboard-empty-state">
-      {icon}
-      <Text>{message}</Text>
-      {action && <Button appearance="subtle" size="small" onClick={onAction}>{action}</Button>}
-    </div>
   );
 }
