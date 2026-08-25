@@ -6,6 +6,7 @@ import { createCalendarEvent, deleteCalendarEvent, getCalendarEvents } from './a
 import { calendarKeys } from './queryKeys';
 
 const handledUnauthorizedErrors = new WeakSet();
+const EMPTY_LIST = [];
 
 function useCalendarAccess() {
   const { authToken, handleLogout, user } = useAuth();
@@ -56,7 +57,7 @@ export function useCalendarEvents({ start, end }) {
   }, [handleLogout, query.error]);
 
   return {
-    events: query.data ?? [],
+    events: query.data ?? EMPTY_LIST,
     addCalendarEvent: createMutation.mutateAsync,
     deleteCalendarEvent: deleteMutation.mutateAsync,
     refetchCalendarEvents: query.refetch,

@@ -12,6 +12,8 @@ import {
 } from './api';
 import { contactKeys } from './queryKeys';
 
+const EMPTY_LIST = [];
+
 function useContactsAccess() {
   const { authToken, user } = useAuth();
   return {
@@ -36,7 +38,7 @@ export function useContactTags() {
     queryFn: () => getContactTags(authToken),
     enabled: Boolean(authToken),
   });
-  return { contactTags: query.data ?? [], refetchContactTags: query.refetch };
+  return { contactTags: query.data ?? EMPTY_LIST, refetchContactTags: query.refetch };
 }
 
 export function useContacts({ query = '', tag = null, debounceMs = 250 } = {}) {
@@ -75,7 +77,7 @@ export function useContacts({ query = '', tag = null, debounceMs = 250 } = {}) {
   });
 
   return {
-    contacts: listQuery.data ?? [],
+    contacts: listQuery.data ?? EMPTY_LIST,
     isLoadingContacts: Boolean(authToken) && listQuery.isPending,
     syncMicrosoftContacts: syncMutation.mutateAsync,
     isSyncingContacts: syncMutation.isPending,

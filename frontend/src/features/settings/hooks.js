@@ -13,6 +13,8 @@ import {
 } from './api';
 import { settingsKeys } from './queryKeys';
 
+const EMPTY_LIST = [];
+
 function useSettingsAccess() {
   const { authToken, user } = useAuth();
   return {
@@ -92,7 +94,7 @@ export function useAvatarPresets() {
     enabled: Boolean(authToken),
   });
   return {
-    avatarPresets: query.data ?? [],
+    avatarPresets: query.data ?? EMPTY_LIST,
     isLoadingAvatarPresets: Boolean(authToken) && query.isPending,
   };
 }

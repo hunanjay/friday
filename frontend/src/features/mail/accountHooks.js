@@ -10,6 +10,8 @@ import {
 } from './accountsApi';
 import { mailKeys } from './queryKeys';
 
+const EMPTY_LIST = [];
+
 function useMailAccess() {
   const { authToken, user } = useAuth();
   return {
@@ -47,7 +49,7 @@ export function useMailAccounts() {
   });
 
   return {
-    mailAccounts: query.data ?? [],
+    mailAccounts: query.data ?? EMPTY_LIST,
     bindMailAccount: bindMutation.mutateAsync,
     unbindMailAccount: unbindMutation.mutateAsync,
     verifyMailAccount: verifyMutation.mutateAsync,
@@ -67,7 +69,7 @@ export function useMailProviders({ enabled = true } = {}) {
     enabled: Boolean(authToken) && enabled,
   });
   return {
-    mailProviders: query.data ?? [],
+    mailProviders: query.data ?? EMPTY_LIST,
     isLoadingMailProviders: Boolean(authToken) && enabled && query.isPending,
   };
 }

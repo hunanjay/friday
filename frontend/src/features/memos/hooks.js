@@ -9,6 +9,8 @@ import {
 } from './api';
 import { memoKeys } from './queryKeys';
 
+const EMPTY_LIST = [];
+
 function useMemoAccess() {
   const { authToken, user } = useAuth();
   return {
@@ -53,7 +55,7 @@ export function useMemos() {
   });
 
   return {
-    memos: query.data ?? [],
+    memos: query.data ?? EMPTY_LIST,
     addMemo: createMutation.mutateAsync,
     updateMemo: updateMutation.mutateAsync,
     deleteMemo: deleteMutation.mutateAsync,

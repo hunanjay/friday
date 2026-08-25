@@ -6,6 +6,7 @@ import { createChatSession, deleteChatSession, getChatSessions } from './api';
 import { chatKeys } from './queryKeys';
 
 const handledUnauthorizedErrors = new WeakSet();
+const EMPTY_LIST = [];
 
 function logoutIfUnauthorized(error, handleLogout) {
   if (!isApiError(error) || error.status !== 401 || handledUnauthorizedErrors.has(error)) return;
@@ -63,7 +64,7 @@ export function useChatSessions() {
   }, [updateChatSession]);
 
   return {
-    chatSessions: query.data ?? [],
+    chatSessions: query.data ?? EMPTY_LIST,
     createChatSession: createMutation.mutateAsync,
     deleteChatSession: deleteMutation.mutateAsync,
     updateChatSessionTitle,
