@@ -9,12 +9,13 @@ import {
 import { useMailFolderSync } from '../features/mail/useMailFolderSync';
 import { useMailCompose } from '../features/mail/useMailCompose';
 import { EmailComposer } from '../features/mail/components/EmailComposer';
+import { EmailList } from '../features/mail/components/EmailList';
 import { useMailSearch } from '../features/mail/useMailSearch';
 import { useMailThread } from '../features/mail/useMailThread';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
-import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
+import { Mail, Send, Trash, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
 import EmailAttachments from '../components/common/EmailAttachments';
 import ApprovalCard from '../components/common/ApprovalCard';
@@ -96,8 +97,6 @@ export default function EmailPage() {
     threadMessages,
     toggleMessageExpanded: toggleMsgExpand,
   } = useMailThread({ onOpen: handleThreadOpen });
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-
   // Dora AI Assistant states
   const [isDoraActive, setIsDoraActive] = useState(true);
   const [aiDraft, setAiDraft] = useState('');
@@ -117,78 +116,11 @@ export default function EmailPage() {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // List row: always date + time together (e.g. "Jul 10 11:43") so a row
-  // never shows a bare clock time with no way to tell which day it's from.
-  // Locale follows the app's language (i18n), not the browser's.
-  const formatEmailListDate = (isoString) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const day = i18n.language === 'zh'
-      ? date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
-      : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `${day} ${time}`;
-  };
-
   // Clear AI draft when selecting a new email
   useEffect(() => {
     setAiDraft('');
     setAiInstruction('');
   }, [selectedConvKey]);
-
-  // Filter emails by folder
-  const folderEmails = emails.filter(email => {
-    if (activeFolder === 'inbox') return email.parentFolderId === 'inbox';
-    if (activeFolder === 'sent') return email.parentFolderId === 'sent';
-    if (activeFolder === 'trash') return email.parentFolderId === 'trash';
-    return true;
-  });
-
-  // Group folderEmails by conversationId (Gmail-style threading).
-  // Each thread row = the most recent message in that conversation.
-  // Threads without a conversationId are treated as standalone (id as key).
-  const threadedEmails = (() => {
-    const map = new Map(); // conversationId -> thread summary
-    for (const email of folderEmails) {
-      const key = email.conversationId || email.id;
-      if (!map.has(key)) {
-        map.set(key, {
-          ...email,            // latest message fields used for the row
-          _threadKey: key,
-          _count: 1,
-          _hasUnread: !email.isRead,
-        });
-      } else {
-        const existing = map.get(key);
-        const existingDate = new Date(existing.receivedDateTime);
-        const thisDate = new Date(email.receivedDateTime);
-        map.set(key, {
-          // Always surface the most recent message as the row summary
-          ...(thisDate > existingDate ? email : existing),
-          _threadKey: key,
-          _count: existing._count + 1,
-          _hasUnread: existing._hasUnread || !email.isRead,
-        });
-      }
-    }
-    // Sort threads by most-recent message descending
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
-    );
-  })();
-
-  const isSearchMode = Boolean(searchQuery.trim());
-  // In search mode keep flat results; in folder mode use the threaded groups.
-  const filteredEmails = isSearchMode ? searchResults : threadedEmails;
-  const canLoadMore = isSearchMode
-    ? canLoadMoreSearch
-    : canLoadMoreFolder;
-  const isLoadingMore = isSearchMode
-    ? isLoadingMoreSearch
-    : isLoadingMoreFolder;
-  const handleLoadMore = isSearchMode
-    ? loadMoreSearch
-    : loadMoreFolder;
 
   // The "active" email for Dora / reply: the latest message in the thread.
   const selectedEmail = threadMessages.length > 0
@@ -351,125 +283,28 @@ export default function EmailPage() {
         </nav>
       </div>
 
-      {/* Email List */}
-      <div className="email-list-panel">
-        <div className="email-search-bar">
-          <Search size={18} className="search-icon" />
-          <input
-            type="text"
-            placeholder={t('email.searchPlaceholder')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        <div className="email-list">
-          {isSearching || isSyncingSent ? (
-            <div className="email-empty-state">
-              <p>{t('common.search')}...</p>
-            </div>
-          ) : filteredEmails.length === 0 ? (
-            <div className="email-empty-state">
-              <Mail size={32} />
-              <p>{t('email.emptyState')}</p>
-            </div>
-          ) : (
-            filteredEmails.map(threadRow => {
-              const isUnread = threadRow._hasUnread ?? !threadRow.isRead;
-              const senderName = threadRow.sender?.emailAddress?.name || 'Unknown';
-              const emailTime = formatEmailListDate(threadRow.receivedDateTime);
-              const threadKey = threadRow._threadKey || threadRow.conversationId || threadRow.id;
-              const isSelected = threadKey === selectedConvKey;
-              const count = threadRow._count || 1;
-
-              return (
-                <div
-                  key={threadRow._threadKey || threadRow.id}
-                  className={`email-list-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleSelectEmail(threadRow)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      handleSelectEmail(threadRow);
-                    }
-                  }}
-                  onMouseEnter={() => prefetchThread(threadRow)}
-                  onMouseLeave={() => cancelScheduledThreadPrefetch(threadRow)}
-                  onFocus={() => prefetchThread(threadRow)}
-                  onBlur={() => cancelScheduledThreadPrefetch(threadRow)}
-                >
-                  <div className="email-item-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                      <div className="email-item-avatar">
-                        {(senderName?.[0] || 'U').toUpperCase()}
-                      </div>
-                      <span className="email-item-sender">{senderName}</span>
-                    </div>
-                    <span className="email-item-date">{emailTime}</span>
-                  </div>
-                  <div className="email-item-subject">
-                    {threadRow.subject}
-                    {count > 1 && (
-                      <span className="thread-count-badge">{count}</span>
-                    )}
-                  </div>
-                  <div className="email-item-snippet">{threadRow.bodyPreview}</div>
-                  {isUnread && <span className="unread-dot"></span>}
-
-                  {threadRow.parentFolderId !== 'trash' && confirmDeleteId !== threadRow.id && (
-                    <button
-                      type="button"
-                      className="delete-email-item-btn"
-                      title={t('common.delete')}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmDeleteId(threadRow.id);
-                      }}
-                    >
-                      <Trash size={14} />
-                    </button>
-                  )}
-
-                  {confirmDeleteId === threadRow.id && (
-                    <div className="email-delete-confirm-popover" onClick={(e) => e.stopPropagation()}>
-                      <span>{i18n.language === 'zh' ? '移至废纸篓？' : 'Delete?'}</span>
-                      <button
-                        type="button"
-                        className="confirm-delete-yes-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDeleteId(null);
-                          handleDelete(threadRow.id);
-                        }}
-                      >
-                        {i18n.language === 'zh' ? '确定' : 'Yes'}
-                      </button>
-                      <button
-                        type="button"
-                        className="confirm-delete-no-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDeleteId(null);
-                        }}
-                      >
-                        {t('common.cancel')}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-
-          {!isSearching && canLoadMore && (
-            <button type="button" className="load-more-emails-btn" onClick={handleLoadMore} disabled={isLoadingMore}>
-              {isLoadingMore ? `${t('email.loadMore')}...` : t('email.loadMore')}
-            </button>
-          )}
-        </div>
-      </div>
+      <EmailList
+        activeFolder={activeFolder}
+        canLoadMoreFolder={canLoadMoreFolder}
+        canLoadMoreSearch={canLoadMoreSearch}
+        emails={emails}
+        isLoadingMoreFolder={isLoadingMoreFolder}
+        isLoadingMoreSearch={isLoadingMoreSearch}
+        isSearching={isSearching}
+        isSyncingSent={isSyncingSent}
+        isZh={i18n.language === 'zh'}
+        loadMoreFolder={loadMoreFolder}
+        loadMoreSearch={loadMoreSearch}
+        onCancelPrefetch={cancelScheduledThreadPrefetch}
+        onDelete={handleDelete}
+        onPrefetch={prefetchThread}
+        onSelect={handleSelectEmail}
+        searchQuery={searchQuery}
+        searchResults={searchResults}
+        selectedConversationKey={selectedConvKey}
+        setSearchQuery={setSearchQuery}
+        t={t}
+      />
 
       {/* Email Reader */}
       <div className="email-reader-panel" style={{ position: 'relative' }}>
