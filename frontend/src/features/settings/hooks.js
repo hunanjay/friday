@@ -6,6 +6,7 @@ import {
   getAvatar,
   getAvatarPresets,
   getSignature,
+  getTeamInfo,
   updateAssistantName,
   updateAvatar,
   updateSignature,
@@ -93,5 +94,22 @@ export function useAvatarPresets() {
   return {
     avatarPresets: query.data ?? [],
     isLoadingAvatarPresets: Boolean(authToken) && query.isPending,
+  };
+}
+
+export function useTeamInfo() {
+  const { authToken, scope } = useSettingsAccess();
+  const query = useQuery({
+    queryKey: settingsKeys.teamInfo(scope),
+    queryFn: () => getTeamInfo(authToken),
+    enabled: false,
+  });
+  return {
+    teamInfo: query.data ?? null,
+    isLoadingTeamInfo: query.isFetching,
+    teamInfoError: query.isError,
+    loadTeamInfo: () => {
+      if (authToken) void query.refetch();
+    },
   };
 }

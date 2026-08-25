@@ -36,6 +36,12 @@ vi.mock('../features/settings/hooks', () => ({
     updateAvatar: settingsState.handleUpdateAvatar,
   }),
   useAvatarPresets: () => ({ avatarPresets: settingsState.avatarPresets }),
+  useTeamInfo: () => ({
+    teamInfo: null,
+    isLoadingTeamInfo: false,
+    teamInfoError: false,
+    loadTeamInfo: () => {},
+  }),
 }));
 
 vi.mock('../features/github/hooks', () => ({

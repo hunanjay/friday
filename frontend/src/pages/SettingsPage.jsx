@@ -1,16 +1,14 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/useAuth';
 import { useGitHubConnection, useGitHubRepositories } from '../features/github/hooks';
 import { useMailAccounts } from '../features/mail/accountHooks';
-import { useAssistantName, useAvatar, useAvatarPresets, useSignature } from '../features/settings/hooks';
+import { useAssistantName, useAvatar, useAvatarPresets, useSignature, useTeamInfo } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
 import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3, RefreshCw, MicrosoftIcon } from '../components/common/Icons';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -24,12 +22,12 @@ export default function SettingsPage() {
     enabled: Boolean(githubStatus?.connected),
   });
   const { mailAccounts, unbindMailAccount, verifyMailAccount } = useMailAccounts();
+  const { teamInfo, isLoadingTeamInfo: isLoadingTeam, teamInfoError: teamError, loadTeamInfo } = useTeamInfo();
   const {
     user,
     handleLogout,
     handleSwitchAccount,
     handleMsLogout,
-    authToken,
   } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useUi();
@@ -53,9 +51,6 @@ export default function SettingsPage() {
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const addRepoRef = useRef(null);
-  const [teamInfo, setTeamInfo] = useState(null);
-  const [isLoadingTeam, setIsLoadingTeam] = useState(false);
-  const [teamError, setTeamError] = useState(false);
   const [showSupervisorPrompt, setShowSupervisorPrompt] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState(new Set());
   const selectedCommit = location.state?.commit;
@@ -67,22 +62,6 @@ export default function SettingsPage() {
     document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' });
     if (location.hash === '#signature') setIsEditingSignature(true);
   }, [location.hash]);
-
-  const loadTeamInfo = useCallback(() => {
-    if (!authToken) return;
-    setIsLoadingTeam(true);
-    setTeamError(false);
-    fetch(`${API_URL}/api/agent/team_info`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => {
-        if (!res.ok) throw new Error(`team_info failed: ${res.status}`);
-        return res.json();
-      })
-      .then(setTeamInfo)
-      .catch(() => setTeamError(true))
-      .finally(() => setIsLoadingTeam(false));
-  }, [authToken]);
 
   const toggleAgentExpanded = (name) => {
     setExpandedAgents(prev => {
