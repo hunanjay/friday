@@ -10,16 +10,14 @@ import { useMailFolderSync } from '../features/mail/useMailFolderSync';
 import { useMailCompose } from '../features/mail/useMailCompose';
 import { useMailActions } from '../features/mail/useMailActions';
 import { EmailComposer } from '../features/mail/components/EmailComposer';
+import { EmailDetail } from '../features/mail/components/EmailDetail';
 import { EmailList } from '../features/mail/components/EmailList';
 import { useMailSearch } from '../features/mail/useMailSearch';
 import { useMailThread } from '../features/mail/useMailThread';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
-import { Mail, Send, Trash, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
-import EmailContentRenderer from '../components/common/EmailContentRenderer';
-import EmailAttachments from '../components/common/EmailAttachments';
-import ApprovalCard from '../components/common/ApprovalCard';
+import { Mail, Send, Trash, Plus, Info } from '../components/common/Icons';
 export default function EmailPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -96,19 +94,6 @@ export default function EmailPage() {
     toggleMessageExpanded: toggleMsgExpand,
   } = useMailThread({ onOpen: handleThreadOpen });
   const [isDoraActive, setIsDoraActive] = useState(true);
-
-  // Outlook Graph API Date Format Helpers
-  const formatEmailTime = (isoString) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const formatEmailDateFull = (isoString) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  };
 
   // The "active" email for Dora / reply: the latest message in the thread.
   const selectedEmail = threadMessages.length > 0
@@ -260,259 +245,34 @@ export default function EmailPage() {
         t={t}
       />
 
-      {/* Email Reader */}
-      <div className="email-reader-panel" style={{ position: 'relative' }}>
-        {isLoadingThread ? (
-          <div
-            className="email-reader-split-layout"
-            aria-busy="true"
-            aria-label="Loading email details"
-            style={{ position: 'absolute', inset: 0, zIndex: 2, backgroundColor: 'var(--bg-card)' }}
-          >
-            <div className="email-detail-column" style={{ padding: '32px 40px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', paddingBottom: '24px', borderBottom: '1px solid var(--border-light)' }}>
-                <div className="skeleton-box" style={{ width: '48px', height: '48px', borderRadius: '50%', flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <div className="skeleton-box" style={{ width: '55%', height: '22px', marginBottom: '10px', borderRadius: '4px' }} />
-                  <div className="skeleton-box" style={{ width: '28%', height: '13px', borderRadius: '4px' }} />
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <div className="skeleton-box" style={{ width: '82px', height: '32px', borderRadius: '6px' }} />
-                  <div className="skeleton-box" style={{ width: '32px', height: '32px', borderRadius: '6px' }} />
-                </div>
-              </div>
-
-              <div style={{ padding: '28px 0 8px' }}>
-                <div className="skeleton-box" style={{ width: '38%', height: '16px', marginBottom: '18px', borderRadius: '4px' }} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div className="skeleton-box" style={{ width: '100%', height: '14px', borderRadius: '4px' }} />
-                  <div className="skeleton-box" style={{ width: '96%', height: '14px', borderRadius: '4px' }} />
-                  <div className="skeleton-box" style={{ width: '88%', height: '14px', borderRadius: '4px' }} />
-                  <div className="skeleton-box" style={{ width: '72%', height: '14px', borderRadius: '4px' }} />
-                  <div className="skeleton-box" style={{ width: '82%', height: '150px', margin: '10px 0', borderRadius: '8px' }} />
-                  <div className="skeleton-box" style={{ width: '94%', height: '14px', borderRadius: '4px' }} />
-                  <div className="skeleton-box" style={{ width: '62%', height: '14px', borderRadius: '4px' }} />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', marginTop: '22px' }}>
-                <div className="skeleton-box" style={{ width: '180px', height: '52px', borderRadius: '8px' }} />
-                <div className="skeleton-box" style={{ width: '140px', height: '52px', borderRadius: '8px' }} />
-              </div>
-            </div>
-            {isDoraActive && (
-              <div className="dora-ai-sidebar-panel" style={{ padding: '24px' }}>
-                <div className="skeleton-box" style={{ width: '45%', height: '20px', marginBottom: '28px', borderRadius: '4px' }} />
-                <div className="skeleton-box" style={{ width: '150px', height: '150px', margin: '0 auto 24px', borderRadius: '50%' }} />
-                <div className="skeleton-box" style={{ width: '100%', height: '64px', marginBottom: '28px', borderRadius: '8px' }} />
-                <div className="skeleton-box" style={{ width: '30%', height: '14px', marginBottom: '10px', borderRadius: '4px' }} />
-                <div className="skeleton-box" style={{ width: '100%', height: '92px', borderRadius: '8px' }} />
-              </div>
-            )}
-          </div>
-        ) : selectedConvKey && threadMessages.length > 0 ? (
-          <div className="email-reader-split-layout">
-            <div className="email-detail-column">
-              {/* Fixed top action bar – always visible regardless of scroll */}
-              <div className="email-detail-header">
-                <button
-                  type="button"
-                  className="mobile-email-back-btn"
-                  onClick={clearThreadSelection}
-                  title={i18n.language === 'zh' ? '返回邮件列表' : 'Back to list'}
-                >
-                  <ChevronLeft size={18} />
-                  <span>{i18n.language === 'zh' ? '返回' : 'Back'}</span>
-                </button>
-                <div className="email-detail-meta">
-                  <h2 className="email-detail-subject-full" title={threadMessages[0]?.subject}>
-                    {threadMessages[0]?.subject}
-                    {threadMessages.length > 1 && (
-                      <span className="thread-msg-count-label">
-                        {i18n.language === 'zh' ? `${threadMessages.length} 封邮件` : `${threadMessages.length} messages`}
-                      </span>
-                    )}
-                  </h2>
-                </div>
-                <div className="email-detail-actions">
-                  <button className="action-icon-btn" onClick={() => openComposeFor('reply')}>
-                    <Reply size={16} />
-                    <span>{t('email.reply')}</span>
-                  </button>
-                  <button className="action-icon-btn" onClick={() => openComposeFor('replyAll')}>
-                    <ReplyAll size={16} />
-                    <span>{t('email.replyAll')}</span>
-                  </button>
-                  <button className="action-icon-btn" onClick={() => openComposeFor('forward')}>
-                    <Forward size={16} />
-                    <span>{t('email.forward')}</span>
-                  </button>
-                  <button
-                    className={`action-icon-btn dora-toggle-btn ${isDoraActive ? 'active' : ''}`}
-                    onClick={() => setIsDoraActive(!isDoraActive)}
-                  >
-                    <Sparkles size={16} />
-                    <span>{t('email.assistantTitle', { name: assistantName })}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Timeline */}
-              <div className="thread-timeline">
-                {threadMessages.map((msg, idx) => {
-                  const isLatest = idx === threadMessages.length - 1;
-                  const isExpanded = expandedMsgIds.has(msg.id);
-                  const senderName = msg.sender?.emailAddress?.name || 'Unknown';
-                  const senderAddr = msg.sender?.emailAddress?.address || '';
-                  return (
-                    <div key={msg.id} className={`thread-msg-entry ${isExpanded ? 'thread-msg-expanded' : 'thread-msg-collapsed'}`}>
-                      <div
-                        className="thread-msg-header"
-                        onClick={() => toggleMsgExpand(msg.id)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={e => e.key === 'Enter' && toggleMsgExpand(msg.id)}
-                      >
-                        <div className="sender-avatar-large" style={{ width: 34, height: 34, fontSize: 13, flexShrink: 0 }}>
-                          {senderName[0]?.toUpperCase() || 'U'}
-                        </div>
-                        <div className="thread-msg-header-meta">
-                          <div className="sender-name-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                            <span className="sender-name">{senderName}</span>
-                            {isExpanded ? (
-                              <span className="sender-email">&lt;{senderAddr}&gt;</span>
-                            ) : (
-                              <span className="stub-preview">{msg.bodyPreview}</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="thread-msg-header-right">
-                          <span className="email-detail-date">
-                            {isExpanded
-                              ? `${formatEmailDateFull(msg.receivedDateTime)} ${formatEmailTime(msg.receivedDateTime)}`
-                              : formatEmailTime(msg.receivedDateTime)}
-                          </span>
-                          <span className="thread-expand-chevron">{isExpanded ? '▲' : '▼'}</span>
-                        </div>
-                      </div>
-
-                      {isExpanded && (
-                        <>
-                          <div className="email-detail-body thread-msg-body">
-                            <EmailContentRenderer
-                              body={msg.body || null}
-                              messageId={msg.id}
-                              authToken={authToken}
-                              inlineAttachments={msg.attachments || []}
-                            />
-                          </div>
-                          {msg.hasAttachments && (
-                            <EmailAttachments
-                              messageId={msg.id}
-                              hasAttachments={msg.hasAttachments}
-                              authToken={authToken}
-                              initialAttachments={msg.attachments}
-                            />
-                          )}
-                        </>
-                      )}
-                      {!isLatest && <div className="thread-msg-divider" />}
-                    </div>
-
-                  );
-                })}
-              </div>
-
-            </div>
-
-
-
-            {/* Dora-styled AI Assistant Panel */}
-            {isDoraActive && (
-              <div className="dora-ai-sidebar-panel">
-                <div className="dora-panel-header">
-                  <div className="dora-header-title">
-                    <Sparkles size={16} className="dora-sparkle-icon" />
-                    <h4>{t('email.assistantTitle', { name: assistantName })}</h4>
-                  </div>
-                  <button className="close-dora-btn" onClick={() => setIsDoraActive(false)}>
-                    <X size={16} />
-                  </button>
-                </div>
-
-                <div className="dora-avatar-section">
-                  <div className="dora-image-wrapper">
-                    <img
-                      src={avatarUrl || '/dora_assistant_avatar.png'}
-                      alt={`${assistantName} AI virtual mascot`}
-                      className="dora-3d-avatar"
-                    />
-                    <div className="dora-pulse-glow"></div>
-                  </div>
-                  <div className="dora-speech-bubble">
-                    <p>{i18n.language === 'zh' ? "告诉我你想怎么回复，我会结合这封邮件帮你写好。" : "Tell me how you'd like to reply, and I'll draft it from this email."}</p>
-                  </div>
-                </div>
-
-                <div className="dora-controls-section">
-                  <div className="dora-custom-prompt-container">
-                    <h5>{i18n.language === 'zh' ? "你的意图" : "Your intent"}</h5>
-                    <div className="dora-input-wrapper">
-                      <textarea
-                        value={aiInstruction}
-                        onChange={(e) => setAiInstruction(e.target.value)}
-                        placeholder={t('email.intentPlaceholder', { name: assistantName })}
-                        rows="3"
-                      />
-                      <button
-                        className="dora-draft-submit-btn"
-                        onClick={() => handleGenerateReply(aiInstruction)}
-                        disabled={!aiInstruction.trim() || isDrafting}
-                      >
-                        {t('email.generateReply')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="dora-result-section">
-                  {isDrafting && (
-                    <div className="dora-draft-loading">
-                      <span className="spinner"></span>
-                      <span>{t('email.assistantWait', { name: assistantName })}</span>
-                    </div>
-                  )}
-
-                  {aiDraft && !isDrafting && (
-                    <ApprovalCard
-                      action={{
-                        action_type: 'send_email',
-                        presentation: { renderer: 'email', signature },
-                        payload: {
-                          to: selectedEmail?.sender?.emailAddress?.address || selectedEmail?.sender?.emailAddress?.name,
-                          subject: selectedEmail?.subject ? `Re: ${selectedEmail.subject}` : '',
-                          body: aiDraft,
-                        },
-                      }}
-                      title={t('email.assistantReplyTab')}
-                      statusLabel={t('email.assistantDrafted', { name: assistantName })}
-                      confirmText={t('email.assistantCopyDraft')}
-                      onConfirm={handleUseDraftAsReply}
-                      assistantName={assistantName}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="reader-empty-state">
-            <Mail size={48} className="empty-state-icon" />
-            <h3>{i18n.language === 'zh' ? "没有选择邮件" : "No conversation selected"}</h3>
-            <p>{t('email.selectEmail')}</p>
-          </div>
-        )}
-      </div>
+      <EmailDetail
+        assistant={{
+          avatarUrl,
+          draft: aiDraft,
+          generateReply: handleGenerateReply,
+          instruction: aiInstruction,
+          isActive: isDoraActive,
+          isDrafting,
+          name: assistantName,
+          selectedEmail,
+          setInstruction: setAiInstruction,
+          setIsActive: setIsDoraActive,
+          useDraftAsReply: handleUseDraftAsReply,
+        }}
+        authToken={authToken}
+        isZh={i18n.language === 'zh'}
+        signature={signature}
+        t={t}
+        thread={{
+          clearSelection: clearThreadSelection,
+          expandedMessageIds: expandedMsgIds,
+          isLoading: isLoadingThread,
+          messages: threadMessages,
+          openCompose: openComposeFor,
+          selectedConversationKey: selectedConvKey,
+          toggleExpanded: toggleMsgExpand,
+        }}
+      />
 
       <EmailComposer
         compose={mailCompose}
