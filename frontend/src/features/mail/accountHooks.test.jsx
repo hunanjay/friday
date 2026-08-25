@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthContext } from '../auth/auth-context';
 import { useMailAccounts } from './accountHooks';
 
+function RenderCountProbe({ onRender }) {
+  const { mailAccounts } = useMailAccounts();
+  onRender(mailAccounts);
+  return null;
+}
+
 const apiMocks = vi.hoisted(() => ({
   bindMailAccount: vi.fn(),
   getMailAccounts: vi.fn(),
@@ -70,5 +76,35 @@ describe('mail account hooks', () => {
     fireEvent.click(screen.getByRole('button', { name: 'unbind' }));
     await waitFor(() => expect(screen.getByTestId('first')).toHaveTextContent('mail-2'));
     expect(apiMocks.unbindMailAccount).toHaveBeenCalledWith('token', 'mail-1');
+  });
+
+  it('returns a referentially stable empty list while the query is still pending', () => {
+    // A fresh array literal on every render (`?? []`) breaks memoization in
+    // consumers like useMailFolderSync's mailChannels useMemo, which cascades
+    // into an infinite render loop. Regression test for that failure mode.
+    apiMocks.getMailAccounts.mockReturnValue(new Promise(() => {}));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const auth = { authToken: 'token', user: { email: 'person@example.com' } };
+    const seen = [];
+
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <AuthContext.Provider value={auth}>
+          <RenderCountProbe onRender={value => seen.push(value)} />
+        </AuthContext.Provider>
+      </QueryClientProvider>
+    );
+    rerender(
+      <QueryClientProvider client={client}>
+        <AuthContext.Provider value={auth}>
+          <RenderCountProbe onRender={value => seen.push(value)} />
+        </AuthContext.Provider>
+      </QueryClientProvider>
+    );
+
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen.every(value => value === seen[0])).toBe(true);
   });
 });

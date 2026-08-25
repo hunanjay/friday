@@ -3,11 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthContext } from '../auth/auth-context';
-import { useAssistantName } from './hooks';
+import { useAssistantName, useTeamInfo } from './hooks';
 
 const apiMocks = vi.hoisted(() => ({
   getAssistantName: vi.fn(),
   updateAssistantName: vi.fn(),
+  getTeamInfo: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -19,7 +20,20 @@ vi.mock('./api', () => ({
   getAvatar: vi.fn(),
   updateAvatar: vi.fn(),
   getAvatarPresets: vi.fn(),
+  getTeamInfo: apiMocks.getTeamInfo,
 }));
+
+function TeamInfoProbe() {
+  const { teamInfo, isLoadingTeamInfo, teamInfoError, loadTeamInfo } = useTeamInfo();
+  return (
+    <div>
+      <span data-testid="team-info">{teamInfo ? teamInfo.model : 'none'}</span>
+      <span data-testid="team-info-loading">{String(isLoadingTeamInfo)}</span>
+      <span data-testid="team-info-error">{String(teamInfoError)}</span>
+      <button onClick={loadTeamInfo}>load</button>
+    </div>
+  );
+}
 
 function AssistantNameProbe({ id, canUpdate = false }) {
   const { assistantName, updateAssistantName } = useAssistantName();
@@ -61,5 +75,28 @@ describe('settings hooks', () => {
     await waitFor(() => expect(screen.getByTestId('first')).toHaveTextContent('Nova'));
     expect(screen.getByTestId('second')).toHaveTextContent('Nova');
     expect(apiMocks.updateAssistantName).toHaveBeenCalledWith('token', 'Nova');
+  });
+
+  it('does not fetch team info until requested, then reports it through the cache', async () => {
+    apiMocks.getTeamInfo.mockResolvedValue({ model: 'gpt-5', agents: [] });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const auth = { authToken: 'token', user: { email: 'person@example.com' } };
+
+    render(
+      <QueryClientProvider client={client}>
+        <AuthContext.Provider value={auth}>
+          <TeamInfoProbe />
+        </AuthContext.Provider>
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByTestId('team-info')).toHaveTextContent('none');
+    expect(apiMocks.getTeamInfo).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'load' }));
+    await waitFor(() => expect(screen.getByTestId('team-info')).toHaveTextContent('gpt-5'));
+    expect(apiMocks.getTeamInfo).toHaveBeenCalledWith('token');
   });
 });

@@ -48,3 +48,7 @@ export async function getAvatarPresets(token) {
   const data = await apiRequest('/api/settings/avatar-presets', { token });
   return data?.presets || [];
 }
+
+export function getTeamInfo(token) {
+  return apiRequest('/api/agent/team_info', { token });
+}

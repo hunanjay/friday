@@ -3,10 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthContext } from '../auth/auth-context';
-import { useGitHubConnection, useGitHubRepositories } from './hooks';
+import { useGitHubCommits, useGitHubConnection, useGitHubRepositories } from './hooks';
 
 const apiMocks = vi.hoisted(() => ({
   disconnectGitHub: vi.fn(),
+  getGitHubCommits: vi.fn(),
   getGitHubRepositories: vi.fn(),
   getGitHubStatus: vi.fn(),
   updateGitHubRepositories: vi.fn(),
@@ -15,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('./api', () => ({
   EMPTY_GITHUB_REPOSITORIES: { available: [], selected: [] },
   disconnectGitHub: apiMocks.disconnectGitHub,
+  getGitHubCommits: apiMocks.getGitHubCommits,
   getGitHubRepositories: apiMocks.getGitHubRepositories,
   getGitHubStatus: apiMocks.getGitHubStatus,
   githubConnectUrl: vi.fn(() => '/api/github/connect'),
@@ -40,6 +42,14 @@ function GitHubProbe({ id, controls = false }) {
   );
 }
 
+function CommitsProbe() {
+  const { commits, commitsError } = useGitHubCommits({
+    since: '2026-08-24T00:00:00Z',
+    until: '2026-08-30T23:59:59Z',
+  });
+  return <span data-testid="commits">{`${commitsError}:${commits.map(commit => commit.sha).join(',')}`}</span>;
+}
+
 describe('GitHub hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -47,6 +57,7 @@ describe('GitHub hooks', () => {
     apiMocks.getGitHubRepositories.mockResolvedValue({ available: [], selected: ['before/repo'] });
     apiMocks.updateGitHubRepositories.mockResolvedValue(['openai/codex']);
     apiMocks.disconnectGitHub.mockResolvedValue(undefined);
+    apiMocks.getGitHubCommits.mockResolvedValue([{ sha: 'abc123' }]);
   });
 
   it('deduplicates consumers and synchronizes save and disconnect mutations', async () => {
@@ -76,5 +87,25 @@ describe('GitHub hooks', () => {
     await waitFor(() => expect(screen.getByTestId('second-status')).toHaveTextContent('disconnected'));
     expect(screen.getByTestId('first-repos')).toBeEmptyDOMElement();
     expect(apiMocks.disconnectGitHub).toHaveBeenCalledWith('token');
+  });
+
+  it('loads a dashboard commit window through an independently keyed query', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const auth = { authToken: 'token', handleLogout: vi.fn(), user: { id: 'user-1' } };
+    render(
+      <QueryClientProvider client={client}>
+        <AuthContext.Provider value={auth}>
+          <CommitsProbe />
+        </AuthContext.Provider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('commits')).toHaveTextContent('false:abc123'));
+    expect(apiMocks.getGitHubCommits).toHaveBeenCalledWith('token', {
+      since: '2026-08-24T00:00:00Z',
+      until: '2026-08-30T23:59:59Z',
+    });
   });
 });

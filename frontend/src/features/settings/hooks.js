@@ -6,11 +6,14 @@ import {
   getAvatar,
   getAvatarPresets,
   getSignature,
+  getTeamInfo,
   updateAssistantName,
   updateAvatar,
   updateSignature,
 } from './api';
 import { settingsKeys } from './queryKeys';
+
+const EMPTY_LIST = [];
 
 function useSettingsAccess() {
   const { authToken, user } = useAuth();
@@ -91,7 +94,24 @@ export function useAvatarPresets() {
     enabled: Boolean(authToken),
   });
   return {
-    avatarPresets: query.data ?? [],
+    avatarPresets: query.data ?? EMPTY_LIST,
     isLoadingAvatarPresets: Boolean(authToken) && query.isPending,
+  };
+}
+
+export function useTeamInfo() {
+  const { authToken, scope } = useSettingsAccess();
+  const query = useQuery({
+    queryKey: settingsKeys.teamInfo(scope),
+    queryFn: () => getTeamInfo(authToken),
+    enabled: false,
+  });
+  return {
+    teamInfo: query.data ?? null,
+    isLoadingTeamInfo: query.isFetching,
+    teamInfoError: query.isError,
+    loadTeamInfo: () => {
+      if (authToken) void query.refetch();
+    },
   };
 }

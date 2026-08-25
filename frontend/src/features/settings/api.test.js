@@ -5,6 +5,7 @@ import {
   getAvatar,
   getAvatarPresets,
   getSignature,
+  getTeamInfo,
   updateAssistantName,
   updateAvatar,
   updateSignature,
@@ -40,5 +41,13 @@ describe('settings API', () => {
       token: 'token',
       body,
     });
+  });
+
+  it('loads team info through the shared client', async () => {
+    const teamInfo = { model: 'gpt-5', agents: [] };
+    apiRequest.mockResolvedValueOnce(teamInfo);
+
+    await expect(getTeamInfo('token')).resolves.toEqual(teamInfo);
+    expect(apiRequest).toHaveBeenCalledWith('/api/agent/team_info', { token: 'token' });
   });
 });

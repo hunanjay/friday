@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/useAuth';
+import { useContactTags, useContacts } from '../features/contacts/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import {
@@ -98,18 +99,13 @@ export default function ContactsPage() {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
 
-  const [contacts, setContacts] = useState([]);
-  const [allTags, setAllTags] = useState([]);
   const [selectedTag, setSelectedTag] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [selectedContact, setSelectedContact] = useState(null);
 
   // Modals & Panels
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPasteModal, setShowPasteModal] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -122,7 +118,6 @@ export default function ContactsPage() {
 
   // Edit State
   const [isEditing, setIsEditing] = useState(false);
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -136,83 +131,41 @@ export default function ContactsPage() {
   // Delete Confirmation
   const [deletingId, setDeletingId] = useState(null);
 
-  const fetchTags = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/contacts/tags`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAllTags(Array.isArray(data) ? data : []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch tags:', err);
-    }
-  }, [authToken]);
-
-  const fetchContacts = useCallback(async (query = '', tag = null) => {
-    setIsLoading(true);
-    try {
-      let url = `${API_URL}/api/contacts?`;
-      if (query) url += `query=${encodeURIComponent(query)}&`;
-      if (tag) url += `tag=${encodeURIComponent(tag)}&`;
-
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : [];
-        setContacts(list);
-        setSelectedContact(current => {
-          const isDesktop = typeof window !== 'undefined' && window.innerWidth > 768;
-          if (!current) return isDesktop ? (list[0] || null) : null;
-          const updated = list.find(c => c.id === current.id);
-          return updated || (isDesktop ? (list[0] || null) : null);
-        });
-      }
-    } catch (err) {
-      console.error('Failed to fetch contacts:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [authToken]);
+  const { contactTags: allTags, refetchContactTags } = useContactTags();
+  const {
+    contacts,
+    isLoadingContacts: isLoading,
+    syncMicrosoftContacts,
+    isSyncingContacts: isSyncing,
+    createContact,
+    isCreatingContact: isCreating,
+    updateContact,
+    isUpdatingContact: isSavingEdit,
+    deleteContact,
+    deleteContactFact,
+    refetchContacts,
+  } = useContacts({ query: searchQuery, tag: selectedTag });
 
   useEffect(() => {
-    fetchTags();
-  }, [fetchTags]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchContacts(searchQuery, selectedTag);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [searchQuery, selectedTag, fetchContacts]);
+    setSelectedContact(current => {
+      const isDesktop = typeof window !== 'undefined' && window.innerWidth > 768;
+      if (!current) return isDesktop ? (contacts[0] || null) : null;
+      const updated = contacts.find(c => c.id === current.id);
+      return updated || (isDesktop ? (contacts[0] || null) : null);
+    });
+  }, [contacts]);
 
   // Sync from Microsoft
   const handleSyncMicrosoft = async () => {
-    setIsSyncing(true);
     try {
-      const res = await fetch(`${API_URL}/api/contacts/sync/microsoft`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        showToast(
-          i18n.language === 'zh'
-            ? `同步完成！导入新联系人 ${data.created} 个，更新 ${data.updated} 个`
-            : `Synced ${data.total} contacts from Microsoft!`
-        );
-        fetchContacts(searchQuery, selectedTag);
-      } else {
-        const err = await res.json();
-        alert(err.detail || (i18n.language === 'zh' ? '同步失败' : 'Sync failed'));
-      }
+      const data = await syncMicrosoftContacts();
+      showToast(
+        i18n.language === 'zh'
+          ? `同步完成！导入新联系人 ${data.created} 个，更新 ${data.updated} 个`
+          : `Synced ${data.total} contacts from Microsoft!`
+      );
     } catch (err) {
-      console.error('Error syncing Microsoft contacts:', err);
-    } finally {
-      setIsSyncing(false);
+      alert(err.message || (i18n.language === 'zh' ? '同步失败' : 'Sync failed'));
     }
   };
 
@@ -220,46 +173,24 @@ export default function ContactsPage() {
     e.preventDefault();
     if (!form.name.trim()) return;
 
-    setIsCreating(true);
     try {
-      const res = await fetch(`${API_URL}/api/contacts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify(form),
-      });
-
-      if (res.ok) {
-        const newContact = await res.json();
-        showToast(i18n.language === 'zh' ? '联系人新建成功！' : 'Contact created!');
-        setShowCreateModal(false);
-        setForm({ name: '', email: '', phone: '', company: '', jobTitle: '', location: '' });
-        setContacts(prev => [newContact, ...prev]);
-        setSelectedContact(newContact);
-      }
+      const newContact = await createContact(form);
+      showToast(i18n.language === 'zh' ? '联系人新建成功！' : 'Contact created!');
+      setShowCreateModal(false);
+      setForm({ name: '', email: '', phone: '', company: '', jobTitle: '', location: '' });
+      setSelectedContact(newContact);
     } catch (err) {
       console.error('Error creating contact:', err);
-    } finally {
-      setIsCreating(false);
     }
   };
 
   const handleDeleteContact = async (contactId) => {
     try {
-      const res = await fetch(`${API_URL}/api/contacts/${encodeURIComponent(contactId)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-
-      if (res.ok) {
-        showToast(i18n.language === 'zh' ? '联系人已删除' : 'Contact deleted');
-        setContacts(prev => prev.filter(c => c.id !== contactId));
-        if (selectedContact?.id === contactId) {
-          const remaining = contacts.filter(c => c.id !== contactId);
-          setSelectedContact(remaining[0] || null);
-        }
+      await deleteContact(contactId);
+      showToast(i18n.language === 'zh' ? '联系人已删除' : 'Contact deleted');
+      if (selectedContact?.id === contactId) {
+        const remaining = contacts.filter(c => c.id !== contactId);
+        setSelectedContact(remaining[0] || null);
       }
     } catch (err) {
       console.error('Error deleting contact:', err);
@@ -271,18 +202,10 @@ export default function ContactsPage() {
   const handleDeleteFact = async (factId) => {
     if (!selectedContact) return;
     try {
-      const res = await fetch(`${API_URL}/api/contacts/${encodeURIComponent(selectedContact.id)}/facts/${encodeURIComponent(factId)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-
-      if (res.ok) {
-        showToast(i18n.language === 'zh' ? '已删除该条事实' : 'Fact deleted');
-        const updatedProfiles = (selectedContact.profiles || []).filter(p => p.id !== factId);
-        const updated = { ...selectedContact, profiles: updatedProfiles };
-        setSelectedContact(updated);
-        setContacts(prev => prev.map(c => c.id === selectedContact.id ? updated : c));
-      }
+      await deleteContactFact(selectedContact.id, factId);
+      showToast(i18n.language === 'zh' ? '已删除该条事实' : 'Fact deleted');
+      const updatedProfiles = (selectedContact.profiles || []).filter(p => p.id !== factId);
+      setSelectedContact({ ...selectedContact, profiles: updatedProfiles });
     } catch (err) {
       console.error('Error deleting fact:', err);
     }
@@ -306,28 +229,13 @@ export default function ContactsPage() {
     e.preventDefault();
     if (!selectedContact || !editForm.name.trim()) return;
 
-    setIsSavingEdit(true);
     try {
-      const res = await fetch(`${API_URL}/api/contacts/${encodeURIComponent(selectedContact.id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify(editForm),
-      });
-
-      if (res.ok) {
-        const updated = await res.json();
-        showToast(i18n.language === 'zh' ? '资料修改已保存！' : 'Profile updated!');
-        setSelectedContact(updated);
-        setContacts(prev => prev.map(c => c.id === selectedContact.id ? updated : c));
-        setIsEditing(false);
-      }
+      const updated = await updateContact(selectedContact.id, editForm);
+      showToast(i18n.language === 'zh' ? '资料修改已保存！' : 'Profile updated!');
+      setSelectedContact(updated);
+      setIsEditing(false);
     } catch (err) {
       console.error('Error updating contact:', err);
-    } finally {
-      setIsSavingEdit(false);
     }
   };
 
@@ -837,8 +745,8 @@ export default function ContactsPage() {
         API_URL={API_URL}
         isZh={isZh}
         onExtractSuccess={(c) => {
-          fetchContacts(searchQuery, selectedTag);
-          fetchTags();
+          refetchContacts();
+          refetchContactTags();
           setSelectedContact(c);
         }}
       />

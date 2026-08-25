@@ -4,4 +4,5 @@ export const settingsKeys = {
   signature: scope => [...settingsKeys.all(scope), 'signature'],
   avatar: scope => [...settingsKeys.all(scope), 'avatar'],
   avatarPresets: scope => [...settingsKeys.all(scope), 'avatar-presets'],
+  teamInfo: scope => [...settingsKeys.all(scope), 'team-info'],
 };
