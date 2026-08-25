@@ -83,11 +83,6 @@ export function WorkspaceProvider({ children }) {
     safeSetItem('events', JSON.stringify(events));
   }, [events]);
 
-  // { connected: bool } | null (null = not checked yet). No polling like the
-  // Graph status check below - GitHub OAuth App tokens don't expire, only
-  // get revoked, so a one-shot check on load is enough.
-  const [githubStatus, setGithubStatus] = useState(null);
-
   // All bound IMAP/SMTP mail accounts (sanitized views, never contain
   // credentials). Fetched on login; mutated by bind/unbind/verify handlers.
   const [mailAccounts, setMailAccounts] = useState([]);
@@ -194,19 +189,6 @@ export function WorkspaceProvider({ children }) {
       .catch(() => {});
   }, [authToken]);
 
-  useEffect(() => {
-    if (!authToken) {
-      setGithubStatus(null);
-      return;
-    }
-    fetch(`${API_URL}/api/github/status`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => data && setGithubStatus(data))
-      .catch(() => {});
-  }, [authToken]);
-
   // Bound IMAP/SMTP mail accounts: one-shot fetch on login (credentials are
   // stored encrypted server-side; the API never returns them).
   useEffect(() => {
@@ -260,48 +242,6 @@ export function WorkspaceProvider({ children }) {
     });
     if (!res.ok) throw new Error('Verification failed');
     return res.json();
-  }, [authToken]);
-
-  // Prefetched as soon as GitHub is known to be connected, not lazily when
-  // the settings panel opens - so opening it never shows a loading flash.
-  const [githubRepos, setGithubRepos] = useState({ available: [], selected: [] });
-  useEffect(() => {
-    if (!authToken || !githubStatus?.connected) {
-      setGithubRepos({ available: [], selected: [] });
-      return;
-    }
-    fetch(`${API_URL}/api/github/repos`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => data && setGithubRepos({ available: data.repos || [], selected: data.selected || [] }))
-      .catch(() => {});
-  }, [authToken, githubStatus?.connected]);
-
-  const handleSaveGithubRepos = useCallback(async (repos) => {
-    await fetch(`${API_URL}/api/github/repos`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ repos }),
-    });
-    setGithubRepos(prev => ({ ...prev, selected: repos }));
-  }, [authToken]);
-
-  // Not supabase.auth.linkIdentity() - that only verifies a second identity
-  // for login purposes and doesn't hand back a usable GitHub API token. This
-  // is a plain browser navigation into GitHub's own OAuth flow, handled
-  // entirely by the backend (see api/github_auth.py's /connect + /callback).
-  const handleConnectGithub = useCallback(() => {
-    window.location.href = `${API_URL}/api/github/connect?token=${encodeURIComponent(authToken)}`;
-  }, [authToken]);
-
-  const handleDisconnectGithub = useCallback(async () => {
-    await fetch(`${API_URL}/api/github/token`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${authToken}` },
-    }).catch(() => {});
-    setGithubStatus({ connected: false, expired: false });
-    setGithubRepos({ available: [], selected: [] });
   }, [authToken]);
 
   const handleCreateSession = useCallback(async (title) => {
@@ -446,11 +386,6 @@ export function WorkspaceProvider({ children }) {
         handleVerifyMailAccount,
         handleRefreshMailAccounts,
         msDisconnected,
-        githubStatus,
-        handleConnectGithub,
-        handleDisconnectGithub,
-        githubRepos,
-        handleSaveGithubRepos,
         isSyncingInbox,
         setIsSyncingInbox,
         isSyncingEvents,

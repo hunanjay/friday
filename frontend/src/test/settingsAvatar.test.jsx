@@ -7,6 +7,7 @@ import { WorkspaceContext } from '../context/workspace-context';
 import SettingsPage from '../pages/SettingsPage';
 
 const settingsState = vi.hoisted(() => ({}));
+const githubState = vi.hoisted(() => ({}));
 
 vi.mock('../features/settings/hooks', () => ({
   useAssistantName: () => ({
@@ -24,6 +25,18 @@ vi.mock('../features/settings/hooks', () => ({
   useAvatarPresets: () => ({ avatarPresets: settingsState.avatarPresets }),
 }));
 
+vi.mock('../features/github/hooks', () => ({
+  useGitHubConnection: () => ({
+    githubStatus: githubState.githubStatus,
+    connectGitHub: githubState.connectGitHub,
+    disconnectGitHub: githubState.disconnectGitHub,
+  }),
+  useGitHubRepositories: () => ({
+    githubRepositories: githubState.githubRepositories,
+    saveGitHubRepositories: githubState.saveGitHubRepositories,
+  }),
+}));
+
 function renderSettings(overrides = {}) {
   Object.assign(settingsState, {
     assistantName: 'Friday',
@@ -34,17 +47,19 @@ function renderSettings(overrides = {}) {
     avatarPresets: [{ id: 'avatar-01.png', url: '/avatars/avatar-01.png' }],
     handleUpdateAvatar: vi.fn().mockResolvedValue('/avatars/avatar-01.png'),
   }, overrides);
+  Object.assign(githubState, {
+    githubStatus: { connected: false },
+    githubRepositories: { available: [], selected: [] },
+    connectGitHub: vi.fn(),
+    disconnectGitHub: vi.fn(),
+    saveGitHubRepositories: vi.fn(),
+  }, overrides);
 
   const value = {
     user: { name: 'Test User', email: 'test@example.com' },
     theme: 'light',
     toggleTheme: vi.fn(),
     handleLogout: vi.fn(),
-    githubStatus: { connected: false },
-    githubRepos: { available: [], selected: [] },
-    handleConnectGithub: vi.fn(),
-    handleDisconnectGithub: vi.fn(),
-    handleSaveGithubRepos: vi.fn(),
     mailAccounts: [],
     handleUnbindMailAccount: vi.fn(),
     handleVerifyMailAccount: vi.fn(),
@@ -59,7 +74,7 @@ function renderSettings(overrides = {}) {
       </WorkspaceContext.Provider>
     </MemoryRouter>
   );
-  return { ...value, ...settingsState };
+  return { ...value, ...settingsState, ...githubState };
 }
 
 describe('SettingsPage assistant avatar', () => {
