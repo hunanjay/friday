@@ -115,6 +115,31 @@ function EmailForwardPreview({ payload, action, t, onEdit }) {
   );
 }
 
+/** Replying carries the thread along, so the card previews only the reply text. */
+function EmailReplyPreview({ payload, action, t, onEdit }) {
+  const edit = (field) => (onEdit ? (value) => onEdit(field, value) : null);
+  const signature = (action?.presentation?.signature || '').trim();
+  return (
+    <div className="approval-email-preview">
+      {(payload.cc || onEdit) && (
+        <div className="approval-email-head">
+          <span className="approval-email-label">{t('email.cc')}</span>
+          <Editable as="div" className="approval-email-to" value={payload.cc} onChange={edit('cc')} />
+        </div>
+      )}
+      <div className="approval-email-body">
+        <Editable as="p" value={payload.body} onChange={edit('body')} />
+        {signature && !payload.body?.trimEnd().endsWith(signature) && (
+          <SignatureBlock signature={signature} t={t} />
+        )}
+        <p className="approval-email-note">
+          {payload.reply_all ? t('email.replyAllCarriesThread') : t('email.replyCarriesThread')}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function EmailDeletePreview({ payload, t }) {
   return (
     <div className="approval-details">
@@ -161,6 +186,7 @@ function GenericPreview({ payload }) {
 
 export const APPROVAL_RENDERERS = {
   email: { Preview: EmailPreview, Icon: Mail },
+  email_reply: { Preview: EmailReplyPreview, Icon: Mail },
   email_forward: { Preview: EmailForwardPreview, Icon: Mail },
   email_delete: { Preview: EmailDeletePreview, Icon: Trash },
   calendar: { Preview: CalendarPreview, Icon: Calendar },
@@ -172,6 +198,7 @@ export function getApprovalRenderer(action) {
   if (configured && APPROVAL_RENDERERS[configured]) return APPROVAL_RENDERERS[configured];
   const type = action.canonical_action_type || action.action_type || '';
   if (type === 'mail.send' || type === 'send_email' || !type) return APPROVAL_RENDERERS.email;
+  if (type === 'mail.reply' || type === 'reply_email') return APPROVAL_RENDERERS.email_reply;
   if (type === 'mail.forward' || type === 'forward_email') return APPROVAL_RENDERERS.email_forward;
   if (type === 'mail.move_to_trash' || type === 'delete_email') return APPROVAL_RENDERERS.email_delete;
   if (type.startsWith('calendar.')) return APPROVAL_RENDERERS.calendar;

@@ -12,6 +12,10 @@ HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": "Review and approve this email before it is sent.",
     },
+    "reply_email": {
+        "allowed_decisions": ["approve", "edit", "reject"],
+        "description": "Review and approve this reply before it is sent.",
+    },
     "forward_email": {
         "allowed_decisions": ["approve", "edit", "reject"],
         "description": "Review and approve forwarding this email.",
@@ -43,11 +47,19 @@ HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
 # on the drafts that happened to have one.
 _EDITABLE_FIELDS: dict[str, frozenset[str]] = {
     "send_email": frozenset({"to", "cc", "subject", "body"}),
+    "reply_email": frozenset({"cc", "body"}),
     "forward_email": frozenset({"to", "cc", "comment"}),
 }
 
 _ACTION_UI = {
     "send_email": ("mail.send", "email", "chat.reviewEmail", "chat.approvalStatusSent", "chat.confirmSend"),
+    "reply_email": (
+        "mail.reply",
+        "email_reply",
+        "chat.reviewReply",
+        "chat.approvalStatusSent",
+        "chat.confirmReply",
+    ),
     "forward_email": (
         "mail.forward",
         "email_forward",
@@ -157,7 +169,7 @@ def interrupt_to_action(
             "editable": "edit" in allowed and len(requests) == 1,
             # The signature is appended to the body at send time, so the card
             # has to carry it or it would preview an email nobody will receive.
-            "signature": signature if renderer in {"email", "email_forward"} else "",
+            "signature": signature if renderer in {"email", "email_reply", "email_forward"} else "",
             "title_key": title_key,
             "subtitle_key": "chat.approvalRequired",
             "pending_status_key": "chat.approvalStatusPending",
