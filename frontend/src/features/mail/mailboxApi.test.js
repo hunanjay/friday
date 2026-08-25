@@ -5,6 +5,7 @@ import {
   getMailFolderPage,
   mailChannelPath,
   normalizeMailMessage,
+  searchMailPage,
 } from './mailboxApi';
 
 vi.mock('../../api/client', () => ({ apiRequest: vi.fn() }));
@@ -62,5 +63,31 @@ describe('mailbox API', () => {
       hasAttachments: true,
     }));
     expect(normalized).not.toHaveProperty('body');
+  });
+
+  it('uses query parameters for initial search and only the opaque cursor afterward', async () => {
+    apiRequest.mockResolvedValue({ value: [], next_cursor: null });
+    const signal = new AbortController().signal;
+
+    await searchMailPage('token', {
+      channel: 'microsoft',
+      folder: 'deleted',
+      query: 'quarterly report',
+      signal,
+    });
+    await searchMailPage('token', {
+      channel: 'microsoft',
+      cursor: 'opaque cursor',
+    });
+    expect(apiRequest).toHaveBeenNthCalledWith(1, '/api/graph/mail/search', {
+      token: 'token',
+      signal,
+      query: { query: 'quarterly report', folder: 'deleted', top: 25 },
+    });
+    expect(apiRequest).toHaveBeenNthCalledWith(2, '/api/graph/mail/search', {
+      token: 'token',
+      signal: undefined,
+      query: { cursor: 'opaque cursor' },
+    });
   });
 });

@@ -34,6 +34,21 @@ export function getMailFolderPage(token, { channel, folder, cursor }) {
   });
 }
 
+export function searchMailPage(token, {
+  channel,
+  cursor,
+  folder,
+  query,
+  signal,
+  top = 25,
+}) {
+  return apiRequest(`${mailChannelPath(channel)}/search`, {
+    token,
+    signal,
+    query: cursor ? { cursor } : { query, folder, top },
+  });
+}
+
 export async function getInboxUnread(token, accountIds) {
   const requests = [
     apiRequest('/api/graph/mail/folders/inbox', { token }),

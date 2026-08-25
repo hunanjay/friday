@@ -9,6 +9,7 @@ import {
   normalizeMailMessage as normalizeMessage,
 } from '../features/mail/mailboxApi';
 import { useMailFolderSync } from '../features/mail/useMailFolderSync';
+import { useMailSearch } from '../features/mail/useMailSearch';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
@@ -66,6 +67,13 @@ export default function EmailPage() {
   } = useMailFolderSync({ activeFolder, onError: handleFolderSyncError });
 
   const [searchQuery, setSearchQuery] = useState('');
+  const {
+    canLoadMoreSearch,
+    isLoadingMoreSearch,
+    isSearching,
+    loadMoreSearch,
+    searchResults,
+  } = useMailSearch({ activeFolder, mailChannels, searchQuery });
 
   // Thread detail state (must be declared before any useEffect that references them)
   const [selectedConvKey, setSelectedConvKey] = useState(null);
@@ -237,90 +245,17 @@ export default function EmailPage() {
     );
   })();
 
-  // Search hits the real backend (/api/graph/mail/search), debounced, scoped
-  // to the active folder. Empty query falls back to the locally synced list.
-  const [searchResults, setSearchResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchCursor, setSearchCursor] = useState(null);
-  const [isLoadingMoreSearch, setIsLoadingMoreSearch] = useState(false);
-
-  const searchGraphFolder = { inbox: 'inbox', sent: 'sent', trash: 'deleted' }[activeFolder] || 'inbox';
-
-  useEffect(() => {
-    if (!authToken || !searchQuery.trim()) {
-      setSearchResults([]);
-      setSearchCursor(null);
-      return;
-    }
-    const controller = new AbortController();
-    setIsSearching(true);
-    const timer = setTimeout(() => {
-      Promise.all(mailChannels.map(c =>
-        fetch(
-          `${mailApiBase(c)}/search?query=${encodeURIComponent(searchQuery)}&folder=${searchGraphFolder}&top=25`,
-          { headers: { Authorization: `Bearer ${authToken}` }, signal: controller.signal }
-        ).then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
-      ))
-        .then(pages => {
-          setSearchResults(
-            pages.flatMap(page => (page.value || []).map(msg => normalizeMessage(msg, activeFolder)))
-          );
-          setSearchCursor(Object.fromEntries(
-            mailChannels.map((c, i) => [c, pages[i]?.next_cursor || null])
-          ));
-        })
-        .catch(() => {})
-        .finally(() => setIsSearching(false));
-    }, 350);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [searchQuery, activeFolder, authToken, searchGraphFolder, mailChannels]);
-
-  const handleLoadMoreSearch = () => {
-    const active = mailChannels.filter(c => searchCursor?.[c]);
-    if (active.length === 0 || isLoadingMoreSearch) return;
-    setIsLoadingMoreSearch(true);
-    // Graph's $skip pagination is offset-based, so a shifting result set can
-    // return an email we already have; capture the query this page belongs to
-    // and drop the response if the user has since retyped (avoids mixing old
-    // and new results), then dedupe by id on append.
-    const forQuery = searchQuery;
-    Promise.all(active.map(c =>
-      fetch(`${mailApiBase(c)}/search?cursor=${encodeURIComponent(searchCursor[c])}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      }).then(res => (res.ok ? res.json() : { value: [], next_cursor: null }))
-    ))
-      .then(pages => {
-        if (forQuery !== searchQuery) return;
-        setSearchResults(prev => {
-          const seen = new Set(prev.map(e => e.id));
-          const next = pages.flatMap(page => (page.value || [])
-            .map(msg => normalizeMessage(msg, activeFolder))
-            .filter(e => !seen.has(e.id)));
-          return [...prev, ...next];
-        });
-        const next = Object.fromEntries(mailChannels.map(channel => [channel, null]));
-        active.forEach((c, i) => { next[c] = pages[i]?.next_cursor || null; });
-        setSearchCursor(next);
-      })
-      .catch(() => {})
-      .finally(() => setIsLoadingMoreSearch(false));
-  };
-
   const isSearchMode = Boolean(searchQuery.trim());
   // In search mode keep flat results; in folder mode use the threaded groups.
   const filteredEmails = isSearchMode ? searchResults : threadedEmails;
-  const hasMore = (c) => mailChannels.some(ch => Boolean(c?.[ch]));
   const canLoadMore = isSearchMode
-    ? hasMore(searchCursor)
+    ? canLoadMoreSearch
     : canLoadMoreFolder;
   const isLoadingMore = isSearchMode
     ? isLoadingMoreSearch
     : isLoadingMoreFolder;
   const handleLoadMore = isSearchMode
-    ? handleLoadMoreSearch
+    ? loadMoreSearch
     : loadMoreFolder;
 
   // The "active" email for Dora / reply: the latest message in the thread.
