@@ -26,9 +26,9 @@ import {
 } from '@fluentui/react-icons';
 import { useAuth } from '../features/auth/useAuth';
 import { useCalendarEvents } from '../features/calendar/hooks';
+import { useDashboardInbox } from '../features/dashboard/useDashboardInbox';
 import { useTodos } from '../features/dashboard/useTodos';
 import { useGitHubConnection } from '../features/github/hooks';
-import { useMailAccounts } from '../features/mail/accountHooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
 import { useMemos } from '../features/memos/hooks';
 import { useAssistantName } from '../features/settings/hooks';
@@ -37,7 +37,6 @@ import { useTranslation } from 'react-i18next';
 import './DashboardPage.css';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-const MICROSOFT = 'microsoft';
 
 const doraLightTheme = {
   ...webLightTheme,
@@ -220,8 +219,7 @@ export default function DashboardPage() {
   const { theme } = useTheme();
   const { assistantName } = useAssistantName();
   const { githubStatus } = useGitHubConnection();
-  const { mailAccounts } = useMailAccounts();
-  const { emails, syncInboxEmails: handleSyncInboxEmails } = useMailMessages();
+  const { emails } = useMailMessages();
   const { inboxUnread } = useInboxUnread();
   const { memos, isLoadingMemos } = useMemos();
   const { authToken, user } = useAuth();
@@ -384,90 +382,34 @@ export default function DashboardPage() {
   const pendingTodosCount = useMemo(() => todos.filter(t => !t.completed).length, [todos]);
   const completedTodosCount = useMemo(() => todos.filter(t => t.completed).length, [todos]);
 
-  // ── Per-panel loading states ──────────────────────────────────────────────
+  // ── Independent panel queries ────────────────────────────────────────────
   const [commits, setCommits] = useState([]);
   const [isCommitsLoading, setIsCommitsLoading] = useState(Boolean(authToken));
-
-  const [isEmailsLoading, setIsEmailsLoading] = useState(Boolean(authToken) && !emails.length);
-  const [panelErrors, setPanelErrors] = useState({ email: false, calendar: false, github: false });
+  const [githubError, setGithubError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const dashboardCalendarRange = useMemo(() => {
     const start = new Date();
     const end = new Date(start);
     end.setDate(end.getDate() + 7);
     return { start: start.toISOString(), end: end.toISOString() };
-    // Recalculate the moving seven-day window when the user retries.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryKey]);
+  }, []);
   const {
     events,
     isCalendarError,
     isLoadingCalendarEvents,
+    refetchCalendarEvents,
   } = useCalendarEvents(dashboardCalendarRange);
-  const loadError = Object.values(panelErrors).some(Boolean);
-  const handleRetry = () => setRetryKey(key => key + 1);
-
-  useEffect(() => {
-    if (!authToken) {
-      setIsEmailsLoading(false);
-    }
-  }, [authToken]);
-
-  useEffect(() => {
-    setPanelErrors(errors => (
-      errors.calendar === isCalendarError
-        ? errors
-        : { ...errors, calendar: isCalendarError }
-    ));
-  }, [isCalendarError]);
-
-  // ── Fetch Inbox ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!authToken) { setIsEmailsLoading(false); return; }
-    let active = true;
-    setIsEmailsLoading(true);
-    setPanelErrors(errors => ({ ...errors, email: false }));
-
-    // Multi-channel inbox: Microsoft Graph plus every bound IMAP account,
-    // so the dashboard summary reflects all mailboxes (unread badge does).
-    const channels = [MICROSOFT, ...(mailAccounts || []).map(a => a.id)];
-    Promise.all(channels.map(channel => {
-      const url = channel === MICROSOFT
-        ? `${API_URL}/api/graph/mail/inbox`
-        : `${API_URL}/api/mail-accounts/${channel}/mail/inbox`;
-      return fetch(url, { headers: { Authorization: `Bearer ${authToken}` } })
-        .then(res => (res.ok ? res.json() : { value: [] }))
-        .catch(() => ({ value: [] }));
-    }))
-      .then(pages => {
-        if (!active) return;
-        const normalized = pages.flatMap(page => (page.value || []).map(msg => ({
-          id: msg.id,
-          subject: msg.subject,
-          bodyPreview: msg.bodyPreview,
-          sender: msg.sender,
-          from: msg.from || msg.sender,
-          toRecipients: msg.toRecipients,
-          receivedDateTime: msg.receivedDateTime,
-          isRead: msg.isRead,
-          parentFolderId: 'inbox',
-          conversationId: msg.conversationId || null,
-          hasAttachments: Boolean(msg.hasAttachments),
-          // Same channel semantics as EmailPage.normalizeMessage: IMAP ids are
-          // "imap:{accountId}:{mailbox}:{uid}", so provider carries the
-          // mail_accounts id (not the literal "imap") for URL routing.
-          provider: msg.provider === 'imap' && msg.id?.startsWith('imap:')
-            ? msg.id.split(':')[1]
-            : MICROSOFT,
-        })));
-        handleSyncInboxEmails(normalized);
-      })
-      .catch(() => { if (active) setPanelErrors(errors => ({ ...errors, email: true })); })
-      .finally(() => { if (active) setIsEmailsLoading(false); });
-
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authToken, handleSyncInboxEmails, retryKey, mailAccounts]);
+  const {
+    inboxError,
+    isLoadingInbox: isEmailsLoading,
+    refetchInbox,
+  } = useDashboardInbox();
+  const loadError = inboxError || isCalendarError || githubError;
+  const handleRetry = () => {
+    setRetryKey(key => key + 1);
+    void refetchCalendarEvents();
+    void refetchInbox();
+  };
 
   // ── GitHub Commits Week Window & Pagination ──────────────────────────────
   const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, -1 = last week
@@ -482,7 +424,7 @@ export default function DashboardPage() {
     let active = true;
     setIsCommitsLoading(true);
     setCommitsPage(1);
-    setPanelErrors(errors => ({ ...errors, github: false }));
+    setGithubError(false);
 
     const { since, until } = currentWeekInfo;
     const params = new URLSearchParams({ since, until });
@@ -495,7 +437,7 @@ export default function DashboardPage() {
       .catch(() => {
         if (!active) return;
         setCommits([]);
-        setPanelErrors(errors => ({ ...errors, github: true }));
+        setGithubError(true);
       })
       .finally(() => { if (active) setIsCommitsLoading(false); });
 
