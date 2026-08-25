@@ -8,6 +8,7 @@ import SettingsPage from '../pages/SettingsPage';
 
 const settingsState = vi.hoisted(() => ({}));
 const githubState = vi.hoisted(() => ({}));
+const mailState = vi.hoisted(() => ({}));
 
 vi.mock('../features/settings/hooks', () => ({
   useAssistantName: () => ({
@@ -37,6 +38,16 @@ vi.mock('../features/github/hooks', () => ({
   }),
 }));
 
+vi.mock('../features/mail/accountHooks', () => ({
+  useMailAccounts: () => ({
+    mailAccounts: mailState.mailAccounts,
+    bindMailAccount: mailState.bindMailAccount,
+    unbindMailAccount: mailState.unbindMailAccount,
+    verifyMailAccount: mailState.verifyMailAccount,
+  }),
+  useMailProviders: () => ({ mailProviders: mailState.mailProviders }),
+}));
+
 function renderSettings(overrides = {}) {
   Object.assign(settingsState, {
     assistantName: 'Friday',
@@ -54,16 +65,19 @@ function renderSettings(overrides = {}) {
     disconnectGitHub: vi.fn(),
     saveGitHubRepositories: vi.fn(),
   }, overrides);
+  Object.assign(mailState, {
+    mailAccounts: [],
+    mailProviders: [],
+    bindMailAccount: vi.fn(),
+    unbindMailAccount: vi.fn(),
+    verifyMailAccount: vi.fn(),
+  }, overrides);
 
   const value = {
     user: { name: 'Test User', email: 'test@example.com' },
     theme: 'light',
     toggleTheme: vi.fn(),
     handleLogout: vi.fn(),
-    mailAccounts: [],
-    handleUnbindMailAccount: vi.fn(),
-    handleVerifyMailAccount: vi.fn(),
-    handleRefreshMailAccounts: vi.fn(),
     showToast: vi.fn(),
     ...overrides,
   };
@@ -74,7 +88,7 @@ function renderSettings(overrides = {}) {
       </WorkspaceContext.Provider>
     </MemoryRouter>
   );
-  return { ...value, ...settingsState, ...githubState };
+  return { ...value, ...settingsState, ...githubState, ...mailState };
 }
 
 describe('SettingsPage assistant avatar', () => {

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { readComposeDraft, writeComposeDraft } from './composeDraft';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useMailAccounts, useMicrosoftMailStatus } from '../features/mail/accountHooks';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
@@ -59,6 +60,8 @@ export default function EmailPage() {
   const { assistantName } = useAssistantName();
   const { avatarUrl } = useAvatar();
   const { signature } = useSignature();
+  const { mailAccounts } = useMailAccounts();
+  const { msDisconnected } = useMicrosoftMailStatus();
   const {
     user,
     emails,
@@ -74,9 +77,7 @@ export default function EmailPage() {
     handleSyncSentEmails,
     handleAppendSentEmails,
     handleLogout,
-    setIsSidebarCollapsed,
-    mailAccounts,
-    msDisconnected
+    setIsSidebarCollapsed
   } = useWorkspace();
 
   const { t, i18n } = useTranslation();

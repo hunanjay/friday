@@ -26,6 +26,7 @@ import {
 } from '@fluentui/react-icons';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useGitHubConnection } from '../features/github/hooks';
+import { useMailAccounts } from '../features/mail/accountHooks';
 import { useAssistantName } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -226,7 +227,8 @@ export default function DashboardPage() {
   const { theme } = useTheme();
   const { assistantName } = useAssistantName();
   const { githubStatus } = useGitHubConnection();
-  const { authToken, emails, inboxUnread, memos, user, mailAccounts, handleSyncInboxEmails } = useWorkspace();
+  const { mailAccounts } = useMailAccounts();
+  const { authToken, emails, inboxUnread, memos, user, handleSyncInboxEmails } = useWorkspace();
   const isZh = i18n.language === 'zh';
 
   // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useGitHubConnection, useGitHubRepositories } from '../features/github/hooks';
+import { useMailAccounts } from '../features/mail/accountHooks';
 import { useAssistantName, useAvatar, useAvatarPresets, useSignature } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
@@ -20,16 +21,13 @@ export default function SettingsPage() {
   const { githubRepositories, saveGitHubRepositories } = useGitHubRepositories({
     enabled: Boolean(githubStatus?.connected),
   });
+  const { mailAccounts, unbindMailAccount, verifyMailAccount } = useMailAccounts();
   const {
     user,
     theme,
     toggleTheme,
     handleLogout,
     authToken,
-    mailAccounts,
-    handleUnbindMailAccount,
-    handleVerifyMailAccount,
-    handleRefreshMailAccounts,
     showToast,
   } = useWorkspace();
 
@@ -624,7 +622,7 @@ export default function SettingsPage() {
                         onClick={async () => {
                           setVerifyingMailId(acc.id);
                           try {
-                            await handleVerifyMailAccount(acc.id);
+                            await verifyMailAccount(acc.id);
                             showToast(isZh ? '连接正常' : 'Connection OK');
                           } catch {
                             showToast(isZh ? '连接验证失败' : 'Verification failed');
@@ -643,7 +641,7 @@ export default function SettingsPage() {
                         onClick={async () => {
                           if (!confirm(isZh ? `解绑 ${acc.email_address}？` : `Unbind ${acc.email_address}?`)) return;
                           try {
-                            await handleUnbindMailAccount(acc.id);
+                            await unbindMailAccount(acc.id);
                             showToast(isZh ? '已解绑' : 'Unbound');
                           } catch {
                             showToast(isZh ? '解绑失败' : 'Failed to unbind');
@@ -772,10 +770,8 @@ export default function SettingsPage() {
       <BindMailAccountModal
         isOpen={showBindMail}
         onClose={() => setShowBindMail(false)}
-        authToken={authToken}
         onBound={() => {
           showToast(i18n.language === 'zh' ? '邮箱绑定成功' : 'Mail account bound');
-          handleRefreshMailAccounts();
         }}
         isZh={isZh}
       />

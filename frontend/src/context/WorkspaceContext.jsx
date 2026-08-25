@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../features/auth/useAuth';
+import { useMailAccounts } from '../features/mail/accountHooks';
 import { useUi } from '../hooks/useUi';
 import { WorkspaceContext } from './workspace-context';
 
@@ -48,6 +49,7 @@ export function WorkspaceProvider({ children }) {
     toast,
     showToast,
   } = useUi();
+  const { mailAccounts } = useMailAccounts();
 
   const [emails, setEmails] = useState(() => {
     const saved = localStorage.getItem('emails');
@@ -83,10 +85,6 @@ export function WorkspaceProvider({ children }) {
     safeSetItem('events', JSON.stringify(events));
   }, [events]);
 
-  // All bound IMAP/SMTP mail accounts (sanitized views, never contain
-  // credentials). Fetched on login; mutated by bind/unbind/verify handlers.
-  const [mailAccounts, setMailAccounts] = useState([]);
-
   // Surfaced globally (top marquee in MainLayout) instead of separate
   // per-page loading banners.
   const [isSyncingInbox, setIsSyncingInbox] = useState(false);
@@ -109,33 +107,6 @@ export function WorkspaceProvider({ children }) {
     setEvents([]);
     setMessages([]);
   }, [authToken, isAuthReady]);
-
-  // Periodically confirm the backend can still use the stored Microsoft
-  // token (it silently refreshes on our behalf). If the Microsoft connection
-  // is unrecoverable, we DO NOT sign the user out - mail providers are now
-  // decoupled from the Friday account (see #11). We only flag the Microsoft
-  // mailbox as disconnected so the UI can show "Microsoft 邮箱已断开".
-  const [msDisconnected, setMsDisconnected] = useState(false);
-  useEffect(() => {
-    if (!authToken) {
-      setMsDisconnected(false);
-      return;
-    }
-    const checkStatus = () => {
-      fetch(`${API_URL}/api/graph/status`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.expired) setMsDisconnected(true);
-          else if (data.connected) setMsDisconnected(false);
-        })
-        .catch(() => {});
-    };
-    checkStatus();
-    const interval = setInterval(checkStatus, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [authToken]);
 
   useEffect(() => {
     if (!authToken) {
@@ -187,61 +158,6 @@ export function WorkspaceProvider({ children }) {
       .then(res => (res.ok ? res.json() : { memos: [] }))
       .then(data => setMemos((data.memos || []).map(mapMemo)))
       .catch(() => {});
-  }, [authToken]);
-
-  // Bound IMAP/SMTP mail accounts: one-shot fetch on login (credentials are
-  // stored encrypted server-side; the API never returns them).
-  useEffect(() => {
-    if (!authToken) {
-      setMailAccounts([]);
-      return;
-    }
-    fetch(`${API_URL}/api/mail-accounts`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => (res.ok ? res.json() : { accounts: [] }))
-      .then(data => setMailAccounts(data.accounts || []))
-      .catch(() => {});
-  }, [authToken]);
-
-  const handleBindMailAccount = useCallback(async (body) => {
-    const res = await fetch(`${API_URL}/api/mail-accounts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || 'Failed to bind mail account');
-    setMailAccounts(prev => [...prev, data.account]);
-    return data.account;
-  }, [authToken]);
-
-  const handleUnbindMailAccount = useCallback(async (accountId) => {
-    const res = await fetch(`${API_URL}/api/mail-accounts/${accountId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (!res.ok) throw new Error('Failed to unbind mail account');
-    setMailAccounts(prev => prev.filter(a => a.id !== accountId));
-  }, [authToken]);
-
-  // Re-fetch the account list. BindMailAccountModal performs its own POST, so
-  // after a successful bind we refresh here instead of duplicating the call.
-  const handleRefreshMailAccounts = useCallback(async () => {
-    const res = await fetch(`${API_URL}/api/mail-accounts`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    const data = await res.json().catch(() => ({ accounts: [] }));
-    setMailAccounts(data.accounts || []);
-  }, [authToken]);
-
-  const handleVerifyMailAccount = useCallback(async (accountId) => {
-    const res = await fetch(`${API_URL}/api/mail-accounts/${accountId}/verify`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (!res.ok) throw new Error('Verification failed');
-    return res.json();
   }, [authToken]);
 
   const handleCreateSession = useCallback(async (title) => {
@@ -380,12 +296,6 @@ export function WorkspaceProvider({ children }) {
         toast,
         showToast,
         authToken,
-        mailAccounts,
-        handleBindMailAccount,
-        handleUnbindMailAccount,
-        handleVerifyMailAccount,
-        handleRefreshMailAccounts,
-        msDisconnected,
         isSyncingInbox,
         setIsSyncingInbox,
         isSyncingEvents,
