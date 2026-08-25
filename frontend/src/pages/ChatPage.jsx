@@ -6,22 +6,21 @@ import {
   getChatSessionMessages,
   getPendingChatActions,
 } from '../features/chat/api';
+import { CHAT_AGENT_ICONS, CHAT_AGENT_IDS } from '../features/chat/agentMeta';
 import { getApprovalPlacementMode } from '../features/chat/approvalPlacement';
+import { byApprovalPriority } from '../features/chat/approvalState';
+import { ChatApprovalAction } from '../features/chat/components/ChatApprovalAction';
+import ChatComposer from '../features/chat/components/ChatComposer';
+import ChatMessageList from '../features/chat/components/ChatMessageList';
 import { useChatSessions } from '../features/chat/hooks';
 import { useAgentChatStream } from '../features/chat/useAgentChatStream';
 import { useChatApprovals } from '../features/chat/useChatApprovals';
 import { useAssistantName, useAvatar } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
-import { Send, StopIcon, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
-import StreamingMarkdown from '../components/common/StreamingMarkdown';
-import ApprovalCard from '../components/common/ApprovalCard';
+import { Plus, Trash, ChevronLeft, X } from '../components/common/Icons';
 import { parseAgentCommand, parseAgentPrefix } from '../utils/agentCommand';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-
-// Mirrors the sub-agent names in backend/app/agents/supervisor.py.
-const AGENT_ICONS = { mail_agent: Mail, contact_agent: UserPlus, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
-const AGENT_IDS = Object.keys(AGENT_ICONS);
 
 export default function ChatPage() {
   const { assistantName } = useAssistantName();
@@ -63,11 +62,8 @@ export default function ChatPage() {
   // State updates are asynchronous; this ref closes the small window where a
   // double click can invoke handleSend twice before the button re-renders.
   const isSendingRef = useRef(false);
-  const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  const activeAgentItemRef = useRef(null);
-  const activeContactItemRef = useRef(null);
 
   // Per-thread message list, populated from the LangGraph checkpoint on
   // thread switch. New messages from the streaming response are appended here.
@@ -76,15 +72,14 @@ export default function ChatPage() {
   const activeThread = chatThreads.find(s => s.id === activeThreadId) || null;
 
   const [contactList, setContactList] = useState([]);
-  const [contactMenuIndex, setContactMenuIndex] = useState(0);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
 
   // Slash-command agent picker: only while the whole box is still "/query"
   // (no space typed yet) — mirrors the Slack/Notion "/" mention pattern.
   const slashMatch = inputText.match(/^\/([\w-]*)$/);
-  const agents = AGENT_IDS.map(id => ({
+  const agents = CHAT_AGENT_IDS.map(id => ({
     id,
-    Icon: AGENT_ICONS[id],
+    Icon: CHAT_AGENT_ICONS[id],
     label: t(`chat.agents.${id}.label`),
     desc: t(`chat.agents.${id}.desc`),
   }));
@@ -115,25 +110,12 @@ export default function ChatPage() {
         .then((res) => (res.ok ? res.json() : []))
         .then((data) => {
           setContactList(Array.isArray(data) ? data : []);
-          setContactMenuIndex(0);
         })
         .catch(() => setContactList([]))
         .finally(() => setIsLoadingContacts(false));
     }, 150);
     return () => clearTimeout(timer);
   }, [mentionQuery, showAgentMenu, authToken]);
-
-  useEffect(() => {
-    if (showAgentMenu && activeAgentItemRef.current) {
-      activeAgentItemRef.current.scrollIntoView({ block: 'nearest' });
-    }
-  }, [agentMenuIndex, showAgentMenu]);
-
-  useEffect(() => {
-    if (showContactMenu && activeContactItemRef.current) {
-      activeContactItemRef.current.scrollIntoView({ block: 'nearest' });
-    }
-  }, [contactMenuIndex, showContactMenu]);
 
   const selectAgent = (agent) => {
     setSelectedAgent(agent.id);
@@ -158,15 +140,6 @@ export default function ChatPage() {
     }
     setInputText(value);
   };
-
-  // Grow the composer upward as the user types multiple lines, capped by the
-  // max-height set in CSS (after which the textarea scrolls internally).
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [inputText]);
 
   // Fetch conversation history from the LangGraph checkpoint whenever the
   // active thread changes. This replaces localStorage as the source of truth,
@@ -312,72 +285,6 @@ export default function ChatPage() {
 
   const handleStop = stopAgentStream;
 
-  const handleKeyDown = (e) => {
-    if (showContactMenu && contactList.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setContactMenuIndex((i) => (i + 1) % contactList.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setContactMenuIndex((i) => (i - 1 + contactList.length) % contactList.length);
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        selectContact(contactList[contactMenuIndex] || contactList[0]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setContactList([]);
-        return;
-      }
-    }
-
-    if (showAgentMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setAgentMenuIndex(i => (i + 1) % filteredAgents.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setAgentMenuIndex(i => (i - 1 + filteredAgents.length) % filteredAgents.length);
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        selectAgent(filteredAgents[agentMenuIndex] || filteredAgents[0]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setInputText('');
-        return;
-      }
-    }
-
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSend(e);
-    }
-  };
-
-  const renderApprovalAction = (action) => {
-    return (
-      <ApprovalCard
-        key={action.id}
-        action={action}
-        onDecision={(decision, edits) => handleActionDecision(action, decision, edits)}
-        onCancel={() => handleActionDecision(action, 'reject')}
-        onConfirm={() => handleActionDecision(action, 'approve')}
-        assistantName={assistantName}
-      />
-    );
-  };
-
   return (
     <div className={`chat-tab-container ${activeThreadId ? 'has-active-thread' : ''} ${showMobileSidebar ? 'show-mobile-sidebar' : ''}`}>
       {/* Chat Sidebar */}
@@ -473,214 +380,49 @@ export default function ChatPage() {
               </div>
             </div>
 
-            <div className="chat-messages-area">
-              {isLoadingMessages ? (
-                <div className="chat-empty-state">
-                  <p>{t('chat.loading')}</p>
-                </div>
-              ) : threadMessages.length === 0 && pendingActions.length === 0 ? (
-                <div className="chat-empty-state">
-                  <p>{t('chat.startConversation')}</p>
-                </div>
-            ) : (
-                threadMessages.map(msg => {
-                  const isUser = msg.sender === 'user';
-                  const isBot = msg.sender === 'bot';
-                  const RoutedAgentIcon = isUser && msg.agent_name ? AGENT_ICONS[msg.agent_name] : null;
-
-                  return (
-                    <React.Fragment key={msg.id}>
-                    <div className={`message-row ${isUser ? 'user-row' : 'other-row'}`}>
-                      {!isUser && (
-                        <div className="message-avatar">
-                          {isBot ? <img src={avatarUrl || '/dora_assistant_avatar.png'} alt={assistantName} /> : msg.senderName[0]}
-                        </div>
-                      )}
-                      <div className="message-bubble-wrapper">
-                        {!isUser && <span className="message-sender-name">{msg.senderName}</span>}
-                        <div className={`message-bubble ${isUser ? 'user-bubble' : 'other-bubble'} ${isBot ? 'bot-bubble' : ''}`}>
-                          {/* Tool call status badges */}
-                          {!isUser && msg.toolCalls && msg.toolCalls.length > 0 && (
-                            <div className="tool-calls-container" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
-                              {msg.toolCalls.map((call, idx) => (
-                                <div
-                                  key={idx}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    padding: '4px 10px',
-                                    borderRadius: 6,
-                                    fontSize: '0.78rem',
-                                    background: 'rgba(99, 102, 241, 0.08)',
-                                    border: '1px solid rgba(99, 102, 241, 0.2)',
-                                    color: '#6366f1',
-                                    fontWeight: 500,
-                                  }}
-                                >
-                                  {call.status === 'running' ? (
-                                    <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />
-                                  ) : (
-                                    <span>⚡</span>
-                                  )}
-                                  <span>
-                                    {call.status === 'running' ? '正在调用工具: ' : '已调用工具: '}
-                                    <strong style={{ fontFamily: 'monospace' }}>{call.name}</strong>
-                                    {call.input && typeof call.input === 'object' && Object.keys(call.input).length > 0 && (
-                                      <span style={{ opacity: 0.8, marginLeft: 4 }}>
-                                        ({Object.entries(call.input).map(([k, v]) => `${k}="${String(v).slice(0, 30)}"`).join(', ')})
-                                      </span>
-                                    )}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {isUser ? (
-                            <>
-                              {RoutedAgentIcon && (
-                                <span className="message-agent-chip">
-                                  <RoutedAgentIcon size={13} />
-                                  {t(`chat.agents.${msg.agent_name}.label`)}
-                                </span>
-                              )}
-                              <StreamingMarkdown content={msg.text} isBotTyping={false} />
-                            </>
-                          ) : (
-                            <StreamingMarkdown
-                              content={msg.text}
-                              isBotTyping={isTyping && msg.id === threadMessages[threadMessages.length - 1]?.id}
-                            />
-                          )}
-                        </div>
-                        <span className="message-time">{msg.timestamp}</span>
-                      </div>
-                    </div>
-                    {pendingActions
-                      .filter(action => getApprovalPlacementMode(action) === 'after_message' && action.anchorMessageId === msg.id)
-                      .sort((a, b) => (b.placement?.priority || 0) - (a.placement?.priority || 0))
-                      .map(renderApprovalAction)}
-                    </React.Fragment>
-                  );
-                })
-              )}
-
-              {pendingActions
-                .filter(action => {
-                  const mode = getApprovalPlacementMode(action);
-                  return mode === 'end' || (mode === 'after_message' && !action.anchorMessageId);
-                })
-                .sort((a, b) => (b.placement?.priority || 0) - (a.placement?.priority || 0))
-                .map(renderApprovalAction)}
-
-              <div ref={messagesEndRef} />
-            </div>
+            <ChatMessageList
+              assistantName={assistantName}
+              avatarUrl={avatarUrl}
+              endRef={messagesEndRef}
+              isLoading={isLoadingMessages}
+              isTyping={isTyping}
+              messages={threadMessages}
+              onApprovalDecision={handleActionDecision}
+              pendingActions={pendingActions}
+            />
 
             {pendingActions
               .filter(action => getApprovalPlacementMode(action) === 'composer')
-              .sort((a, b) => (b.placement?.priority || 0) - (a.placement?.priority || 0))
-              .map(renderApprovalAction)}
-
-            <form onSubmit={handleSend} className="chat-input-area">
-              {showAgentMenu && (
-                <div className="agent-slash-menu">
-                  <span className="agent-slash-menu-hint">{t('chat.agentMenuHint')}</span>
-                  {filteredAgents.map((agent, idx) => (
-                    <div
-                      key={agent.id}
-                      ref={idx === agentMenuIndex ? activeAgentItemRef : null}
-                      className={`agent-slash-menu-item ${idx === agentMenuIndex ? 'active' : ''}`}
-                      onMouseDown={(e) => { e.preventDefault(); selectAgent(agent); }}
-                      onMouseEnter={() => setAgentMenuIndex(idx)}
-                    >
-                      <agent.Icon size={16} />
-                      <div className="agent-slash-menu-item-text">
-                        <span className="agent-slash-menu-item-label">{agent.label}</span>
-                        <span className="agent-slash-menu-item-desc">{agent.desc}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {showContactMenu && (
-                <div className="agent-slash-menu contact-mention-menu">
-                  <span className="agent-slash-menu-hint">{t('chat.mentionContactHint')}</span>
-                  {isLoadingContacts ? (
-                    <div style={{ padding: '10px 12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                      {i18n.language === 'zh' ? '正在查找联系人...' : 'Searching contacts...'}
-                    </div>
-                  ) : (
-                    contactList.map((contact, idx) => (
-                      <div
-                        key={contact.id || idx}
-                        ref={idx === contactMenuIndex ? activeContactItemRef : null}
-                        className={`agent-slash-menu-item ${idx === contactMenuIndex ? 'active' : ''}`}
-                        onMouseDown={(e) => { e.preventDefault(); selectContact(contact); }}
-                        onMouseEnter={() => setContactMenuIndex(idx)}
-                      >
-                        <div className="contact-item-avatar">
-                          {(contact.name?.[0] || 'C').toUpperCase()}
-                        </div>
-                        <div className="agent-slash-menu-item-text">
-                          <span className="agent-slash-menu-item-label">{contact.name}</span>
-                          <span className="agent-slash-menu-item-desc">{contact.email || contact.phone || contact.company || ''}</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-              <div className="chat-input-wrapper">
-                {selectedAgent && (
-                  <span className="composer-agent-chip">
-                    {(() => {
-                      const Icon = AGENT_ICONS[selectedAgent];
-                      return <Icon size={14} />;
-                    })()}
-                    {t(`chat.agents.${selectedAgent}.label`)}
-                    <button
-                      type="button"
-                      className="composer-agent-chip-remove"
-                      aria-label={i18n.language === 'zh' ? '移除 Agent' : 'Remove agent'}
-                      onClick={() => setSelectedAgent(null)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                )}
-                <textarea
-                  ref={inputRef}
-                  value={inputText}
-                  onChange={handleInputChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder={t('chat.inputPlaceholderAI', { name: assistantName })}
-                  rows="1"
+              .sort(byApprovalPriority)
+              .map(action => (
+                <ChatApprovalAction
+                  key={action.id}
+                  action={action}
+                  assistantName={assistantName}
+                  onDecision={handleActionDecision}
                 />
-                {isTyping ? (
-                  <button
-                    type="button"
-                    className="send-msg-btn"
-                    onClick={handleStop}
-                    title={t('chat.stopGenerating')}
-                    aria-label={t('chat.stopGenerating')}
-                  >
-                    <StopIcon size={16} />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    className="send-msg-btn"
-                    disabled={!inputText.trim()}
-                    title={t('chat.sendMessage')}
-                    aria-label={t('chat.sendMessage')}
-                  >
-                    <Send size={16} />
-                  </button>
-                )}
-              </div>
-              <span className="chat-send-hint">{t('chat.sendHint')}</span>
-            </form>
+              ))}
+
+            <ChatComposer
+              assistantName={assistantName}
+              contacts={contactList}
+              filteredAgents={filteredAgents}
+              inputRef={inputRef}
+              inputText={inputText}
+              isLoadingContacts={isLoadingContacts}
+              isTyping={isTyping}
+              onClearAgent={() => setSelectedAgent(null)}
+              onDismissAgents={() => setInputText('')}
+              onDismissContacts={() => setContactList([])}
+              onInputChange={handleInputChange}
+              onSelectAgent={selectAgent}
+              onSelectContact={selectContact}
+              onStop={handleStop}
+              onSubmit={handleSend}
+              selectedAgent={selectedAgent}
+              showAgentMenu={showAgentMenu}
+              showContactMenu={showContactMenu}
+            />
           </>
         ) : (
           <div className="chat-empty-panel">

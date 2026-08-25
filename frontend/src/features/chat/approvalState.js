@@ -5,6 +5,10 @@ import {
 
 export const isApprovalResolved = status => Boolean(status && status !== 'pending');
 
+export function byApprovalPriority(left, right) {
+  return (right.placement?.priority || 0) - (left.placement?.priority || 0);
+}
+
 export function restorePersistedApprovals(actions, messages) {
   const lastBotMessageId = [...messages].reverse().find(message => message.sender === 'bot')?.id;
   const usedAnchorIds = new Set();
