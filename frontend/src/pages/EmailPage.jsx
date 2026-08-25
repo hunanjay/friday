@@ -1,9 +1,14 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { readComposeDraft, writeComposeDraft } from './composeDraft';
 import { useAuth } from '../features/auth/useAuth';
 import { useMailAccounts, useMicrosoftMailStatus } from '../features/mail/accountHooks';
-import { useInboxUnread, useMailMessages, useMailSyncStatus } from '../features/mail/mailboxHooks';
+import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
+import {
+  MICROSOFT_MAIL_CHANNEL as MICROSOFT,
+  normalizeMailMessage as normalizeMessage,
+} from '../features/mail/mailboxApi';
+import { useMailFolderSync } from '../features/mail/useMailFolderSync';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
@@ -17,10 +22,6 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 const THREAD_PREFETCH_DELAY_MS = 300;
 const THREAD_CACHE_MAX_ENTRIES = 10;
 
-// Mail channels: 'microsoft' (Graph) plus one entry per bound IMAP account
-// (its mail_accounts id). Both providers return the same Graph-shaped
-// message objects, so the UI only differs in the API base URL.
-const MICROSOFT = 'microsoft';
 // Mirrors mail_compose.py; a backend smoke test asserts the two agree. Checked
 // here so an oversized file is refused on pick, not after a slow upload.
 const GRAPH_ATTACHMENT_LIMIT = 3 * 1024 * 1024;
@@ -30,31 +31,6 @@ const mailApiBase = (channel) =>
   channel === MICROSOFT
     ? `${API_URL}/api/graph/mail`
     : `${API_URL}/api/mail-accounts/${channel}/mail`;
-
-// Shared shape for both the inbox sync and search responses, since both are
-// arrays of raw Graph message objects.
-// NOTE: `body` (full HTML) is intentionally omitted here - large HTML bodies
-// are fetched on demand (per selected email) and held in component-local
-// bodyCache state, not persisted to localStorage.
-function normalizeMessage(msg, parentFolderId) {
-  // IMAP ids look like "imap:{accountId}:{mailbox}:{uid}" - derive the channel
-  const channel = msg.provider === 'imap' && msg.id?.startsWith('imap:')
-    ? msg.id.split(':')[1]
-    : MICROSOFT;
-  return {
-    id: msg.id,
-    provider: channel,
-    subject: msg.subject,
-    bodyPreview: msg.bodyPreview,
-    sender: msg.sender,
-    toRecipients: msg.toRecipients,
-    receivedDateTime: msg.receivedDateTime,
-    isRead: msg.isRead,
-    parentFolderId,
-    conversationId: msg.conversationId || null,
-    hasAttachments: Boolean(msg.hasAttachments),
-  };
-}
 
 export default function EmailPage() {
   const location = useLocation();
@@ -66,36 +42,30 @@ export default function EmailPage() {
   const { msDisconnected } = useMicrosoftMailStatus();
   const {
     emails,
-    syncInboxEmails: handleSyncInboxEmails,
-    syncSentEmails: handleSyncSentEmails,
-    appendEmails,
     moveEmailToTrash: handleDeleteEmail,
     markEmailRead: handleMarkEmailRead,
   } = useMailMessages();
-  const handleAppendInboxEmails = appendEmails;
-  const handleAppendSentEmails = appendEmails;
   const { inboxUnread, adjustInboxUnread } = useInboxUnread();
-  const { setIsSyncingInbox } = useMailSyncStatus();
   const { user, authToken, handleLogout } = useAuth();
   const { showToast, setIsSidebarCollapsed } = useUi();
 
   const { t, i18n } = useTranslation();
 
   const [activeFolder, setActiveFolder] = useState('inbox');
+  const handleFolderSyncError = useCallback(
+    () => showToast(t('email.syncFailed')),
+    [showToast, t],
+  );
+  const {
+    canLoadMoreFolder,
+    isLoadingMoreFolder,
+    isSyncingSent,
+    loadMoreFolder,
+    mailChannels,
+    syncInbox,
+  } = useMailFolderSync({ activeFolder, onError: handleFolderSyncError });
 
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Cursor pagination: each fetch (initial sync, search, or "load more")
-  // returns next_cursor - Graph's @odata.nextLink passed straight back as
-  // `cursor` to fetch the following page. null/undefined means no more pages.
-  const [inboxCursor, setInboxCursor] = useState(null);
-  const [isLoadingMoreInbox, setIsLoadingMoreInbox] = useState(false);
-
-  const [sentCursor, setSentCursor] = useState(null);
-  const [isLoadingMoreSent, setIsLoadingMoreSent] = useState(false);
-  // Tracks whether we've already fetched sent in this session (lazy: only on first visit).
-  const [hasFetchedSent, setHasFetchedSent] = useState(false);
-  const [isSyncingSent, setIsSyncingSent] = useState(false);
 
   // Thread detail state (must be declared before any useEffect that references them)
   const [selectedConvKey, setSelectedConvKey] = useState(null);
@@ -115,117 +85,6 @@ export default function EmailPage() {
     threadPrefetchTimersRef.current.clear();
   }, []);
 
-  // Sync Inbox. Gated on presence (hasAuthToken), not the token's exact
-  // value, so periodic Supabase token refreshes don't re-trigger a refetch.
-  // The authoritative unread count lives in the shared mail query cache.
-  const hasAuthToken = Boolean(authToken);
-  const authTokenRef = useRef(authToken);
-  useEffect(() => {
-    authTokenRef.current = authToken;
-  }, [authToken]);
-  // All mail channels: Microsoft plus one per bound IMAP account.
-  const mailChannels = useMemo(
-    () => [MICROSOFT, ...(mailAccounts || []).map(a => a.id)],
-    [mailAccounts]
-  );
-  const emptyCursor = () => Object.fromEntries(mailChannels.map(c => [c, null]));
-
-  const fetchChannelPage = useCallback(async (channel, folder, cursor) => {
-    const url = cursor
-      ? `${mailApiBase(channel)}/${folder}?cursor=${encodeURIComponent(cursor)}`
-      : `${mailApiBase(channel)}/${folder}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${authTokenRef.current}` } });
-    if (res.status === 401) {
-      handleLogout();
-      return null;
-    }
-    if (!res.ok) return { value: [], next_cursor: null };
-    return res.json();
-  }, [handleLogout]);
-
-  // Re-sync the inbox across all channels. Exposed so the compose flow can
-  // refresh after a send - otherwise newly received mail only appears after a
-  // manual page reload.
-  const syncInbox = useCallback(() => {
-    if (!hasAuthToken) return Promise.resolve();
-    setIsSyncingInbox(true);
-    return Promise.all(mailChannels.map(c => fetchChannelPage(c, 'inbox')))
-      .then(pages => {
-        if (!pages.some(Boolean)) return;
-        handleSyncInboxEmails(
-          pages.flatMap(page => page
-            ? (page.value || []).map(msg => normalizeMessage(msg, 'inbox'))
-            : [])
-        );
-        setInboxCursor(Object.fromEntries(
-          mailChannels.map((c, i) => [c, pages[i]?.next_cursor || null])
-        ));
-      })
-      .catch(() => showToast(t('email.syncFailed')))
-      .finally(() => setIsSyncingInbox(false));
-  }, [hasAuthToken, mailChannels, fetchChannelPage, handleSyncInboxEmails, showToast, t, setIsSyncingInbox]);
-
-  useEffect(() => {
-    if (!hasAuthToken) return;
-    syncInbox();
-  }, [hasAuthToken, syncInbox]);
-
-  const handleLoadMoreInbox = () => {
-    const active = mailChannels.filter(c => inboxCursor?.[c]);
-    if (active.length === 0 || isLoadingMoreInbox) return;
-    setIsLoadingMoreInbox(true);
-    Promise.all(active.map(c => fetchChannelPage(c, 'inbox', inboxCursor[c])))
-      .then(pages => {
-        if (!pages.some(Boolean)) return;
-        handleAppendInboxEmails(
-          pages.flatMap(page => page ? (page.value || []).map(msg => normalizeMessage(msg, 'inbox')) : [])
-        );
-        const next = emptyCursor();
-        active.forEach((c, i) => { next[c] = pages[i]?.next_cursor || null; });
-        setInboxCursor(next);
-      })
-      .catch(() => showToast(t('email.syncFailed')))
-      .finally(() => setIsLoadingMoreInbox(false));
-  };
-
-  // Lazy sync: fetch sent emails the first time the user switches to the Sent folder.
-  useEffect(() => {
-    if (!authToken || activeFolder !== 'sent' || hasFetchedSent) return;
-    setIsSyncingSent(true);
-    Promise.all(mailChannels.map(c => fetchChannelPage(c, 'sent')))
-      .then(pages => {
-        if (!pages.some(Boolean)) return;
-        handleSyncSentEmails(
-          pages.flatMap(page => page
-            ? (page.value || []).map(msg => normalizeMessage(msg, 'sent'))
-            : [])
-        );
-        setSentCursor(Object.fromEntries(
-          mailChannels.map((c, i) => [c, pages[i]?.next_cursor || null])
-        ));
-        setHasFetchedSent(true);
-      })
-      .catch(() => showToast(t('email.syncFailed')))
-      .finally(() => setIsSyncingSent(false));
-  }, [authToken, activeFolder, hasFetchedSent, handleSyncSentEmails, handleLogout, showToast, t, mailChannels, fetchChannelPage]);
-
-  const handleLoadMoreSent = () => {
-    const active = mailChannels.filter(c => sentCursor?.[c]);
-    if (active.length === 0 || isLoadingMoreSent) return;
-    setIsLoadingMoreSent(true);
-    Promise.all(active.map(c => fetchChannelPage(c, 'sent', sentCursor[c])))
-      .then(pages => {
-        if (!pages.some(Boolean)) return;
-        handleAppendSentEmails(
-          pages.flatMap(page => page ? (page.value || []).map(msg => normalizeMessage(msg, 'sent')) : [])
-        );
-        const next = emptyCursor();
-        active.forEach((c, i) => { next[c] = pages[i]?.next_cursor || null; });
-        setSentCursor(next);
-      })
-      .catch(() => showToast(t('email.syncFailed')))
-      .finally(() => setIsLoadingMoreSent(false));
-  };
 
   // Closing the window (or a reload) used to throw away whatever was typed.
   // Text only: attachments are File handles the browser will not hand back, so
@@ -442,7 +301,7 @@ export default function EmailPage() {
             .filter(e => !seen.has(e.id)));
           return [...prev, ...next];
         });
-        const next = emptyCursor();
+        const next = Object.fromEntries(mailChannels.map(channel => [channel, null]));
         active.forEach((c, i) => { next[c] = pages[i]?.next_cursor || null; });
         setSearchCursor(next);
       })
@@ -456,21 +315,13 @@ export default function EmailPage() {
   const hasMore = (c) => mailChannels.some(ch => Boolean(c?.[ch]));
   const canLoadMore = isSearchMode
     ? hasMore(searchCursor)
-    : activeFolder === 'inbox'
-      ? hasMore(inboxCursor)
-      : activeFolder === 'sent'
-        ? hasMore(sentCursor)
-        : false;
+    : canLoadMoreFolder;
   const isLoadingMore = isSearchMode
     ? isLoadingMoreSearch
-    : activeFolder === 'sent'
-      ? isLoadingMoreSent
-      : isLoadingMoreInbox;
+    : isLoadingMoreFolder;
   const handleLoadMore = isSearchMode
     ? handleLoadMoreSearch
-    : activeFolder === 'sent'
-      ? handleLoadMoreSent
-      : handleLoadMoreInbox;
+    : loadMoreFolder;
 
   // The "active" email for Dora / reply: the latest message in the thread.
   const selectedEmail = threadMessages.length > 0
