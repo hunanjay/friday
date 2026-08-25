@@ -49,6 +49,45 @@ export function searchMailPage(token, {
   });
 }
 
+function mailMessagePath(messageId, suffix = '') {
+  const providerPath = String(messageId).startsWith('imap:') ? 'mail' : 'graph/mail';
+  return `/api/${providerPath}/${encodeURIComponent(messageId)}${suffix}`;
+}
+
+export function getMailThreadResource(threadRow) {
+  const channel = threadRow.provider || MICROSOFT_MAIL_CHANNEL;
+  if (threadRow.conversationId) {
+    return {
+      key: `conversation:${channel}:${threadRow.conversationId}`,
+      path: `${mailChannelPath(channel)}/conversation/${encodeURIComponent(threadRow.conversationId)}`,
+      isConversation: true,
+    };
+  }
+  return {
+    key: `message:${channel}:${threadRow.id}`,
+    path: mailMessagePath(threadRow.id),
+    isConversation: false,
+  };
+}
+
+export async function getMailThread(token, threadRow) {
+  const resource = getMailThreadResource(threadRow);
+  const data = await apiRequest(resource.path, { token });
+  return resource.isConversation ? (data?.value || []) : [data];
+}
+
+export function getMailMessage(token, messageId) {
+  return apiRequest(mailMessagePath(messageId), { token });
+}
+
+export function markMailMessageRead(token, messageId, isRead = true) {
+  return apiRequest(mailMessagePath(messageId, '/read'), {
+    method: 'PATCH',
+    token,
+    body: { is_read: isRead },
+  });
+}
+
 export async function getInboxUnread(token, accountIds) {
   const requests = [
     apiRequest('/api/graph/mail/folders/inbox', { token }),

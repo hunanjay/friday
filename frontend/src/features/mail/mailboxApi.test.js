@@ -2,8 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiRequest } from '../../api/client';
 import {
   getInboxUnread,
+  getMailMessage,
   getMailFolderPage,
+  getMailThread,
+  getMailThreadResource,
   mailChannelPath,
+  markMailMessageRead,
   normalizeMailMessage,
   searchMailPage,
 } from './mailboxApi';
@@ -88,6 +92,47 @@ describe('mailbox API', () => {
       token: 'token',
       signal: undefined,
       query: { cursor: 'opaque cursor' },
+    });
+  });
+
+  it('loads conversation and standalone thread resources with provider-aware paths', async () => {
+    apiRequest
+      .mockResolvedValueOnce({ value: [{ id: 'message-1' }] })
+      .mockResolvedValueOnce({ id: 'imap:mail-1:INBOX:3' });
+    const conversation = {
+      id: 'message-1',
+      provider: 'mail/account',
+      conversationId: 'conversation/1',
+    };
+    const standalone = { id: 'imap:mail-1:INBOX:3', provider: 'mail-1' };
+
+    await expect(getMailThread('token', conversation)).resolves.toEqual([{ id: 'message-1' }]);
+    await expect(getMailThread('token', standalone)).resolves.toEqual([
+      { id: 'imap:mail-1:INBOX:3' },
+    ]);
+    expect(getMailThreadResource(conversation)).toEqual(expect.objectContaining({
+      key: 'conversation:mail/account:conversation/1',
+      path: '/api/mail-accounts/mail%2Faccount/mail/conversation/conversation%2F1',
+    }));
+    expect(apiRequest).toHaveBeenNthCalledWith(
+      2,
+      '/api/mail/imap%3Amail-1%3AINBOX%3A3',
+      { token: 'token' },
+    );
+  });
+
+  it('loads a linked message and marks it read through the shared client', async () => {
+    apiRequest.mockResolvedValue({ id: 'graph-message' });
+
+    await getMailMessage('token', 'graph/message');
+    await markMailMessageRead('token', 'graph/message');
+    expect(apiRequest).toHaveBeenNthCalledWith(1, '/api/graph/mail/graph%2Fmessage', {
+      token: 'token',
+    });
+    expect(apiRequest).toHaveBeenNthCalledWith(2, '/api/graph/mail/graph%2Fmessage/read', {
+      method: 'PATCH',
+      token: 'token',
+      body: { is_read: true },
     });
   });
 });

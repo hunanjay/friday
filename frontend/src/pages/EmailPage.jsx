@@ -6,10 +6,10 @@ import { useMailAccounts, useMicrosoftMailStatus } from '../features/mail/accoun
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
 import {
   MICROSOFT_MAIL_CHANNEL as MICROSOFT,
-  normalizeMailMessage as normalizeMessage,
 } from '../features/mail/mailboxApi';
 import { useMailFolderSync } from '../features/mail/useMailFolderSync';
 import { useMailSearch } from '../features/mail/useMailSearch';
+import { useMailThread } from '../features/mail/useMailThread';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
@@ -20,9 +20,6 @@ import ApprovalCard from '../components/common/ApprovalCard';
 import { mailMessageUrl } from '../utils/mailApi';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-const THREAD_PREFETCH_DELAY_MS = 300;
-const THREAD_CACHE_MAX_ENTRIES = 10;
-
 // Mirrors mail_compose.py; a backend smoke test asserts the two agree. Checked
 // here so an oversized file is refused on pick, not after a slow upload.
 const GRAPH_ATTACHMENT_LIMIT = 3 * 1024 * 1024;
@@ -44,7 +41,6 @@ export default function EmailPage() {
   const {
     emails,
     moveEmailToTrash: handleDeleteEmail,
-    markEmailRead: handleMarkEmailRead,
   } = useMailMessages();
   const { inboxUnread, adjustInboxUnread } = useInboxUnread();
   const { user, authToken, handleLogout } = useAuth();
@@ -74,24 +70,23 @@ export default function EmailPage() {
     loadMoreSearch,
     searchResults,
   } = useMailSearch({ activeFolder, mailChannels, searchQuery });
-
-  // Thread detail state (must be declared before any useEffect that references them)
-  const [selectedConvKey, setSelectedConvKey] = useState(null);
-  const [threadMessages, setThreadMessages] = useState([]);
-  const [isLoadingThread, setIsLoadingThread] = useState(false);
-  const threadCacheRef = useRef(new Map());
-  const threadRequestsRef = useRef(new Map());
-  const threadPrefetchTimersRef = useRef(new Map());
-  const threadSelectionSequenceRef = useRef(0);
-  const handleSelectEmailRef = useRef(null);
-  // IDs of messages whose full body is expanded in the timeline view.
-  const [expandedMsgIds, setExpandedMsgIds] = useState(new Set());
-  const targetFetchKeyRef = useRef(null);
-
-  useEffect(() => () => {
-    threadPrefetchTimersRef.current.forEach(timer => window.clearTimeout(timer));
-    threadPrefetchTimersRef.current.clear();
-  }, []);
+  const handleThreadOpen = useCallback(
+    () => setIsSidebarCollapsed(true),
+    [setIsSidebarCollapsed],
+  );
+  const {
+    cancelThreadPrefetch: cancelScheduledThreadPrefetch,
+    clearThreadSelection,
+    expandedMessageIds: expandedMsgIds,
+    isLoadingThread,
+    loadLinkedMessage,
+    prefetchThread,
+    removeThreadMessage,
+    selectThread: handleSelectEmail,
+    selectedConversationKey: selectedConvKey,
+    threadMessages,
+    toggleMessageExpanded: toggleMsgExpand,
+  } = useMailThread({ onOpen: handleThreadOpen });
 
 
   // Closing the window (or a reload) used to throw away whatever was typed.
@@ -376,188 +371,13 @@ export default function EmailPage() {
       ? (i18n.language === 'zh' ? '邮件已永久删除（IMAP 无回收站）' : 'Email permanently deleted (no trash on IMAP)')
       : t('email.movedToTrash'));
 
-    // Remove from the currently displayed thread; if thread becomes empty, deselect.
-    setThreadMessages(prev => {
-      const next = prev.filter(e => e.id !== id);
-      if (next.length === 0) setSelectedConvKey(null);
-      return next;
-    });
+    removeThreadMessage(id);
 
     fetch(mailMessageUrl(id), {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${authToken}` },
     }).catch(() => {});
   };
-
-  const getThreadResource = (threadRow) => {
-    const channel = threadRow.provider || MICROSOFT;
-    if (threadRow.conversationId) {
-      return {
-        key: `conversation:${channel}:${threadRow.conversationId}`,
-        url: `${mailApiBase(channel)}/conversation/${encodeURIComponent(threadRow.conversationId)}`,
-        isConversation: true,
-      };
-    }
-    // Single message: the email id itself carries the provider (and, for IMAP,
-    // the account), so mailMessageUrl picks the base - no account prefix needed.
-    return {
-      key: `message:${channel}:${threadRow.id}`,
-      url: mailMessageUrl(threadRow.id),
-      isConversation: false,
-    };
-  };
-
-  const loadThread = (threadRow) => {
-    const resource = getThreadResource(threadRow);
-    if (threadCacheRef.current.has(resource.key)) {
-      return Promise.resolve(threadCacheRef.current.get(resource.key));
-    }
-
-    const existingRequest = threadRequestsRef.current.get(resource.key);
-    if (existingRequest) return existingRequest;
-
-    const request = fetch(resource.url, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(async res => {
-        if (!res.ok) throw new Error(`Failed to load email thread (${res.status})`);
-        const data = await res.json();
-        return resource.isConversation ? (data.value || []) : [data];
-      })
-      .then(messages => {
-        threadRequestsRef.current.delete(resource.key);
-        if (threadCacheRef.current.size >= THREAD_CACHE_MAX_ENTRIES) {
-          const oldestKey = threadCacheRef.current.keys().next().value;
-          threadCacheRef.current.delete(oldestKey);
-        }
-        threadCacheRef.current.set(resource.key, messages);
-        return messages;
-      })
-      .catch(error => {
-        threadRequestsRef.current.delete(resource.key);
-        throw error;
-      });
-
-    threadRequestsRef.current.set(resource.key, request);
-    return request;
-  };
-
-  const prefetchThread = (threadRow) => {
-    const { key } = getThreadResource(threadRow);
-    const convKey = threadRow._threadKey || threadRow.conversationId || threadRow.id;
-    if (
-      convKey === selectedConvKey
-      || threadCacheRef.current.has(key)
-      || threadRequestsRef.current.has(key)
-      || threadPrefetchTimersRef.current.has(key)
-    ) return;
-
-    // Debounce across the whole list: moving to another row cancels any
-    // pending hover prefetch that has not started yet.
-    threadPrefetchTimersRef.current.forEach((timer, pendingKey) => {
-      if (pendingKey !== key) window.clearTimeout(timer);
-    });
-    threadPrefetchTimersRef.current.clear();
-
-    const timer = window.setTimeout(() => {
-      threadPrefetchTimersRef.current.delete(key);
-      loadThread(threadRow).catch(() => {});
-    }, THREAD_PREFETCH_DELAY_MS);
-    threadPrefetchTimersRef.current.set(key, timer);
-  };
-
-  const cancelScheduledThreadPrefetch = (threadRow) => {
-    const { key } = getThreadResource(threadRow);
-    const timer = threadPrefetchTimersRef.current.get(key);
-    if (timer === undefined) return;
-    window.clearTimeout(timer);
-    threadPrefetchTimersRef.current.delete(key);
-  };
-
-
-
-  const handleSelectEmail = (threadRow) => {
-    const convKey = threadRow._threadKey || threadRow.conversationId || threadRow.id;
-    if (convKey === selectedConvKey) return; // already selected
-    const selectionSequence = ++threadSelectionSequenceRef.current;
-    cancelScheduledThreadPrefetch(threadRow);
-
-    // Mark locally-known unread inbox messages as soon as their thread is
-    // opened. Graph's conversation response returns parentFolderId as an
-    // opaque folder GUID, so waiting for that response and comparing it with
-    // the string "inbox" prevents the read API from ever being called.
-    const unreadInboxIds = emails
-      .filter(email => (
-        !email.isRead
-        && email.parentFolderId === 'inbox'
-        && (email.conversationId || email.id) === convKey
-      ))
-      .map(email => email.id);
-
-    // Search results may not be present in the locally-synced email page.
-    if (
-      unreadInboxIds.length === 0
-      && !threadRow.isRead
-      && threadRow.parentFolderId === 'inbox'
-    ) {
-      unreadInboxIds.push(threadRow.id);
-    }
-
-    const readIds = new Set(unreadInboxIds);
-    unreadInboxIds.forEach(id => {
-      handleMarkEmailRead(id, true);
-      adjustInboxUnread(-1);
-      fetch(mailMessageUrl(id, '/read'), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ is_read: true }),
-      }).catch(() => {});
-    });
-
-    setSelectedConvKey(convKey);
-    setThreadMessages([]);
-    setExpandedMsgIds(new Set());
-    setIsSidebarCollapsed(true);
-
-    const { key: threadResourceKey } = getThreadResource(threadRow);
-    const cachedMessages = threadCacheRef.current.get(threadResourceKey);
-    const localReadState = new Map(emails.map(email => [email.id, email.isRead]));
-    const applyThread = (msgs) => {
-      if (selectionSequence !== threadSelectionSequenceRef.current) return;
-      const unreadBeforeOpen = msgs
-        .filter(msg => localReadState.has(msg.id) ? !localReadState.get(msg.id) : !msg.isRead)
-        .map(msg => msg.id);
-      const displayedMessages = msgs.map(msg => ({
-        ...msg,
-        isRead: readIds.has(msg.id)
-          ? true
-          : (localReadState.has(msg.id) ? localReadState.get(msg.id) : msg.isRead),
-      }));
-      setThreadMessages(displayedMessages);
-      setExpandedMsgIds(
-        unreadBeforeOpen.length > 0
-          ? new Set(unreadBeforeOpen)
-          : msgs.length > 0 ? new Set([msgs[msgs.length - 1].id]) : new Set()
-      );
-    };
-
-    if (cachedMessages) {
-      applyThread(cachedMessages);
-      setIsLoadingThread(false);
-      return;
-    }
-
-    setIsLoadingThread(true);
-    loadThread(threadRow)
-      .then(applyThread)
-      .catch(() => {})
-      .finally(() => {
-        if (selectionSequence === threadSelectionSequenceRef.current) {
-          setIsLoadingThread(false);
-        }
-      });
-  };
-  handleSelectEmailRef.current = handleSelectEmail;
 
   const searchParams = new URLSearchParams(location.search);
   const targetEmailId = location.state?.emailId || searchParams.get('emailId');
@@ -568,7 +388,7 @@ export default function EmailPage() {
     const targetEmail = location.state?.email || emails.find(email => email.id === targetEmailId);
     if (targetEmail) {
       setActiveFolder(targetEmail.parentFolderId || targetEmailFolder);
-      handleSelectEmailRef.current?.({ ...targetEmail, _threadKey: targetEmail.conversationId || targetEmail.id });
+      handleSelectEmail({ ...targetEmail, _threadKey: targetEmail.conversationId || targetEmail.id });
       navigate('/email', { replace: true, state: null });
       return;
     }
@@ -576,37 +396,34 @@ export default function EmailPage() {
     // Chat links may point to a message that is outside the currently synced
     // page (for example, a sent or older message). Fetch that message by ID so
     // the internal link still opens the reader instead of silently doing nothing.
-    const fetchKey = `${targetEmailProvider}:${targetEmailId}`;
-    if (targetFetchKeyRef.current === fetchKey) return;
-    targetFetchKeyRef.current = fetchKey;
-    fetch(mailMessageUrl(targetEmailId), { headers: { Authorization: `Bearer ${authToken}` } })
-      .then(async res => {
-        if (!res.ok) throw new Error(`Failed to load linked email (${res.status})`);
-        return res.json();
-      })
-      .then(message => {
-        const fetchedEmail = normalizeMessage(message, targetEmailFolder);
+    loadLinkedMessage({
+      messageId: targetEmailId,
+      folder: targetEmailFolder,
+      provider: targetEmailProvider,
+    })
+      .then(fetchedEmail => {
+        if (!fetchedEmail) return;
         setActiveFolder(targetEmailFolder);
-        handleSelectEmailRef.current?.({
+        handleSelectEmail({
           ...fetchedEmail,
           _threadKey: fetchedEmail.conversationId || fetchedEmail.id,
         });
         navigate('/email', { replace: true, state: null });
       })
-      .catch(() => showToast(t('email.loadFailed', { defaultValue: 'Failed to load email' })))
-      .finally(() => {
-        targetFetchKeyRef.current = null;
-      });
-  }, [authToken, emails, location.search, location.state, navigate, showToast, t, targetEmailFolder, targetEmailId, targetEmailProvider]);
-
-  const toggleMsgExpand = (msgId) => {
-    setExpandedMsgIds(prev => {
-      const next = new Set(prev);
-      if (next.has(msgId)) next.delete(msgId);
-      else next.add(msgId);
-      return next;
-    });
-  };
+      .catch(() => showToast(t('email.loadFailed', { defaultValue: 'Failed to load email' })));
+  }, [
+    emails,
+    handleSelectEmail,
+    loadLinkedMessage,
+    location.search,
+    location.state,
+    navigate,
+    showToast,
+    t,
+    targetEmailFolder,
+    targetEmailId,
+    targetEmailProvider,
+  ]);
 
 
   // Dora reply generator: sends the selected email's id + the user's intent to
@@ -892,7 +709,7 @@ export default function EmailPage() {
                 <button
                   type="button"
                   className="mobile-email-back-btn"
-                  onClick={() => setSelectedConvKey(null)}
+                  onClick={clearThreadSelection}
                   title={i18n.language === 'zh' ? '返回邮件列表' : 'Back to list'}
                 >
                   <ChevronLeft size={18} />
