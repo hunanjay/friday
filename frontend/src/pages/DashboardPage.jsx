@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Badge,
@@ -26,6 +26,7 @@ import {
 } from '@fluentui/react-icons';
 import { useAuth } from '../features/auth/useAuth';
 import { useCalendarEvents } from '../features/calendar/hooks';
+import { useTodos } from '../features/dashboard/useTodos';
 import { useGitHubConnection } from '../features/github/hooks';
 import { useMailAccounts } from '../features/mail/accountHooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
@@ -213,17 +214,6 @@ function displayName(user) {
   return user?.name?.trim()?.split(/\s+/)[0] || '';
 }
 
-function mapTodo(todo) {
-  return {
-    id: todo.id,
-    text: todo.text,
-    completed: todo.completed,
-    dueDate: todo.due_date || null,
-    createdAt: todo.created_at,
-    updatedAt: todo.updated_at,
-  };
-}
-
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
@@ -273,9 +263,16 @@ export default function DashboardPage() {
     return { label: shortDate, status: 'future' };
   };
 
-  const [todos, setTodos] = useState([]);
-  const [isTodosLoading, setIsTodosLoading] = useState(Boolean(authToken));
-  const [todosError, setTodosError] = useState(false);
+  const {
+    clearCompletedTodos,
+    createTodo,
+    deleteTodo,
+    isLoadingTodos: isTodosLoading,
+    refetchTodos: loadTodos,
+    todos,
+    todosError,
+    updateTodo,
+  } = useTodos();
   const [newTodoText, setNewTodoText] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -283,41 +280,6 @@ export default function DashboardPage() {
   const [editingText, setEditingText] = useState('');
   const [editingDueDate, setEditingDueDate] = useState('');
   const [todoToDelete, setTodoToDelete] = useState(null);
-
-  const loadTodos = useCallback(async () => {
-    if (!authToken) {
-      setTodos([]);
-      setIsTodosLoading(false);
-      setTodosError(false);
-      return;
-    }
-    setIsTodosLoading(true);
-    setTodosError(false);
-    try {
-      const response = await fetch(`${API_URL}/api/todos`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error('Failed to load todos');
-      const data = await response.json();
-      setTodos((data.todos || []).map(mapTodo));
-    } catch {
-      setTodosError(true);
-    } finally {
-      setIsTodosLoading(false);
-    }
-  }, [authToken]);
-
-  useEffect(() => { loadTodos(); }, [loadTodos]);
-
-  const saveTodo = async (todo) => {
-    const response = await fetch(`${API_URL}/api/todos/${encodeURIComponent(todo.id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ text: todo.text, completed: todo.completed, dueDate: todo.dueDate }),
-    });
-    if (!response.ok) throw new Error('Failed to save todo');
-    return mapTodo(await response.json());
-  };
 
   // Sort Todos: Uncompleted first -> Overdue / Earliest Due Date -> Newest Created
   const sortedTodos = useMemo(() => {
@@ -344,18 +306,9 @@ export default function DashboardPage() {
     if (e) e.preventDefault();
     if (!newTodoText.trim()) return;
     try {
-      const response = await fetch(`${API_URL}/api/todos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ text: newTodoText.trim(), dueDate: newDueDate || null }),
-      });
-      if (!response.ok) throw new Error('Failed to create todo');
-      const created = mapTodo(await response.json());
-      setTodos(prev => [created, ...prev]);
+      await createTodo({ text: newTodoText.trim(), dueDate: newDueDate || null });
       handleCloseAddModal();
-    } catch {
-      setTodosError(true);
-    }
+    } catch { /* mutation exposes the panel error */ }
   };
 
   const handleCloseAddModal = () => {
@@ -368,14 +321,9 @@ export default function DashboardPage() {
     const current = todos.find(todo => todo.id === id);
     if (!current) return;
     const optimistic = { ...current, completed: !current.completed };
-    setTodos(prev => prev.map(todo => todo.id === id ? optimistic : todo));
     try {
-      const saved = await saveTodo(optimistic);
-      setTodos(prev => prev.map(todo => todo.id === id ? saved : todo));
-    } catch {
-      setTodos(prev => prev.map(todo => todo.id === id ? current : todo));
-      setTodosError(true);
-    }
+      await updateTodo(optimistic);
+    } catch { /* the mutation rolls the optimistic state back */ }
   };
 
   const handleStartEdit = (todo, e) => {
@@ -393,15 +341,10 @@ export default function DashboardPage() {
       text: editingText.trim(),
       dueDate: editingDueDate || null
     };
-    setTodos(prev => prev.map(todo => todo.id === optimistic.id ? optimistic : todo));
     try {
-      const saved = await saveTodo(optimistic);
-      setTodos(prev => prev.map(todo => todo.id === saved.id ? saved : todo));
+      await updateTodo(optimistic);
       handleCloseEditModal();
-    } catch {
-      setTodos(prev => prev.map(todo => todo.id === todoToEdit.id ? todoToEdit : todo));
-      setTodosError(true);
-    }
+    } catch { /* the mutation rolls the optimistic state back */ }
   };
 
   const handleCloseEditModal = () => {
@@ -418,16 +361,9 @@ export default function DashboardPage() {
   const handleConfirmDelete = async () => {
     if (!todoToDelete) return;
     try {
-      const response = await fetch(`${API_URL}/api/todos/${encodeURIComponent(todoToDelete.id)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error('Failed to delete todo');
-      setTodos(prev => prev.filter(todo => todo.id !== todoToDelete.id));
+      await deleteTodo(todoToDelete.id);
       setTodoToDelete(null);
-    } catch {
-      setTodosError(true);
-    }
+    } catch { /* the mutation restores the deleted item */ }
   };
 
   const handleCloseDeleteModal = () => {
@@ -440,17 +376,9 @@ export default function DashboardPage() {
 
   const handleClearCompleted = async () => {
     const completed = todos.filter(todo => todo.completed);
-    const results = await Promise.allSettled(completed.map(async (todo) => {
-      const response = await fetch(`${API_URL}/api/todos/${encodeURIComponent(todo.id)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error('Failed to delete todo');
-      return todo.id;
-    }));
-    const deletedIds = new Set(results.filter(result => result.status === 'fulfilled').map(result => result.value));
-    setTodos(prev => prev.filter(todo => !deletedIds.has(todo.id)));
-    if (deletedIds.size !== completed.length) setTodosError(true);
+    try {
+      await clearCompletedTodos(completed);
+    } catch { /* successful deletions stay removed and the panel shows an error */ }
   };
 
   const pendingTodosCount = useMemo(() => todos.filter(t => !t.completed).length, [todos]);
@@ -816,7 +744,7 @@ export default function DashboardPage() {
             {todosError && (
               <div className="dashboard-todo-error" role="status">
                 <Text>{isZh ? '待办同步失败' : 'Could not sync tasks'}</Text>
-                <Button appearance="subtle" size="small" onClick={loadTodos}>{copy.retry}</Button>
+                <Button appearance="subtle" size="small" onClick={() => loadTodos()}>{copy.retry}</Button>
               </div>
             )}
 
