@@ -1,24 +1,20 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isApiError } from '../api/errors';
 import { useAuth } from '../features/auth/useAuth';
 import {
-  decideChatAction,
   getChatSessionMessages,
   getPendingChatActions,
 } from '../features/chat/api';
+import { getApprovalPlacementMode } from '../features/chat/approvalPlacement';
 import { useChatSessions } from '../features/chat/hooks';
 import { useAgentChatStream } from '../features/chat/useAgentChatStream';
+import { useChatApprovals } from '../features/chat/useChatApprovals';
 import { useAssistantName, useAvatar } from '../features/settings/hooks';
 import { useTranslation } from 'react-i18next';
 import { Send, StopIcon, Plus, Trash, Mail, Calendar, Edit3, Github, ChevronLeft, X, UserPlus } from '../components/common/Icons';
 import StreamingMarkdown from '../components/common/StreamingMarkdown';
 import ApprovalCard from '../components/common/ApprovalCard';
-import {
-  getApprovalPlacementMode,
-  resolveLiveApprovalAnchor,
-  resolvePersistedApprovalAnchor,
-} from '../components/common/approvalPlacement';
 import { parseAgentCommand, parseAgentPrefix } from '../utils/agentCommand';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -26,7 +22,6 @@ const API_URL = import.meta.env.VITE_API_URL || '';
 // Mirrors the sub-agent names in backend/app/agents/supervisor.py.
 const AGENT_ICONS = { mail_agent: Mail, contact_agent: UserPlus, calendar_agent: Calendar, memos_agent: Edit3, github_agent: Github };
 const AGENT_IDS = Object.keys(AGENT_ICONS);
-const isActionResolved = status => Boolean(status && status !== 'pending');
 
 export default function ChatPage() {
   const { assistantName } = useAssistantName();
@@ -47,8 +42,21 @@ export default function ChatPage() {
   const navigate = useNavigate();
 
   const { t, i18n } = useTranslation();
-
   const [activeThreadId, setActiveThreadId] = useState(null);
+  const handleApprovalUnauthorized = useCallback(() => navigate('/login'), [navigate]);
+  const {
+    pendingActions,
+    applyLiveApprovals,
+    clearApprovals,
+    decideApproval: handleActionDecision,
+    restoreApprovals,
+  } = useChatApprovals({
+    sessionId: activeThreadId,
+    failureMessage: t('chat.approvalFailed'),
+    onPreview: handleUpdateSessionPreview,
+    onUnauthorized: handleApprovalUnauthorized,
+  });
+
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [inputText, setInputText] = useState('');
   const [selectedAgent, setSelectedAgent] = useState(null);
@@ -65,7 +73,6 @@ export default function ChatPage() {
   // thread switch. New messages from the streaming response are appended here.
   const [threadMessages, setThreadMessages] = useState([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [pendingActions, setPendingActions] = useState([]);
   const activeThread = chatThreads.find(s => s.id === activeThreadId) || null;
 
   const [contactList, setContactList] = useState([]);
@@ -167,7 +174,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (!activeThreadId || !authToken) {
       setThreadMessages([]);
-      setPendingActions([]);
+      clearApprovals();
       return;
     }
     let ignore = false;
@@ -181,44 +188,12 @@ export default function ChatPage() {
         const loadedMessages = (messageData.messages || []).map(m => ({ ...m, threadId: activeThreadId }));
         setThreadMessages(loadedMessages);
         handleUpdateSessionPreview(activeThreadId, messageData.preview);
-        const lastBotMessageId = [...loadedMessages].reverse().find(message => message.sender === 'bot')?.id;
-        const usedAnchorIds = new Set();
-        setPendingActions((actionData.actions || []).map(action => {
-          const recipient = action.payload?.to?.toLowerCase();
-          let matchingMessage = null;
-          if (recipient) {
-            for (let index = 0; index < loadedMessages.length; index += 1) {
-              const message = loadedMessages[index];
-              if (message.sender !== 'user' || !message.text?.toLowerCase().includes(recipient)) continue;
-              matchingMessage = loadedMessages.slice(index + 1).find(candidate => (
-                candidate.sender === 'bot' && !usedAnchorIds.has(candidate.id)
-              ));
-              if (matchingMessage) break;
-            }
-          }
-          if (!matchingMessage && recipient) {
-            matchingMessage = loadedMessages.find(message => (
-              message.sender === 'bot'
-              && !usedAnchorIds.has(message.id)
-              && message.text?.toLowerCase().includes(recipient)
-            ));
-          }
-          const anchorMessageId = resolvePersistedApprovalAnchor(
-            action,
-            matchingMessage?.id || lastBotMessageId,
-          );
-          if (anchorMessageId) usedAnchorIds.add(anchorMessageId);
-          return {
-            ...action,
-            resolved: isActionResolved(action.status),
-            anchorMessageId,
-          };
-        }));
+        restoreApprovals(actionData.actions || [], loadedMessages);
       })
       .catch(() => {
         if (ignore) return;
         setThreadMessages([]);
-        setPendingActions([]);
+        clearApprovals();
       })
       .finally(() => {
         if (!ignore) setIsLoadingMessages(false);
@@ -226,7 +201,13 @@ export default function ChatPage() {
     return () => {
       ignore = true;
     };
-  }, [activeThreadId, authToken, handleUpdateSessionPreview]);
+  }, [
+    activeThreadId,
+    authToken,
+    clearApprovals,
+    handleUpdateSessionPreview,
+    restoreApprovals,
+  ]);
 
   // Sessions load asynchronously after login; pick the most recent one once
   // they arrive (or if the active one got deleted from under us).
@@ -251,61 +232,6 @@ export default function ChatPage() {
   const handleDelete = (e, sessionId) => {
     e.stopPropagation();
     handleDeleteSession(sessionId);
-  };
-
-  const handleActionDecision = async (action, decision, edits) => {
-    setPendingActions(prev => prev.map(item => (
-      item.id === action.id ? { ...item, busy: true, error: '' } : item
-    )));
-    try {
-      const sessionId = action.session_id || activeThreadId;
-      const data = await decideChatAction(authToken, {
-        actionId: action.id,
-        decision,
-        sessionId,
-        edits,
-      });
-
-      const selectedDecision = action.decisions?.find(item => item.id === decision);
-      if (Array.isArray(data.pending_actions)) {
-        setPendingActions(prev => {
-          const existingById = new Map(prev.map(item => [item.id, item]));
-          return data.pending_actions.map(item => ({
-            ...item,
-            resolved: isActionResolved(item.status),
-            anchorMessageId: existingById.get(item.id)?.anchorMessageId || item.anchorMessageId || null,
-          }));
-        });
-      } else if ((selectedDecision?.outcome || decision) === 'approve') {
-        setPendingActions(prev => prev.map(item => (
-          item.id === action.id
-            ? { ...item, busy: false, resolved: true, status: 'succeeded' }
-            : item
-        )));
-      } else {
-        setPendingActions(prev => prev.filter(item => item.id !== action.id));
-      }
-      if (data.preview) handleUpdateSessionPreview(activeThreadId, data.preview);
-    } catch (error) {
-      if (isApiError(error) && error.status === 401) {
-        handleLogout();
-        navigate('/login');
-        return;
-      }
-      if (isApiError(error) && error.status === 410) {
-        setPendingActions(prev => prev.map(item => (
-          item.id === action.id
-            ? { ...item, busy: false, resolved: true, status: 'expired', error: '' }
-            : item
-        )));
-        return;
-      }
-      setPendingActions(prev => prev.map(item => (
-        item.id === action.id
-          ? { ...item, busy: false, error: error.message || t('chat.approvalFailed') }
-          : item
-      )));
-    }
   };
 
   const handleSend = async (e) => {
@@ -353,18 +279,7 @@ export default function ChatPage() {
       if (effect.sessionTitle) handleUpdateSessionTitle(sessionId, effect.sessionTitle);
       if (effect.sessionPreview) handleUpdateSessionPreview(sessionId, effect.sessionPreview);
       if (effect.pendingActions) {
-        setPendingActions(prev => {
-          const existingById = new Map(prev.map(action => [action.id, action]));
-          return effect.pendingActions.map(action => ({
-            ...action,
-            resolved: isActionResolved(action.status),
-            anchorMessageId: resolveLiveApprovalAnchor(
-              action,
-              existingById.get(action.id)?.anchorMessageId,
-              botMsgId,
-            ),
-          }));
-        });
+        applyLiveApprovals(effect.pendingActions, botMsgId);
       }
     };
 

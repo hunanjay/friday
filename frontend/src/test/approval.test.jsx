@@ -7,7 +7,7 @@ import ApprovalCard from '../components/common/ApprovalCard';
 import {
   resolveLiveApprovalAnchor,
   resolvePersistedApprovalAnchor,
-} from '../components/common/approvalPlacement';
+} from '../features/chat/approvalPlacement';
 
 describe('ApprovalCard', () => {
   it('shows the saved signature under the draft without making it editable', () => {
