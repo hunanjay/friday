@@ -42,11 +42,6 @@ export function WorkspaceProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [events, setEvents] = useState(() => {
-    const saved = localStorage.getItem('events');
-    return saved ? JSON.parse(saved) : [];
-  });
-
   // messages are no longer persisted to localStorage - they come from the
   // backend checkpoint (GET /api/agent/sessions/:id/messages) so they survive
   // cross-device / cross-browser sessions without a second source of truth.
@@ -57,20 +52,15 @@ export function WorkspaceProvider({ children }) {
   const [chatThreads, setChatThreads] = useState([]);
 
   // Sync to Local Storage
-  // emails and events are cached for fast initial render; messages are NOT
+  // Emails are cached for fast initial render; messages are NOT
   // cached here (they come from the backend checkpoint - see 1.1).
   useEffect(() => {
     safeSetItem('emails', JSON.stringify(emails));
   }, [emails]);
 
-  useEffect(() => {
-    safeSetItem('events', JSON.stringify(events));
-  }, [events]);
-
   // Surfaced globally (top marquee in MainLayout) instead of separate
   // per-page loading banners.
   const [isSyncingInbox, setIsSyncingInbox] = useState(false);
-  const [isSyncingEvents, setIsSyncingEvents] = useState(false);
 
   // Authoritative inbox unread count (Graph's unreadItemCount for the whole
   // mailbox), shared by the sidebar nav badge and the EmailPage folder badge
@@ -86,7 +76,6 @@ export function WorkspaceProvider({ children }) {
   useEffect(() => {
     if (!isAuthReady || authToken) return;
     setEmails([]);
-    setEvents([]);
     setMessages([]);
   }, [authToken, isAuthReady]);
 
@@ -182,10 +171,6 @@ export function WorkspaceProvider({ children }) {
     });
   }, []);
 
-  const handleSyncEvents = useCallback((calendarEvents) => {
-    setEvents(calendarEvents);
-  }, []);
-
   // State modifiers
   const handleAddEmail = (email) => {
     setEmails(prev => [email, ...prev]);
@@ -197,14 +182,6 @@ export function WorkspaceProvider({ children }) {
 
   const handleMarkEmailRead = (id, isRead = true) => {
     setEmails(prev => prev.map(e => e.id === id ? { ...e, isRead } : e));
-  };
-
-  const handleAddEvent = (event) => {
-    setEvents(prev => [...prev, event]);
-  };
-
-  const handleDeleteEvent = (id) => {
-    setEvents(prev => prev.filter(e => e.id !== id));
   };
 
   const handleSendMessage = (msg) => {
@@ -224,7 +201,6 @@ export function WorkspaceProvider({ children }) {
       value={{
         user,
         emails,
-        events,
         messages,
         chatThreads,
         isSidebarCollapsed,
@@ -234,15 +210,12 @@ export function WorkspaceProvider({ children }) {
         authToken,
         isSyncingInbox,
         setIsSyncingInbox,
-        isSyncingEvents,
-        setIsSyncingEvents,
         inboxUnread,
         adjustInboxUnread,
         handleSyncInboxEmails,
         handleAppendInboxEmails,
         handleSyncSentEmails,
         handleAppendSentEmails,
-        handleSyncEvents,
         handleCreateSession,
         handleUpdateSessionTitle,
         handleUpdateSessionPreview,
@@ -252,8 +225,6 @@ export function WorkspaceProvider({ children }) {
         handleAddEmail,
         handleDeleteEmail,
         handleMarkEmailRead,
-        handleAddEvent,
-        handleDeleteEvent,
         handleSendMessage,
         handleSimulateBotReply,
         handleUpdateMessageText

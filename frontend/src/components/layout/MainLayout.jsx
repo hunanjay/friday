@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../features/auth/useAuth';
+import { useCalendarSyncStatus } from '../../features/calendar/hooks';
 import { useAssistantName, useAvatar } from '../../features/settings/hooks';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useTheme } from '../../hooks/useTheme';
@@ -15,11 +16,11 @@ export default function MainLayout() {
   const { isSidebarCollapsed, setIsSidebarCollapsed, toast } = useUi();
   const { assistantName } = useAssistantName();
   const { avatarUrl } = useAvatar();
+  const isSyncingEvents = useCalendarSyncStatus();
   const {
     emails,
     inboxUnread,
     isSyncingInbox,
-    isSyncingEvents,
   } = useWorkspace();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();

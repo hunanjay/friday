@@ -25,6 +25,7 @@ import {
   TaskListLtr24Regular,
 } from '@fluentui/react-icons';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useCalendarEvents } from '../features/calendar/hooks';
 import { useGitHubConnection } from '../features/github/hooks';
 import { useMailAccounts } from '../features/mail/accountHooks';
 import { useMemos } from '../features/memos/hooks';
@@ -453,15 +454,25 @@ export default function DashboardPage() {
   const completedTodosCount = useMemo(() => todos.filter(t => t.completed).length, [todos]);
 
   // ── Per-panel loading states ──────────────────────────────────────────────
-  const [events, setEvents] = useState([]);
-  const [isCalendarLoading, setIsCalendarLoading] = useState(Boolean(authToken));
-
   const [commits, setCommits] = useState([]);
   const [isCommitsLoading, setIsCommitsLoading] = useState(Boolean(authToken));
 
   const [isEmailsLoading, setIsEmailsLoading] = useState(Boolean(authToken) && !emails.length);
   const [panelErrors, setPanelErrors] = useState({ email: false, calendar: false, github: false });
   const [retryKey, setRetryKey] = useState(0);
+  const dashboardCalendarRange = useMemo(() => {
+    const start = new Date();
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    return { start: start.toISOString(), end: end.toISOString() };
+    // Recalculate the moving seven-day window when the user retries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryKey]);
+  const {
+    events,
+    isCalendarError,
+    isLoadingCalendarEvents,
+  } = useCalendarEvents(dashboardCalendarRange);
   const loadError = Object.values(panelErrors).some(Boolean);
   const handleRetry = () => setRetryKey(key => key + 1);
 
@@ -470,6 +481,14 @@ export default function DashboardPage() {
       setIsEmailsLoading(false);
     }
   }, [authToken]);
+
+  useEffect(() => {
+    setPanelErrors(errors => (
+      errors.calendar === isCalendarError
+        ? errors
+        : { ...errors, calendar: isCalendarError }
+    ));
+  }, [isCalendarError]);
 
   // ── Fetch Inbox ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -518,29 +537,6 @@ export default function DashboardPage() {
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken, handleSyncInboxEmails, retryKey, mailAccounts]);
-
-  // ── Fetch Calendar ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!authToken) { setIsCalendarLoading(false); return; }
-    let active = true;
-    setIsCalendarLoading(true);
-    setPanelErrors(errors => ({ ...errors, calendar: false }));
-
-    const from = new Date();
-    const until = new Date();
-    until.setDate(until.getDate() + 7);
-    const params = new URLSearchParams({ start: from.toISOString(), end: until.toISOString() });
-
-    fetch(`${API_URL}/api/graph/calendar/events?${params}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-      .then(data => { if (active) setEvents(data.value || []); })
-      .catch(() => { if (active) setPanelErrors(errors => ({ ...errors, calendar: true })); })
-      .finally(() => { if (active) setIsCalendarLoading(false); });
-
-    return () => { active = false; };
-  }, [authToken, retryKey]);
 
   // ── GitHub Commits Week Window & Pagination ──────────────────────────────
   const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, -1 = last week
@@ -1053,7 +1049,7 @@ export default function DashboardPage() {
                   {copy.openCalendar}
                 </Button>
               </div>
-              {isCalendarLoading ? <PanelSkeleton rows={3} times /> : upcomingEvents.length ? (
+              {isLoadingCalendarEvents ? <PanelSkeleton rows={3} times /> : upcomingEvents.length ? (
                 <div className="dashboard-agenda-list">
                   {upcomingEvents.map(event => (
                     <button type="button" className="dashboard-list-item" key={event.id} onClick={() => navigate('/calendar', { state: { eventId: event.id, eventStart: eventDateTime(event) } })}>
