@@ -87,6 +87,33 @@ async def send(
     )
 
 
+@router.post("/drafts")
+async def create_draft(
+    to: str = Form(""),
+    subject: str = Form(""),
+    body: str = Form(""),
+    cc: str = Form(""),
+    bcc: str = Form(""),
+    user_id: str = Depends(get_user_id),
+):
+    return await MailService.create_draft(user_id=user_id, to=to, cc=cc, bcc=bcc, subject=subject, content=body)
+
+
+@router.patch("/drafts/{draft_id}")
+async def update_draft(
+    draft_id: str,
+    to: str = Form(""),
+    subject: str = Form(""),
+    body: str = Form(""),
+    cc: str = Form(""),
+    bcc: str = Form(""),
+    user_id: str = Depends(get_user_id),
+):
+    return await MailService.update_draft(
+        user_id=user_id, draft_id=draft_id, to=to, cc=cc, bcc=bcc, subject=subject, content=body
+    )
+
+
 async def _uploaded(attachments: list[UploadFile]) -> list[dict]:
     return [
         {"name": f.filename, "contentType": f.content_type, "content": await f.read()}

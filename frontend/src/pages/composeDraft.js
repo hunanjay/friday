@@ -1,7 +1,9 @@
-// Unsent compose text, kept locally on purpose: it is not a Drafts-folder
-// message, and syncing it would create a second thing to reconcile.
+// Unsent compose text, kept locally for instant restore. `draftId` (a Graph
+// message id) is carried alongside so a fresh Microsoft compose keeps mirroring
+// the same Outlook draft across reloads instead of creating a new one each time.
 const COMPOSE_DRAFT_KEY = 'friday.composeDraft';
-const EMPTY_DRAFT = { to: '', cc: '', bcc: '', subject: '', body: '' };
+const EMPTY_DRAFT = { to: '', cc: '', bcc: '', subject: '', body: '', draftId: null };
+const _TEXT_FIELDS = ['to', 'cc', 'bcc', 'subject', 'body'];
 
 export function readComposeDraft() {
   try {
@@ -12,7 +14,7 @@ export function readComposeDraft() {
 }
 
 export function writeComposeDraft(draft) {
-  const hasContent = Object.values(draft).some(value => value);
+  const hasContent = _TEXT_FIELDS.some(key => draft[key]);
   if (hasContent) localStorage.setItem(COMPOSE_DRAFT_KEY, JSON.stringify(draft));
   else localStorage.removeItem(COMPOSE_DRAFT_KEY);
 }

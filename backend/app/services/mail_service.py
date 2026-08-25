@@ -83,6 +83,56 @@ class MailService:
         return await graph_get(user_id, f"/me/messages/{quote(email_id)}")
 
     @classmethod
+    async def _draft_message(cls, user_id: str, to: str, cc: str, bcc: str, subject: str, content: str):
+        from msgraph.generated.models.body_type import BodyType
+        from msgraph.generated.models.email_address import EmailAddress
+        from msgraph.generated.models.item_body import ItemBody
+        from msgraph.generated.models.message import Message
+        from msgraph.generated.models.recipient import Recipient
+
+        def recipients(field) -> list:
+            return [Recipient(email_address=EmailAddress(address=a)) for a in parse_recipients(field)]
+
+        return Message(
+            subject=subject,
+            body=ItemBody(content_type=BodyType.Html, content=await render_body(user_id, content)),
+            to_recipients=recipients(to),
+            cc_recipients=recipients(cc),
+            bcc_recipients=recipients(bcc),
+        )
+
+    @classmethod
+    async def create_draft(
+        cls, user_id: str, to: str = "", cc: str = "", bcc: str = "", subject: str = "", content: str = ""
+    ) -> dict:
+        """Create a Graph draft message, so an in-progress compose is a real
+        Outlook draft rather than text stranded in this browser's storage."""
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
+
+        client = get_graph_sdk_client(user_id)
+        msg = await cls._draft_message(user_id, to, cc, bcc, subject, content)
+        created = await client.me.messages.post(msg)
+        return {"id": created.id}
+
+    @classmethod
+    async def update_draft(
+        cls,
+        user_id: str,
+        draft_id: str,
+        to: str = "",
+        cc: str = "",
+        bcc: str = "",
+        subject: str = "",
+        content: str = "",
+    ) -> dict:
+        from app.infrastructure.graph.sdk_client import get_graph_sdk_client
+
+        client = get_graph_sdk_client(user_id)
+        msg = await cls._draft_message(user_id, to, cc, bcc, subject, content)
+        await client.me.messages.by_message_id(draft_id).patch(msg)
+        return {"status": "ok"}
+
+    @classmethod
     async def mark_read(cls, user_id: str, email_id: str, is_read: bool = True) -> dict:
         from msgraph.generated.models.message import Message
 
