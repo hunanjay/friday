@@ -51,6 +51,7 @@ async def init_checkpointer():
     # setup() reads the checkpoint_migrations version, sees everything is
     # already applied, and skips — no CONCURRENTLY errors this time.
     await _checkpointer.setup()
+    logger.info("Checkpoint migrations up to date (version %d)", len(MIGRATIONS))
 
 
 async def close_checkpointer():
