@@ -93,34 +93,38 @@ export function useMailFolderSync({ activeFolder, onError }) {
     if (hasAuthToken) void syncInbox();
   }, [hasAuthToken, scope, syncInbox]);
 
-  useEffect(() => {
-    if (!hasAuthToken || activeFolder !== 'sent' || hasFetchedSent) return;
-    let ignore = false;
+  const syncSent = useCallback(async () => {
+    if (!hasAuthToken) return;
     setIsSyncingSent(true);
-    Promise.all(mailChannels.map(channel => fetchChannelPage(channel, 'sent')))
-      .then(pages => {
-        if (ignore || !pages.some(Boolean)) return;
-        syncSentEmails(normalizePages(pages, 'sent'));
-        setSentCursor(cursorMap(mailChannels, pages));
-        setHasFetchedSent(true);
-      })
-      .catch(() => {
-        if (!ignore) onError?.();
-      })
-      .finally(() => {
-        if (!ignore) setIsSyncingSent(false);
-      });
-    return () => {
-      ignore = true;
-    };
+    try {
+      const pages = await Promise.all(
+        mailChannels.map(channel => fetchChannelPage(channel, 'sent')),
+      );
+      if (!pages.some(Boolean)) return;
+      syncSentEmails(normalizePages(pages, 'sent'));
+      setSentCursor(cursorMap(mailChannels, pages));
+      setHasFetchedSent(true);
+    } catch {
+      onError?.();
+    } finally {
+      setIsSyncingSent(false);
+    }
   }, [
-    activeFolder,
     fetchChannelPage,
     hasAuthToken,
-    hasFetchedSent,
     mailChannels,
     onError,
     syncSentEmails,
+  ]);
+
+  useEffect(() => {
+    if (!hasAuthToken || activeFolder !== 'sent' || hasFetchedSent) return;
+    void syncSent();
+  }, [
+    activeFolder,
+    hasAuthToken,
+    hasFetchedSent,
+    syncSent,
   ]);
 
   const loadMoreFolder = useCallback(async () => {
@@ -168,5 +172,6 @@ export function useMailFolderSync({ activeFolder, onError }) {
     loadMoreFolder,
     mailChannels,
     syncInbox,
+    syncSent,
   };
 }

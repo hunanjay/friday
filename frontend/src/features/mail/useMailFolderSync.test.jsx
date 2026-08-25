@@ -38,6 +38,7 @@ function FolderProbe({ activeFolder = 'inbox', onError = vi.fn() }) {
     isLoadingMoreFolder,
     isSyncingSent,
     loadMoreFolder,
+    syncSent,
   } = useMailFolderSync({ activeFolder, onError });
   return (
     <div>
@@ -45,6 +46,7 @@ function FolderProbe({ activeFolder = 'inbox', onError = vi.fn() }) {
         {`${canLoadMoreFolder}:${isLoadingMoreFolder}:${isSyncingSent}`}
       </span>
       <button onClick={loadMoreFolder}>more</button>
+      <button onClick={syncSent}>sync-sent</button>
     </div>
   );
 }
@@ -118,6 +120,18 @@ describe('useMailFolderSync', () => {
       </AuthContext.Provider>,
     );
     expect(mailState.syncSentEmails).toHaveBeenCalledOnce();
+  });
+
+  it('can refresh sent mail explicitly after a message is sent', async () => {
+    renderFolder('inbox');
+    await waitFor(() => expect(mailState.syncInboxEmails).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync-sent' }));
+
+    await waitFor(() => expect(mailState.syncSentEmails).toHaveBeenCalledOnce());
+    expect(getMailFolderPage).toHaveBeenCalledWith('token', expect.objectContaining({
+      folder: 'sent',
+    }));
   });
 
   it('logs out when a folder request is unauthorized', async () => {

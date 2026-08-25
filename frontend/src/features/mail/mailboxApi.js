@@ -88,6 +88,61 @@ export function markMailMessageRead(token, messageId, isRead = true) {
   });
 }
 
+function composeFormData({
+  attachments = [],
+  bcc = '',
+  body = '',
+  cc = '',
+  replyAll = false,
+  subject = '',
+  to = '',
+}) {
+  const formData = new FormData();
+  formData.append('to', to);
+  formData.append('subject', subject);
+  formData.append('body', body);
+  formData.append('cc', cc);
+  formData.append('bcc', bcc);
+  if (replyAll) formData.append('reply_all', 'true');
+  attachments.forEach(file => formData.append('attachments', file));
+  return formData;
+}
+
+export function saveMicrosoftDraft(token, { draftId, ...fields }) {
+  const path = draftId
+    ? `${mailChannelPath(MICROSOFT_MAIL_CHANNEL)}/drafts/${encodeURIComponent(draftId)}`
+    : `${mailChannelPath(MICROSOFT_MAIL_CHANNEL)}/drafts`;
+  return apiRequest(path, {
+    method: draftId ? 'PATCH' : 'POST',
+    token,
+    body: composeFormData(fields),
+  });
+}
+
+export function sendMail(token, {
+  channel = MICROSOFT_MAIL_CHANNEL,
+  messageId,
+  mode,
+  ...fields
+}) {
+  const path = messageId
+    ? mailMessagePath(messageId, mode === 'forward' ? '/forward' : '/reply')
+    : `${mailChannelPath(channel)}/send`;
+  return apiRequest(path, {
+    method: 'POST',
+    token,
+    body: composeFormData({ ...fields, replyAll: mode === 'replyAll' }),
+  });
+}
+
+export function deleteMailMessage(token, messageId, { permanent = false } = {}) {
+  return apiRequest(mailMessagePath(messageId), {
+    method: 'DELETE',
+    token,
+    query: permanent ? { permanent: true } : undefined,
+  });
+}
+
 export async function getInboxUnread(token, accountIds) {
   const requests = [
     apiRequest('/api/graph/mail/folders/inbox', { token }),

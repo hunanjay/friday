@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { readComposeDraft, writeComposeDraft } from './composeDraft';
 import { useAuth } from '../features/auth/useAuth';
 import { useMailAccounts, useMicrosoftMailStatus } from '../features/mail/accountHooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
@@ -8,6 +7,7 @@ import {
   MICROSOFT_MAIL_CHANNEL as MICROSOFT,
 } from '../features/mail/mailboxApi';
 import { useMailFolderSync } from '../features/mail/useMailFolderSync';
+import { useMailCompose } from '../features/mail/useMailCompose';
 import { useMailSearch } from '../features/mail/useMailSearch';
 import { useMailThread } from '../features/mail/useMailThread';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
@@ -20,16 +20,6 @@ import ApprovalCard from '../components/common/ApprovalCard';
 import { mailMessageUrl } from '../utils/mailApi';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-// Mirrors mail_compose.py; a backend smoke test asserts the two agree. Checked
-// here so an oversized file is refused on pick, not after a slow upload.
-const GRAPH_ATTACHMENT_LIMIT = 3 * 1024 * 1024;
-const SMTP_ATTACHMENT_LIMIT = 20 * 1024 * 1024;
-
-const mailApiBase = (channel) =>
-  channel === MICROSOFT
-    ? `${API_URL}/api/graph/mail`
-    : `${API_URL}/api/mail-accounts/${channel}/mail`;
-
 export default function EmailPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -60,7 +50,45 @@ export default function EmailPage() {
     loadMoreFolder,
     mailChannels,
     syncInbox,
+    syncSent,
   } = useMailFolderSync({ activeFolder, onError: handleFolderSyncError });
+
+  const handleComposeSent = useCallback(() => {
+    void syncSent();
+    void syncInbox();
+  }, [syncInbox, syncSent]);
+  const {
+    addAttachments,
+    closeCompose,
+    composeAttachments,
+    composeBcc,
+    composeBody,
+    composeCc,
+    composeChannel,
+    composeSubject,
+    composeTo,
+    isComposing,
+    isSending,
+    openComposeFor: openMailComposeFor,
+    openFreshCompose,
+    removeAttachment,
+    setComposeBcc,
+    setComposeBody,
+    setComposeCc,
+    setComposeChannel,
+    setComposeSubject,
+    setComposeTo,
+    setShowCopyFields,
+    showCopyFields,
+    submitCompose: handleComposeSubmit,
+  } = useMailCompose({
+    connectionErrorMessage: i18n.language === 'zh'
+      ? '无法连接到邮件服务，请稍后再试。'
+      : "Couldn't reach the mail service, please try again later.",
+    onSent: handleComposeSent,
+    onToast: showToast,
+    sentMessage: t('email.sentSuccess'),
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const {
@@ -87,78 +115,6 @@ export default function EmailPage() {
     threadMessages,
     toggleMessageExpanded: toggleMsgExpand,
   } = useMailThread({ onOpen: handleThreadOpen });
-
-
-  // Closing the window (or a reload) used to throw away whatever was typed.
-  // Text only: attachments are File handles the browser will not hand back, so
-  // restoring their names would promise files that are no longer attached.
-  const [restoredDraft] = useState(readComposeDraft);
-
-  // Compose modal states
-  const [isComposing, setIsComposing] = useState(false);
-  const [composeTo, setComposeTo] = useState(restoredDraft.to);
-  const [composeCc, setComposeCc] = useState(restoredDraft.cc);
-  const [composeBcc, setComposeBcc] = useState(restoredDraft.bcc);
-  const [showCopyFields, setShowCopyFields] = useState(Boolean(restoredDraft.cc || restoredDraft.bcc));
-  const [composeSubject, setComposeSubject] = useState(restoredDraft.subject);
-  const [composeBody, setComposeBody] = useState(restoredDraft.body);
-  const [composeAttachments, setComposeAttachments] = useState([]);
-  // Which mailbox sends: 'microsoft' or a bound mail_accounts id.
-  const [composeChannel, setComposeChannel] = useState(MICROSOFT);
-  const [isSending, setIsSending] = useState(false);
-  // Set by handleUseDraftAsReply - when present, submit hits the {id}/reply
-  // endpoint (keeps threading) instead of a fresh /send.
-  const [replyToEmailId, setReplyToEmailId] = useState(null);
-  const [composeMode, setComposeMode] = useState(null);
-
-  // Graph message id of the Outlook draft mirroring the current fresh compose
-  // (null until the first debounced sync below creates one). A ref, not
-  // state - it must not itself retrigger that sync effect.
-  const draftIdRef = useRef(restoredDraft.draftId);
-  const draftSyncTimer = useRef(null);
-
-  useEffect(() => {
-    writeComposeDraft({
-      to: composeTo, cc: composeCc, bcc: composeBcc, subject: composeSubject, body: composeBody,
-      draftId: draftIdRef.current,
-    });
-  }, [composeTo, composeCc, composeBcc, composeSubject, composeBody]);
-
-  // Mirrors a fresh (not reply/forward) Microsoft compose into a real Outlook
-  // draft, debounced, so it is recoverable from Outlook itself and not just
-  // this browser's storage. Reply/forward stays local-only: Graph drafts a
-  // reply through a separate createReply/createForward call this doesn't use.
-  useEffect(() => {
-    if (!isComposing || replyToEmailId || composeChannel !== MICROSOFT) return;
-    if (!(composeTo || composeCc || composeBcc || composeSubject || composeBody)) return;
-    clearTimeout(draftSyncTimer.current);
-    draftSyncTimer.current = setTimeout(() => {
-      const formData = new FormData();
-      formData.append('to', composeTo);
-      formData.append('cc', composeCc);
-      formData.append('bcc', composeBcc);
-      formData.append('subject', composeSubject);
-      formData.append('body', composeBody);
-      const id = draftIdRef.current;
-      fetch(
-        id ? `${mailApiBase(MICROSOFT)}/drafts/${encodeURIComponent(id)}` : `${mailApiBase(MICROSOFT)}/drafts`,
-        { method: id ? 'PATCH' : 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: formData },
-      )
-        .then(res => (res.ok ? res.json() : null))
-        .then(data => {
-          if (!data?.id) return;
-          draftIdRef.current = data.id;
-          writeComposeDraft({
-            to: composeTo, cc: composeCc, bcc: composeBcc, subject: composeSubject, body: composeBody,
-            draftId: data.id,
-          });
-        })
-        // Best-effort: local storage stays the source of truth for what's
-        // typed, so a sync failure never blocks composing or sending.
-        .catch(() => {});
-    }, 2000);
-    return () => clearTimeout(draftSyncTimer.current);
-  }, [composeTo, composeCc, composeBcc, composeSubject, composeBody, isComposing, replyToEmailId, composeChannel, authToken]);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   // Dora AI Assistant states
@@ -259,103 +215,8 @@ export default function EmailPage() {
     : null;
 
   const handleAttachmentChange = (e) => {
-    const files = Array.from(e.target.files);
-    const limit = composeChannel === MICROSOFT ? GRAPH_ATTACHMENT_LIMIT : SMTP_ATTACHMENT_LIMIT;
-    // Everything already attached counts: the whole batch goes in one request,
-    // so measuring only the new files let three small picks add up past it.
-    const total = [...composeAttachments, ...files].reduce((sum, file) => sum + file.size, 0);
-    if (total > limit) {
-      showToast(t('email.attachmentsTooLarge', {
-        total: (total / 1048576).toFixed(1),
-        limit: Math.round(limit / 1048576),
-      }));
-      return;
-    }
-    setComposeAttachments(prev => [...prev, ...files]);
-  };
-
-  const removeAttachment = (index) => {
-    setComposeAttachments(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleComposeSubmit = async (e) => {
-    e.preventDefault();
-    if (!composeTo || !composeSubject || !composeBody) {
-      alert('Please fill out all fields');
-      return;
-    }
-
-    const isZh = i18n.language === 'zh';
-    setIsSending(true);
-    try {
-      const formData = new FormData();
-      formData.append('to', composeTo);
-      formData.append('subject', composeSubject);
-      formData.append('body', composeBody);
-      formData.append('cc', composeCc);
-      formData.append('bcc', composeBcc);
-      if (composeMode === 'forward') formData.append('subject', composeSubject);
-      composeAttachments.forEach(file => {
-        formData.append('attachments', file);
-      });
-
-      if (composeMode === 'replyAll') formData.append('reply_all', 'true');
-      const sendBase = mailApiBase(composeChannel);
-      const threadPath = composeMode === 'forward' ? '/forward' : '/reply';
-      const res = replyToEmailId
-        ? await fetch(mailMessageUrl(replyToEmailId, threadPath), {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${authToken}` },
-            body: formData,
-          })
-        : await fetch(`${sendBase}/send`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${authToken}` },
-            body: formData,
-          });
-
-      if (res.status === 401) {
-        handleLogout();
-        return;
-      }
-      if (!res.ok) {
-        const failure = await res.json().catch(() => ({}));
-        showToast(failure.detail || (isZh ? '发送失败，请稍后重试' : 'Failed to send, please try again'));
-        return;
-      }
-
-      // A fresh compose that synced to an Outlook draft is now sent - drop
-      // the draft so it doesn't linger as a duplicate of the sent message.
-      if (draftIdRef.current && !replyToEmailId) {
-        fetch(mailMessageUrl(draftIdRef.current, '?permanent=true'), {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${authToken}` },
-        }).catch(() => {});
-        draftIdRef.current = null;
-      }
-
-      // Refresh the sent list so the real Graph message (with its true ID)
-      // appears immediately, rather than an optimistic local stub.
-      setHasFetchedSent(false);
-      // Refresh the inbox too - a sent email may bounce back or the recipient
-      // may reply instantly; without this the inbox only updates on reload.
-      syncInbox();
-      setIsComposing(false);
-      setReplyToEmailId(null);
-      setComposeMode(null);
-      setComposeTo('');
-      setComposeCc('');
-      setComposeBcc('');
-      setShowCopyFields(false);
-      setComposeSubject('');
-      setComposeBody('');
-      setComposeAttachments([]);
-      showToast(t('email.sentSuccess'));
-    } catch {
-      showToast(isZh ? '无法连接到邮件服务，请稍后再试。' : "Couldn't reach the mail service, please try again later.");
-    } finally {
-      setIsSending(false);
-    }
+    addAttachments(e.target.files, values => t('email.attachmentsTooLarge', values));
+    e.target.value = '';
   };
 
 
@@ -461,24 +322,7 @@ export default function EmailPage() {
   // 'reply' | 'replyAll' hit {id}/reply, 'forward' hits {id}/forward, and a
   // null mode is a fresh /send. The submit handler branches on this alone.
   const openComposeFor = (mode, { body = '' } = {}) => {
-    if (!selectedEmail) return;
-    const senderAddress = selectedEmail.sender?.emailAddress?.address || selectedEmail.sender?.emailAddress?.name || '';
-    // A reply/forward never mirrors to an Outlook draft (see the sync effect
-    // above), so drop any leftover fresh-compose draft id rather than let a
-    // later fresh compose silently resume and overwrite it.
-    draftIdRef.current = null;
-    setComposeMode(mode);
-    setReplyToEmailId(selectedEmail.id);
-    setComposeChannel(selectedEmail.provider || MICROSOFT);
-    setComposeTo(mode === 'forward' ? '' : senderAddress);
-    setComposeCc('');
-    setComposeBcc('');
-    setShowCopyFields(false);
-    setComposeSubject(
-      mode === 'forward' ? `Fwd: ${selectedEmail.subject}` : `Re: ${selectedEmail.subject}`,
-    );
-    setComposeBody(body);
-    setIsComposing(true);
+    openMailComposeFor(selectedEmail, mode, { body });
   };
 
   const handleUseDraftAsReply = () => {
@@ -498,7 +342,7 @@ export default function EmailPage() {
       )}
       {/* Email Sidebar */}
       <div className="email-sidebar">
-        <button className="compose-btn" onClick={() => { setReplyToEmailId(null); setComposeMode(null); setIsComposing(true); }}>
+        <button className="compose-btn" onClick={openFreshCompose}>
           <Plus size={18} />
           <span>{t('email.compose')}</span>
         </button>
@@ -911,7 +755,7 @@ export default function EmailPage() {
           <div className="compose-modal">
             <div className="compose-modal-header">
               <h3>{i18n.language === 'zh' ? "新建邮件" : "New Message"}</h3>
-              <button className="close-compose" onClick={() => setIsComposing(false)}>
+              <button className="close-compose" onClick={closeCompose}>
                 <X size={18} />
               </button>
             </div>
