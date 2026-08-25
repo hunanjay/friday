@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../features/auth/useAuth';
 import { useCalendarSyncStatus } from '../../features/calendar/hooks';
+import { useInboxUnread, useMailMessages, useMailSyncStatus } from '../../features/mail/mailboxHooks';
 import { useAssistantName, useAvatar } from '../../features/settings/hooks';
-import { useWorkspace } from '../../hooks/useWorkspace';
 import { useTheme } from '../../hooks/useTheme';
 import { useUi } from '../../hooks/useUi';
 import { useTranslation } from 'react-i18next';
@@ -17,11 +17,9 @@ export default function MainLayout() {
   const { assistantName } = useAssistantName();
   const { avatarUrl } = useAvatar();
   const isSyncingEvents = useCalendarSyncStatus();
-  const {
-    emails,
-    inboxUnread,
-    isSyncingInbox,
-  } = useWorkspace();
+  const { emails } = useMailMessages();
+  const { inboxUnread } = useInboxUnread();
+  const { isSyncingInbox } = useMailSyncStatus();
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();

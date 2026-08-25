@@ -24,10 +24,11 @@ import {
   Open24Regular,
   TaskListLtr24Regular,
 } from '@fluentui/react-icons';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useAuth } from '../features/auth/useAuth';
 import { useCalendarEvents } from '../features/calendar/hooks';
 import { useGitHubConnection } from '../features/github/hooks';
 import { useMailAccounts } from '../features/mail/accountHooks';
+import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
 import { useMemos } from '../features/memos/hooks';
 import { useAssistantName } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
@@ -230,8 +231,10 @@ export default function DashboardPage() {
   const { assistantName } = useAssistantName();
   const { githubStatus } = useGitHubConnection();
   const { mailAccounts } = useMailAccounts();
+  const { emails, syncInboxEmails: handleSyncInboxEmails } = useMailMessages();
+  const { inboxUnread } = useInboxUnread();
   const { memos, isLoadingMemos } = useMemos();
-  const { authToken, emails, inboxUnread, user, handleSyncInboxEmails } = useWorkspace();
+  const { authToken, user } = useAuth();
   const isZh = i18n.language === 'zh';
 
   // ── Todo List Helpers & State (backend-persisted CRUD) ───────────────────

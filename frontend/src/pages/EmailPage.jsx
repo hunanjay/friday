@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { readComposeDraft, writeComposeDraft } from './composeDraft';
-import { useWorkspace } from '../hooks/useWorkspace';
+import { useAuth } from '../features/auth/useAuth';
 import { useMailAccounts, useMicrosoftMailStatus } from '../features/mail/accountHooks';
+import { useInboxUnread, useMailMessages, useMailSyncStatus } from '../features/mail/mailboxHooks';
 import { useAssistantName, useAvatar, useSignature } from '../features/settings/hooks';
+import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Trash, Search, Plus, X, Sparkles, ChevronLeft, Info, Reply, ReplyAll, Forward } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
@@ -63,22 +65,19 @@ export default function EmailPage() {
   const { mailAccounts } = useMailAccounts();
   const { msDisconnected } = useMicrosoftMailStatus();
   const {
-    user,
     emails,
-    handleDeleteEmail,
-    handleMarkEmailRead,
-    showToast,
-    authToken,
-    setIsSyncingInbox,
-    inboxUnread,
-    adjustInboxUnread,
-    handleSyncInboxEmails,
-    handleAppendInboxEmails,
-    handleSyncSentEmails,
-    handleAppendSentEmails,
-    handleLogout,
-    setIsSidebarCollapsed
-  } = useWorkspace();
+    syncInboxEmails: handleSyncInboxEmails,
+    syncSentEmails: handleSyncSentEmails,
+    appendEmails,
+    moveEmailToTrash: handleDeleteEmail,
+    markEmailRead: handleMarkEmailRead,
+  } = useMailMessages();
+  const handleAppendInboxEmails = appendEmails;
+  const handleAppendSentEmails = appendEmails;
+  const { inboxUnread, adjustInboxUnread } = useInboxUnread();
+  const { setIsSyncingInbox } = useMailSyncStatus();
+  const { user, authToken, handleLogout } = useAuth();
+  const { showToast, setIsSidebarCollapsed } = useUi();
 
   const { t, i18n } = useTranslation();
 
