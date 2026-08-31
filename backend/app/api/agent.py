@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -27,7 +28,14 @@ from app.agents.supervisor import build_supervisor, describe_team, format_memory
 from app.agents.turn_lock import session_turn_lock
 from app.core.security import get_user_id
 from app.core.tracing import trace_config
-from app.infrastructure.db.repositories import chat_sessions, hitl_audit, user_memory, user_settings
+from app.infrastructure.db.repositories import (
+    agent_runs,
+    chat_sessions,
+    hitl_audit,
+    signature_templates,
+    user_memory,
+    user_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +72,14 @@ async def _prompt_settings(user_id: str) -> tuple[str, bool, str]:
     profile_rows, preference_rows = await user_memory.get_injectable_memory(user_id)
     return (
         await user_settings.get_assistant_name(user_id),
-        bool(await user_settings.get_signature(user_id)),
+        bool(await signature_templates.get_default_content(user_id)),
         format_memory_block(profile_rows, preference_rows),
     )
 
 
 async def _visible_actions_signature(user_id: str) -> str:
     """The signature an approval card must preview, since the send appends it."""
-    return await user_settings.get_signature(user_id)
+    return await signature_templates.get_default_content(user_id)
 
 
 async def _visible_actions(user_id: str, session_id: str, interrupts: tuple) -> list[dict]:
@@ -438,6 +446,12 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
     assistant_name, has_signature, memory_block = await _prompt_settings(user_id)
 
     async def locked_event_generator():
+        started_at = time.perf_counter()
+        tool_calls = 0
+        # Which agent actually handled the turn: the slash command names it up
+        # front, otherwise it is whoever the supervisor delegated to first.
+        handled_by = routed_agent
+        ok = True
         config = {"configurable": {"thread_id": session_id}, **trace_config(session_id, user_id)}
         graph = build_supervisor(user_id, session_id, assistant_name, has_signature, memory_block)
         user_message = {"role": "user", "content": routed_message}
@@ -480,6 +494,8 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
                     if tool_name.startswith("delegate_to_"):
+                        if handled_by is None:
+                            handled_by = tool_name.removeprefix("delegate_to_")
                         continue
                     tool_input = event.get("data", {}).get("input") or {}
                     yield f"data: {json.dumps({'tool_call': {'name': tool_name, 'input': tool_input, 'status': 'running'}})}\n\n"
@@ -487,11 +503,13 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                     tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
                     if tool_name.startswith("delegate_to_"):
                         continue
+                    tool_calls += 1
                     tool_output = event.get("data", {}).get("output")
                     output_str = str(tool_output)[:500] if tool_output is not None else ""
                     yield f"data: {json.dumps({'tool_call': {'name': tool_name, 'output': output_str, 'status': 'completed'}})}\n\n"
         except Exception as e:
             logger.exception("agent chat stream failed")
+            ok = False
             err_type = str(type(e).__name__)
             err_msg = str(e)
             if "Timeout" in err_type or "timeout" in err_msg.lower():
@@ -540,6 +558,17 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 yield f"data: {json.dumps({'title': title})}\n\n"
             except Exception:
                 logger.exception("session title generation failed")
+
+        await agent_runs.record_run(
+            user_id,
+            session_id,
+            route=route.source,
+            agent=handled_by,
+            tool_calls=tool_calls,
+            paused=bool(pending_actions),
+            ok=ok,
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+        )
 
         yield "data: [DONE]\n\n"
 

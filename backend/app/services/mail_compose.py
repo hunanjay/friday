@@ -12,7 +12,7 @@ import re
 
 from fastapi import HTTPException
 
-from app.infrastructure.db.repositories import user_settings
+from app.infrastructure.db.repositories import signature_templates
 
 
 def apply_signature(content: str, signature: str) -> str:
@@ -35,7 +35,7 @@ async def render_body(user_id: str, content: str) -> str:
     plain text, so an unescaped "a < b" or "<notes>" reaches the recipient as
     markup and is swallowed by their mail client.
     """
-    signed = apply_signature(content, await user_settings.get_signature(user_id))
+    signed = apply_signature(content, await signature_templates.get_default_content(user_id))
     return html.escape(signed).replace("\n", "<br>")
 
 
