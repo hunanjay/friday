@@ -597,6 +597,35 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
         return f"Event created: {subject}."
 
     @tool
+    async def update_event(
+        event_id: str,
+        subject: str = "",
+        start: str = "",
+        end: str = "",
+        location: str = "",
+    ) -> str:
+        """Reschedule or edit an existing calendar event after HITL approval. Pass
+        `event_id` plus only the fields that change - omitted fields keep their
+        current value. Use this instead of delete+create when a meeting moves, so
+        attendee responses and the meeting link survive. `start`/`end` are ISO 8601
+        datetimes in the user's local timezone (configured via TIMEZONE env var,
+        default Asia/Shanghai); pass both when either one moves."""
+        tz = _graph_tz()
+        body: dict = {}
+        if subject:
+            body["subject"] = subject
+        if start:
+            body["start"] = {"dateTime": start, "timeZone": tz}
+        if end:
+            body["end"] = {"dateTime": end, "timeZone": tz}
+        if location:
+            body["location"] = {"displayName": location}
+        if not body:
+            return "Nothing to update: pass at least one of subject, start, end or location."
+        await _graph_mutation(graph_patch(user_id, f"/me/events/{quote(event_id)}", body))
+        return f"Event updated: {subject or event_id}."
+
+    @tool
     async def delete_event(
         event_id: str,
         subject: str,
@@ -637,6 +666,7 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
         list_events,
         list_events_on_day,
         create_event,
+        update_event,
         delete_event,
         accept_event,
         decline_event,

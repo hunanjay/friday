@@ -5,6 +5,7 @@ import {
   deleteCalendarEvent,
   getCalendarEvents,
   normalizeCalendarEvent,
+  updateCalendarEvent,
 } from './api';
 
 vi.mock('../../api/client', () => ({ apiRequest: vi.fn() }));
@@ -65,6 +66,20 @@ describe('calendar API', () => {
         end: event.end,
         location: event.location,
       },
+    });
+  });
+
+  it('sends only the changed fields when updating, and keeps the id Graph may omit', async () => {
+    apiRequest.mockResolvedValueOnce({ ...rawEvent, id: undefined });
+
+    await expect(updateCalendarEvent('token', 'event/1', {
+      start: '2026-08-25T14:00:00',
+      end: '2026-08-25T15:00:00',
+    })).resolves.toEqual(expect.objectContaining({ id: 'event/1' }));
+    expect(apiRequest).toHaveBeenCalledWith('/api/graph/calendar/events/event%2F1', {
+      method: 'PATCH',
+      token: 'token',
+      body: { start: '2026-08-25T14:00:00', end: '2026-08-25T15:00:00' },
     });
   });
 

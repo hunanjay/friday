@@ -75,8 +75,8 @@ _ROUTING_HINTS = {
         "something about a person, carries no fact to record and belongs in your own reply."
     ),
     "calendar_agent": (
-        "Route here for anything about scheduling: listing, creating, or deleting "
-        "calendar events, or accepting/declining event invitations."
+        "Route here for anything about scheduling: listing, creating, rescheduling, "
+        "editing or deleting calendar events, or accepting/declining event invitations."
     ),
     "memos_agent": (
         "Route here only when the user explicitly asks to save an idea/note, or to find "
@@ -233,9 +233,10 @@ def _agent_prompts(
             *_BASE_RULES,
         ]),
         "calendar_agent": _format_rules([
-            f"Today is {today}, and you handle the user's calendar, including listing, creating, deleting, accepting, and declining events.",
+            f"Today is {today}, and you handle the user's calendar, including listing, creating, updating, deleting, accepting, and declining events.",
             "Resolve relative dates with the tools rather than computing date ranges yourself, passing the user's exact phrase for a single day to list_events_on_day.",
-            "Before deleting an event, list that day's events and select exactly one, and if several match, ask which one the user means.",
+            "Before updating or deleting an event, list that day's events and select exactly one, and if several match, ask which one the user means.",
+            "To move or edit an existing event use update_event with only the changed fields; never delete and recreate it, which drops attendee responses and the meeting link.",
             _ID_DISPLAY_RULE,
             *_HITL_RULES,
             *memory_rules,

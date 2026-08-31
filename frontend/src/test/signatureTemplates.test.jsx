@@ -30,16 +30,15 @@ function renderPanel(overrides = {}) {
 describe('SignatureTemplates', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('marks the default and offers to switch only the others', () => {
+  it('checks the radio of the default template only', () => {
     renderPanel();
-    expect(screen.getByText('Default')).toBeTruthy();
-    // One "Use this" button: the default cannot be promoted to itself.
-    expect(screen.getAllByRole('button', { name: 'Use this' })).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: 'Use Work' }).checked).toBe(true);
+    expect(screen.getByRole('radio', { name: 'Use Personal' }).checked).toBe(false);
   });
 
   it('switches the default template', async () => {
     const { setDefaultSignature, showToast } = renderPanel();
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Use this' })));
+    await act(async () => fireEvent.click(screen.getByRole('radio', { name: 'Use Personal' })));
     expect(setDefaultSignature).toHaveBeenCalledWith('p');
     expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/Now signing with "Personal"/));
   });

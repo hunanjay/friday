@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSignatures } from '../features/settings/hooks';
-import { CheckCircle, Edit3, Plus, Trash } from './common/Icons';
+import { Edit3, Plus, Trash } from './common/Icons';
 
 const MAX_CONTENT = 1000;
 const MAX_NAME = 40;
@@ -77,8 +77,8 @@ export default function SignatureTemplates({ isZh, showToast, autoEdit = false }
           <div className="settings-field-label">{isZh ? '邮件签名' : 'Email Signature'}</div>
           <div className="settings-field-hint">
             {isZh
-              ? '可以保存多个签名，标为「默认」的那个会附加在每封发出邮件末尾，对所有邮箱账号和 AI 代发都生效。'
-              : 'Keep several signatures; the one marked Default is appended to every email you send, from any bound account and from the assistant.'}
+              ? '可以保存多个签名，选中的那个会附加在每封发出邮件末尾，对所有邮箱账号和 AI 代发都生效。'
+              : 'Keep several signatures; the selected one is appended to every email you send, from any bound account and from the assistant.'}
           </div>
         </div>
         {!draft && (
@@ -99,57 +99,62 @@ export default function SignatureTemplates({ isZh, showToast, autoEdit = false }
         </p>
       )}
 
-      <div className="signature-list">
+      <div className="signature-list" role="radiogroup" aria-label={isZh ? '默认签名' : 'Default signature'}>
         {signatures.map(item => (
-          <div className="signature-row" key={item.id}>
-            <div className="signature-row-head">
-              <div className="signature-row-name">
-                {item.name}
-                {item.is_default && (
-                  <span className="signature-default-badge">
-                    <CheckCircle size={12} />
-                    {isZh ? '默认' : 'Default'}
-                  </span>
-                )}
-              </div>
-              <div className="settings-row-actions">
-              {!item.is_default && (
-                <button type="button" className="settings-btn" onClick={() => promote(item)}>
-                  {isZh ? '设为默认' : 'Use this'}
-                </button>
-              )}
-              <button
-                type="button"
-                className="settings-btn"
-                onClick={() => setDraft({ id: item.id, name: item.name, content: item.content })}
-              >
-                <Edit3 size={14} />
-                {isZh ? '编辑' : 'Edit'}
-              </button>
-              {confirmingDelete === item.id ? (
-                <>
-                  <button type="button" className="settings-btn btn-danger" onClick={() => remove(item)}>
-                    {isZh ? '确认删除' : 'Confirm'}
+          <div className={`signature-row${item.is_default ? ' is-default' : ''}`} key={item.id}>
+            <input
+              type="radio"
+              className="signature-row-radio"
+              id={`signature-default-${item.id}`}
+              name="signature-default"
+              checked={item.is_default}
+              onChange={() => promote(item)}
+              aria-label={isZh ? `将「${item.name}」设为默认` : `Use ${item.name}`}
+            />
+            <div className="signature-row-body">
+              <div className="signature-row-head">
+                <label className="signature-row-name" htmlFor={`signature-default-${item.id}`}>
+                  {item.name}
+                  {item.is_default && (
+                    <span className="signature-default-note">
+                      {isZh ? '附加到每封邮件' : 'appended to every email'}
+                    </span>
+                  )}
+                </label>
+                <div className="settings-row-actions">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn-icon"
+                    aria-label={isZh ? `编辑 ${item.name}` : `Edit ${item.name}`}
+                    onClick={() => setDraft({ id: item.id, name: item.name, content: item.content })}
+                  >
+                    <Edit3 size={14} />
                   </button>
-                  <button type="button" className="settings-btn" onClick={() => setConfirmingDelete(null)}>
-                    {isZh ? '取消' : 'Cancel'}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="settings-btn btn-danger-outline"
-                  aria-label={isZh ? `删除 ${item.name}` : `Delete ${item.name}`}
-                  onClick={() => setConfirmingDelete(item.id)}
-                >
-                  <Trash size={14} />
-                </button>
-              )}
+                  {confirmingDelete === item.id ? (
+                    <>
+                      <button type="button" className="settings-btn btn-danger" onClick={() => remove(item)}>
+                        {isZh ? '确认删除' : 'Confirm'}
+                      </button>
+                      <button type="button" className="settings-btn" onClick={() => setConfirmingDelete(null)}>
+                        {isZh ? '取消' : 'Cancel'}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn-icon btn-danger-outline"
+                      aria-label={isZh ? `删除 ${item.name}` : `Delete ${item.name}`}
+                      onClick={() => setConfirmingDelete(item.id)}
+                    >
+                      <Trash size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
+              <p className="settings-signature-static">
+                {item.content || (isZh ? '（空签名，等于不加签名）' : '(empty — sends nothing)')}
+              </p>
             </div>
-            <p className="settings-signature-static">
-              {item.content || (isZh ? '（空签名，等于不加签名）' : '(empty — sends nothing)')}
-            </p>
           </div>
         ))}
       </div>

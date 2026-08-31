@@ -215,6 +215,7 @@ for tool_name in (
     "forward_email",
     "delete_email",
     "create_event",
+    "update_event",
     "delete_event",
     "accept_event",
     "decline_event",
@@ -225,7 +226,8 @@ for tool_name in (
         arg_names = {arg.arg for arg in tool_fn.args.args}
         calls = _called_names(tool_fn) | _called_attributes(tool_fn)
         check(f"{tool_name} has no model-controlled confirm argument", "confirm" not in arg_names)
-        check(f"{tool_name} is the real Graph mutation", bool({"graph_post", "graph_delete"} & calls))
+        check(f"{tool_name} is the real Graph mutation",
+              bool({"graph_post", "graph_patch", "graph_delete"} & calls))
         check(f"{tool_name} preserves Graph failures as error ToolMessages", "_graph_mutation" in calls)
         check(f"{tool_name} has no custom approval proposal", "propose" not in calls)
 
@@ -264,8 +266,8 @@ from app.agents.hitl import (  # noqa: E402
 )
 
 expected_hitl_tools = {
-    "send_email", "reply_email", "forward_email", "delete_email", "create_event", "delete_event",
-    "accept_event", "decline_event",
+    "send_email", "reply_email", "forward_email", "delete_email", "create_event", "update_event",
+    "delete_event", "accept_event", "decline_event",
 }
 check("all email/calendar mutation tools have interrupt policies",
       expected_hitl_tools <= set(HITL_TOOL_CONFIGS))

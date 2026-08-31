@@ -12,7 +12,7 @@ function SignatureBlock({ signature, t }) {
         type="button"
         className="approval-email-signature-edit"
         title={t('email.editSignature')}
-        onClick={() => navigate('/settings#signature')}
+        onClick={() => navigate('/settings/mail#signature')}
       >
         <Edit3 size={13} />
       </button>

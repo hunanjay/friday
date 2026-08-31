@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useCalendarEvents } from '../features/calendar/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
-import { Calendar, ChevronLeft, ChevronRight, X, Trash } from '../components/common/Icons';
+import { Calendar, ChevronLeft, ChevronRight, Edit3, X, Trash } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
 
 function hasVisibleEventBody(body) {
@@ -30,6 +30,7 @@ export default function CalendarPage() {
   const {
     events,
     addCalendarEvent,
+    updateCalendarEvent,
     deleteCalendarEvent,
     calendarError,
   } = useCalendarEvents(calendarRange);
@@ -49,6 +50,7 @@ export default function CalendarPage() {
   const [eventDesc, setEventDesc] = useState('');
   const [eventLocation, setEventLocation] = useState('');
   const [eventCategory, setEventCategory] = useState('work'); // work, personal, urgent, study
+  const [editingEventId, setEditingEventId] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const searchParams = new URLSearchParams(location.search);
   const targetEventId = location.state?.eventId || searchParams.get('eventId');
@@ -119,8 +121,39 @@ export default function CalendarPage() {
     });
   };
 
+  const resetEventForm = () => {
+    setEventTitle('');
+    setEventStart('09:00');
+    setEventEnd('10:00');
+    setEventDesc('');
+    setEventLocation('');
+    setEventCategory('work');
+  };
+
+  const closeEventModal = () => {
+    setIsModalOpen(false);
+    setEditingEventId(null);
+  };
+
   const handleCellClick = (dateStr) => {
+    setEditingEventId(null);
+    resetEventForm();
     setSelectedDateStr(dateStr);
+    setIsModalOpen(true);
+  };
+
+  const handleEditEventClick = (event) => {
+    const [date, startTime] = (event.start?.dateTime || '').split('T');
+    const endTime = (event.end?.dateTime || '').split('T')[1];
+    setEditingEventId(event.id);
+    setSelectedDateStr(date || '');
+    setEventTitle(event.subject || '');
+    setEventStart((startTime || '09:00').substring(0, 5));
+    setEventEnd((endTime || '10:00').substring(0, 5));
+    setEventLocation(event.location?.displayName || '');
+    setEventDesc('');
+    setEventCategory(getCleanCategory(event.categories));
+    setSelectedEvent(null);
     setIsModalOpen(true);
   };
 
@@ -132,25 +165,29 @@ export default function CalendarPage() {
     }
 
     try {
-      await addCalendarEvent({
-        subject: eventTitle,
-        start: `${selectedDateStr}T${eventStart}:00`,
-        end: `${selectedDateStr}T${eventEnd}:00`,
-        location: eventLocation || 'Microsoft Teams Meeting',
-        body: { content: eventDesc, contentType: 'text' },
-        categories: [eventCategory.charAt(0).toUpperCase() + eventCategory.slice(1)],
-      });
-      setIsModalOpen(false);
+      if (editingEventId) {
+        await updateCalendarEvent({
+          id: editingEventId,
+          subject: eventTitle,
+          start: `${selectedDateStr}T${eventStart}:00`,
+          end: `${selectedDateStr}T${eventEnd}:00`,
+          location: eventLocation,
+        });
+      } else {
+        await addCalendarEvent({
+          subject: eventTitle,
+          start: `${selectedDateStr}T${eventStart}:00`,
+          end: `${selectedDateStr}T${eventEnd}:00`,
+          location: eventLocation || 'Microsoft Teams Meeting',
+          body: { content: eventDesc, contentType: 'text' },
+          categories: [eventCategory.charAt(0).toUpperCase() + eventCategory.slice(1)],
+        });
+      }
+      const wasEditing = Boolean(editingEventId);
+      closeEventModal();
+      resetEventForm();
 
-      // Reset fields
-      setEventTitle('');
-      setEventStart('09:00');
-      setEventEnd('10:00');
-      setEventDesc('');
-      setEventLocation('');
-      setEventCategory('work');
-
-      showToast(t('calendar.addedSuccess'));
+      showToast(t(wasEditing ? 'calendar.updatedSuccess' : 'calendar.addedSuccess'));
     } catch {
       showToast(t('calendar.syncFailed', { defaultValue: 'Failed to sync calendar from Outlook' }));
     }
@@ -306,13 +343,13 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* New Event Modal */}
+      {/* New / Edit Event Modal */}
       {isModalOpen && (
-        <div className="calendar-modal-overlay" onClick={() => setIsModalOpen(false)}>
+        <div className="calendar-modal-overlay" onClick={closeEventModal}>
           <div className="calendar-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{t('calendar.newEvent')}</h3>
-              <button className="close-modal-btn" onClick={() => setIsModalOpen(false)}>
+              <h3>{t(editingEventId ? 'calendar.editEvent' : 'calendar.newEvent')}</h3>
+              <button className="close-modal-btn" onClick={closeEventModal}>
                 <X size={18} />
               </button>
             </div>
@@ -398,8 +435,8 @@ export default function CalendarPage() {
               </div>
 
               <div className="modal-footer">
-                <button type="button" className="cancel-btn" onClick={() => setIsModalOpen(false)}>{t('common.cancel')}</button>
-                <button type="submit" className="save-btn">{t('calendar.newEvent')}</button>
+                <button type="button" className="cancel-btn" onClick={closeEventModal}>{t('common.cancel')}</button>
+                <button type="submit" className="save-btn">{t(editingEventId ? 'calendar.saveEvent' : 'calendar.newEvent')}</button>
               </div>
             </form>
           </div>
@@ -451,6 +488,14 @@ export default function CalendarPage() {
               >
                 <Trash size={16} />
                 <span>{t('calendar.deleteEvent')}</span>
+              </button>
+              <button
+                type="button"
+                className="close-details-btn"
+                onClick={() => handleEditEventClick(selectedEvent)}
+              >
+                <Edit3 size={16} />
+                <span>{t('calendar.editEvent')}</span>
               </button>
               <button type="button" className="close-details-btn" onClick={() => setSelectedEvent(null)}>{i18n.language === 'zh' ? "关闭" : "Close"}</button>
             </div>

@@ -241,7 +241,7 @@ function GitHubPanel({ copy, formatCommitDate, github, isZh, locale, navigate })
           >
             ›
           </button>
-          <Button appearance="subtle" size="small" icon={<Open24Regular />} onClick={() => navigate('/settings')}>
+          <Button appearance="subtle" size="small" icon={<Open24Regular />} onClick={() => navigate('/settings/github')}>
             {copy.openGithub}
           </Button>
         </div>
@@ -256,7 +256,7 @@ function GitHubPanel({ copy, formatCommitDate, github, isZh, locale, navigate })
                   type="button"
                   className="dashboard-list-item dashboard-commit-item"
                   key={`${commit.repo}-${commit.sha}`}
-                  onClick={() => navigate('/settings', { state: { commit } })}
+                  onClick={() => navigate('/settings/github', { state: { commit } })}
                 >
                   <span className="dashboard-commit-repo">{commit.repo}</span>
                   <div className="dashboard-item-text">
@@ -300,7 +300,7 @@ function GitHubPanel({ copy, formatCommitDate, github, isZh, locale, navigate })
             icon={<NoteAdd24Regular />}
             message={copy.noCommits}
             action={copy.openGithub}
-            onAction={() => navigate('/settings')}
+            onAction={() => navigate('/settings/github')}
           />
         )
       ) : (
@@ -308,7 +308,7 @@ function GitHubPanel({ copy, formatCommitDate, github, isZh, locale, navigate })
           icon={<NoteAdd24Regular />}
           message={copy.disconnected}
           action={copy.connect}
-          onAction={() => navigate('/settings')}
+          onAction={() => navigate('/settings/github')}
         />
       )}
     </div>
