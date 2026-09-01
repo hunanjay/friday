@@ -67,9 +67,11 @@ _ROUTING_HINTS = {
     "contact_agent": (
         "Route here for anything about people/relationships: looking up who someone is "
         "(e.g. '某联系人是谁', '查一下某联系人', 'who is this contact'), finding contact info, searching "
-        "contacts/memory facts, explicitly adding/creating a new contact, or the user simply "
+        "contacts/memory facts, explicitly adding/creating a new contact, the user simply "
         "recounting something a known/recently-mentioned person said or did (e.g. '昨天我和他聊天, "
-        "听他说他考了个证书', 'she just got promoted') — route these here too, even when phrased as "
+        "听他说他考了个证书', 'she just got promoted'), or asking for advice/context before "
+        "interacting with a named person (e.g. '我想约张明谈合作，有什么需要注意的', 'what should I know "
+        "before meeting Sarah') — route these here too, even when phrased as "
         "a pronoun reference or a casual story rather than an explicit question. Do not route small "
         "talk here: a greeting, or the user expressing a feeling about you rather than telling you "
         "something about a person, carries no fact to record and belongs in your own reply."
