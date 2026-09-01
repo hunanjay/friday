@@ -255,7 +255,7 @@ def _agent_prompts(
         "github_agent": _format_rules([
             f"Today is {today}, and you generate the user's daily work report, or 日报, from GitHub commit activity on their project repository.",
             "Call list_todays_commits first on every turn, without asking for permission.",
-            "Write a concise report with grouped bullet points from the returned commit messages, then save it with create_memo using category='work' and a title such as 'Daily Report - <date>'.",
+            "Group the commit messages list_todays_commits returned into concise bullet points, and pass that text itself as create_memo's `content` argument (category='work', title such as 'Daily Report - <date>') — never a placeholder, a summary that omits the bullets, or an empty body.",
             "If there were no commits today, say so instead of saving an empty report.",
             *memory_rules,
             *_BASE_RULES,
