@@ -421,7 +421,10 @@ export default function SettingsPage() {
           {activeSection === 'github' && (
           <section className="settings-pane" id="github">
             <div className="settings-pane-head">
-              <h2>GitHub</h2>
+              <div className="settings-pane-title">
+                <h2>GitHub</h2>
+                <span className="beta-badge">{t('common.beta')}</span>
+              </div>
               {githubStatus?.connected && (
                 <span className="settings-pane-count">{checked.size} / {githubRepositories.available.length} {isZh ? '仓库已选' : 'repos selected'}</span>
               )}
@@ -575,7 +578,10 @@ export default function SettingsPage() {
           {activeSection === 'mail' && (
           <section className="settings-pane" id="mail">
             <div className="settings-pane-head">
-              <h2>{isZh ? '邮箱账号' : 'Mail Accounts'}</h2>
+              <div className="settings-pane-title">
+                <h2>{isZh ? '邮箱账号' : 'Mail Accounts'}</h2>
+                <span className="beta-badge">{t('common.beta')}</span>
+              </div>
               <span className="settings-pane-count">{mailAccounts.length} {isZh ? '已绑定' : 'bound'}</span>
             </div>
             <p className="settings-callout">
