@@ -253,11 +253,12 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
                 user_id,
                 f"/me/messages/{quote(email_id)}/{action}",
                 {
+                    # Graph's reply/replyAll actions only take note text via the
+                    # top-level `comment` field - a `message.body` override is
+                    # not a settable property here and gets silently dropped,
+                    # which is why replies were going out with an empty body.
+                    "comment": await render_body(user_id, body),
                     "message": {
-                        "body": {
-                            "contentType": "HTML",
-                            "content": await render_body(user_id, body),
-                        },
                         "ccRecipients": [
                             {"emailAddress": {"address": a}} for a in parse_recipients(cc)
                         ],
@@ -281,16 +282,17 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
                 user_id,
                 f"/me/messages/{quote(email_id)}/forward",
                 {
+                    # Same as reply: forward only accepts note text via the
+                    # top-level `comment`, and recipients at the top level too -
+                    # a `message.body` override is silently dropped by Graph,
+                    # which is why forwards were going out with an empty body.
+                    "comment": await render_body(user_id, comment),
+                    "toRecipients": [{"emailAddress": {"address": a}} for a in to_addrs],
                     "message": {
-                        "body": {
-                            "contentType": "HTML",
-                            "content": await render_body(user_id, comment),
-                        },
                         "ccRecipients": [
                             {"emailAddress": {"address": a}} for a in parse_recipients(cc)
                         ],
                     },
-                    "toRecipients": [{"emailAddress": {"address": a}} for a in to_addrs],
                 },
             )
         )

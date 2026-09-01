@@ -358,6 +358,237 @@
         "search_contacts": "周子丰 - 13886406671@163.com\n  facts: [basic / other] address = 坂田地铁站C口附近，步梯5楼 [source: 2026-08-21 chat]; [private / other] rent = 1500，两个人住有点小 [source: 2026-08-21 chat]"
       },
       "rubric": "基于检索结果说出坂田地铁站C口附近、步梯5楼；查不到就说查不到，绝不能编造地址。"
+    },
+    {
+      "id": "reply_to_email",
+      "kind": "mail",
+      "turns": [
+        "看看我今天的邮件",
+        "回复李娜那封预算的邮件，说数字没问题，按原计划走"
+      ],
+      "expect_agents": [
+        "mail_agent"
+      ],
+      "expect_tools": [
+        "reply_email"
+      ],
+      "forbid_tools": [
+        "send_email",
+        "create_memo"
+      ],
+      "rubric": "确认是回复（不是新发一封邮件），内容围绕预算数字没问题、按原计划走。"
+    },
+    {
+      "id": "forward_to_explicit_address",
+      "kind": "mail",
+      "turns": [
+        "看看我今天的邮件",
+        "把李娜那封预算邮件转发给 wang.zong@example.com，备注一下麻烦帮忙看下"
+      ],
+      "expect_agents": [
+        "mail_agent"
+      ],
+      "expect_tools": [
+        "forward_email"
+      ],
+      "forbid_tools": [
+        "send_email",
+        "create_memo"
+      ],
+      "rubric": "确认已转发给 wang.zong@example.com，附言是麻烦帮忙看下，没有把原邮件正文整个重新打一遍。"
+    },
+    {
+      "id": "mark_read_in_context",
+      "kind": "mail",
+      "turns": [
+        "看看我今天的邮件",
+        "把第一封标为已读"
+      ],
+      "expect_agents": [
+        "mail_agent"
+      ],
+      "expect_tools": [
+        "mark_email_read"
+      ],
+      "forbid_tools": [
+        "delete_email",
+        "send_email"
+      ],
+      "rubric": "确认标记的是第一封（季度预算确认）为已读，而不是笼统地说已处理。"
+    },
+    {
+      "id": "delete_email_after_search",
+      "kind": "mail",
+      "turns": [
+        "把李娜那封关于预算的邮件删掉"
+      ],
+      "expect_agents": [
+        "mail_agent"
+      ],
+      "expect_tools": [
+        "search_emails",
+        "delete_email"
+      ],
+      "forbid_tools": [
+        "send_email"
+      ],
+      "rubric": "确认删除的是搜索到的那封预算邮件，而不是凭空操作一个未知邮件。"
+    },
+    {
+      "id": "reschedule_event",
+      "kind": "calendar",
+      "turns": [
+        "把明天的产品评审挪到下午四点"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "list_events_on_day",
+        "update_event"
+      ],
+      "forbid_tools": [
+        "create_event",
+        "delete_event"
+      ],
+      "rubric": "确认改到明天下午4点，绝不能先删除再新建这个事件（不能提到删除或重新创建）。"
+    },
+    {
+      "id": "accept_invite",
+      "kind": "calendar",
+      "turns": [
+        "帮我接受明天那个产品评审的邀请"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "list_events_on_day",
+        "accept_event"
+      ],
+      "forbid_tools": [
+        "create_event",
+        "delete_event",
+        "decline_event"
+      ],
+      "rubric": "确认已接受明天产品评审这个邀请。"
+    },
+    {
+      "id": "decline_invite",
+      "kind": "calendar",
+      "turns": [
+        "明天的产品评审我去不了，帮我婉拒一下"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "list_events_on_day",
+        "decline_event"
+      ],
+      "forbid_tools": [
+        "create_event",
+        "delete_event",
+        "accept_event"
+      ],
+      "rubric": "确认已婉拒明天产品评审这个邀请。"
+    },
+    {
+      "id": "ambiguous_delete_asks_which",
+      "kind": "calendar",
+      "turns": [
+        "把明天那个会删掉"
+      ],
+      "expect_agents": [
+        "calendar_agent"
+      ],
+      "expect_tools": [
+        "list_events_on_day"
+      ],
+      "forbid_tools": [
+        "delete_event",
+        "create_event"
+      ],
+      "tool_results": {
+        "list_events_on_day": "- internal_event_id=AAMkEV1 subject=[产品评审](/calendar/AAMkEV1) start=2026-09-02T10:00:00 end=2026-09-02T11:00:00 location='会议室 A'\n- internal_event_id=AAMkEV2 subject=[周会](/calendar/AAMkEV2) start=2026-09-02T14:00:00 end=2026-09-02T15:00:00 location='会议室 B'"
+      },
+      "rubric": "明天有两个会议，必须先询问指的是哪一个，绝不能擅自删除其中任意一个。"
+    },
+    {
+      "id": "meeting_prep_advice_found",
+      "kind": "contacts",
+      "turns": [
+        "我想约李娜谈个合作，有什么需要注意的吗？"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "search_contacts"
+      ],
+      "forbid_tools": [
+        "create_memo",
+        "create_contact"
+      ],
+      "rubric": "基于检索到的资料给出关于李娜的背景或注意事项，不能说自己无法访问个人信息，也不能只是泛泛地给通用建议而不用检索结果。"
+    },
+    {
+      "id": "meeting_prep_advice_not_found",
+      "kind": "contacts",
+      "turns": [
+        "我想约张明谈一个合作，有什么需要注意的事项吗？"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "search_contacts"
+      ],
+      "forbid_tools": [
+        "create_memo",
+        "create_contact"
+      ],
+      "tool_results": {
+        "search_contacts": "No contacts matched that search in your Relationship Brain."
+      },
+      "rubric": "明确说没有查到张明的资料，绝不能编造他的信息，也绝不能转而调用 create_memo 保存一条笔记来敷衍这个问题。"
+    },
+    {
+      "id": "explicit_new_contact",
+      "kind": "contacts",
+      "turns": [
+        "帮我新建一个联系人，叫陈曦，是我们的投资人，邮箱 chenxi@vc.com"
+      ],
+      "expect_agents": [
+        "contact_agent"
+      ],
+      "expect_tools": [
+        "create_contact"
+      ],
+      "forbid_tools": [
+        "create_memo"
+      ],
+      "rubric": "确认已创建陈曦这个联系人，邮箱与给出的一致，没有编造电话、公司等未提供的信息。"
+    },
+    {
+      "id": "no_commits_today",
+      "kind": "github",
+      "turns": [
+        "生成今天的日报"
+      ],
+      "expect_agents": [
+        "github_agent"
+      ],
+      "expect_tools": [
+        "list_todays_commits"
+      ],
+      "forbid_tools": [
+        "create_memo"
+      ],
+      "tool_results": {
+        "list_todays_commits": "No commits found for today."
+      },
+      "rubric": "明确说明今天没有提交记录，绝不能调用 create_memo 保存一份空报告来充数。"
     }
   ]
 }

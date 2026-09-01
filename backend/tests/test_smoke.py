@@ -231,6 +231,18 @@ for tool_name in (
         check(f"{tool_name} preserves Graph failures as error ToolMessages", "_graph_mutation" in calls)
         check(f"{tool_name} has no custom approval proposal", "propose" not in calls)
 
+for tool_name in ("reply_email", "forward_email"):
+    tool_fn = _function(tool_name)
+    segment = ast.get_source_segment(tools_source, tool_fn) if tool_fn else ""
+    # Graph's reply/replyAll/forward actions take note text only via the
+    # top-level `comment` field; a `message.body` override is silently
+    # dropped by Graph, which is exactly the bug that shipped an empty
+    # reply/forward body. Guard against regressing back to `message.body`.
+    check(f"{tool_name} sends its text via Graph's top-level comment field",
+          '"comment"' in segment)
+    check(f"{tool_name} never nests a body override under message (Graph drops it silently)",
+          '"body"' not in segment)
+
 check("calendar deletion no longer selects its target after approval",
       _function("request_delete_event_on_day") is None)
 delete_event_fn = _function("delete_event")

@@ -141,6 +141,12 @@ _NO_FABRICATION_RULE = (
 _NO_PREMATURE_SUCCESS_RULE = (
     "Never say an action succeeded until its tool returned a successful result."
 )
+_NO_REPEAT_CALL_RULE = (
+    "Never call the same tool with the same (or a trivially reworded) arguments more "
+    "than once in a turn - a lookup's result will not change by asking again. If it "
+    "returned nothing useful, treat that as final and either ask the user for what's "
+    "missing or try a genuinely different tool or argument, not a repeat."
+)
 _ID_DISPLAY_RULE = (
     "In user-visible lists, show the linked human-readable fields that apply, such as "
     "subject, sender, preview, date, time, or location, and keep opaque identifiers as "
@@ -150,6 +156,7 @@ _ID_DISPLAY_RULE = (
 _BASE_RULES = (
     _NO_FABRICATION_RULE,
     _NO_PREMATURE_SUCCESS_RULE,
+    _NO_REPEAT_CALL_RULE,
     _LANGUAGE_RULE,
     _UNTRUSTED_CONTENT_RULE,
 )
@@ -255,7 +262,7 @@ def _agent_prompts(
         "github_agent": _format_rules([
             f"Today is {today}, and you generate the user's daily work report, or 日报, from GitHub commit activity on their project repository.",
             "Call list_todays_commits first on every turn, without asking for permission.",
-            "Write a concise report with grouped bullet points from the returned commit messages, then save it with create_memo using category='work' and a title such as 'Daily Report - <date>'.",
+            "Group the commit messages list_todays_commits returned into concise bullet points, and pass that text itself as create_memo's `content` argument (category='work', title such as 'Daily Report - <date>') — never a placeholder, a summary that omits the bullets, or an empty body.",
             "If there were no commits today, say so instead of saving an empty report.",
             *memory_rules,
             *_BASE_RULES,

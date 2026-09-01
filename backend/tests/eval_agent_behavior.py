@@ -64,8 +64,10 @@ CANNED = {
         f"received={TODAY}T09:12:00Z preview='想跟你确认下周的预算数字'"
     ),
     "read_email": "From: 李娜 <lina@example.com>\nSubject: 季度预算确认\n\n下周的预算数字麻烦确认一下。",
-    "mark_email_read": "Marked as read.",
+    "mark_email_read": "Email AAMkAGI1 marked as read.",
     "send_email": "Email sent.",
+    "reply_email": "Replied to email AAMkAGI1.",
+    "forward_email": "Email forwarded to wang.zong@example.com.",
     "delete_email": "Moved to Deleted Items.",
     "search_contacts": (
         "=== Contact: 李娜 ===\n"
@@ -90,7 +92,8 @@ CANNED = {
         f"start={TOMORROW}T10:00:00 end={TOMORROW}T11:00:00 location='会议室 A'"
     ),
     "create_event": "Event created.",
-    "delete_event": "Event deleted.",
+    "update_event": "Event updated: 产品评审.",
+    "delete_event": "Event deleted: 产品评审.",
     "accept_event": "Accepted.",
     "decline_event": "Declined.",
     "list_memos": (
