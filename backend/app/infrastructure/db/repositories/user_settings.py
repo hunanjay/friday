@@ -10,6 +10,8 @@ create table if not exists user_settings (
     updated_at timestamptz not null default now()
 );
 alter table user_settings add column if not exists avatar_url text;
+-- Kept so the baseline migration still reproduces the pre-template schema;
+-- c4b81de2f507 carries the values into signature_templates and drops it.
 alter table user_settings add column if not exists signature text;
 """
 
@@ -71,25 +73,3 @@ async def set_avatar_url(user_id: str, avatar_url: str) -> str:
         row = await cur.fetchone()
     return row[0]
 
-
-async def get_signature(user_id: str) -> str:
-    async with _db_pool().connection() as conn:
-        cur = await conn.execute(
-            "select signature from user_settings where user_id = %s",
-            (user_id,),
-        )
-        row = await cur.fetchone()
-    return (row[0] if row else None) or ""
-
-
-async def set_signature(user_id: str, signature: str) -> str:
-    async with _db_pool().connection() as conn:
-        cur = await conn.execute(
-            "insert into user_settings (user_id, signature) values (%s, %s) "
-            "on conflict (user_id) do update set signature = excluded.signature, "
-            "updated_at = now() "
-            "returning signature",
-            (user_id, signature),
-        )
-        row = await cur.fetchone()
-    return row[0] or ""

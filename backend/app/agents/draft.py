@@ -5,7 +5,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.agents.supervisor import _get_model
-from app.infrastructure.db.repositories import user_settings
+from app.infrastructure.db.repositories import signature_templates
 from app.tools.graph_client import graph_get
 from app.tools.html_sanitizer import sanitize_html_to_text
 
@@ -91,7 +91,7 @@ async def draft_reply(user_id: str, email_id: str, intent: str, my_name: str = "
     # tool calling is what every agent in this app already runs on.
     # A saved signature already carries the sign-off and name, and is appended
     # to every send, so the drafter must not write one of its own.
-    signature = await user_settings.get_signature(user_id)
+    signature = await signature_templates.get_default_content(user_id)
     system_prompt = _SYSTEM_PROMPT.format(closing=_SKIP_CLOSING if signature else _WRITE_CLOSING)
     structured_model = _get_model().with_structured_output(_ReplyDraft, method="function_calling")
     result: _ReplyDraft = await structured_model.ainvoke([SystemMessage(system_prompt), HumanMessage(human)])

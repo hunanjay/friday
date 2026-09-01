@@ -87,6 +87,10 @@ class Settings(BaseModel):
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
+    # Supabase user ids allowed to read GET /api/stats. Empty means nobody -
+    # an aggregate view of every user's activity fails closed, never open.
+    ADMIN_USER_IDS: str = os.getenv("ADMIN_USER_IDS", "")
+
     # LLM provider profile. Existing OPENAI_* variables remain the custom
     # profile and a migration fallback when they already match the selected
     # provider's host.

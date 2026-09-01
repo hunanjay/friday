@@ -28,6 +28,10 @@ HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
         "allowed_decisions": ["approve", "reject"],
         "description": "Review and approve creating this calendar event.",
     },
+    "update_event": {
+        "allowed_decisions": ["approve", "reject"],
+        "description": "Review and approve updating this calendar event.",
+    },
     "delete_event": {
         "allowed_decisions": ["approve", "reject"],
         "description": "Review and approve deleting this calendar event.",
@@ -80,6 +84,13 @@ _ACTION_UI = {
         "chat.reviewCalendarCreate",
         "chat.approvalStatusCreated",
         "chat.confirmCreate",
+    ),
+    "update_event": (
+        "calendar.update",
+        "calendar",
+        "chat.reviewCalendarUpdate",
+        "chat.approvalStatusUpdated",
+        "chat.confirmUpdate",
     ),
     "delete_event": (
         "calendar.delete",

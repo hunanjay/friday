@@ -49,6 +49,10 @@ export const router = createBrowserRouter([
       },
       {
         path: 'settings',
+        element: <Navigate to="/settings/general" replace />
+      },
+      {
+        path: 'settings/:section',
         element: <SettingsPage />
       },
       {

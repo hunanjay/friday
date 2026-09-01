@@ -1,20 +1,30 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
+import {
+  Bot20Regular,
+  Code20Regular,
+  DataUsage20Regular,
+  Mail20Regular,
+  Person20Regular,
+  PlugConnected20Regular,
+} from '@fluentui/react-icons';
 import { useAuth } from '../features/auth/useAuth';
 import { useGitHubConnection, useGitHubRepositories } from '../features/github/hooks';
 import { useMailAccounts } from '../features/mail/accountHooks';
-import { useAssistantName, useAvatar, useAvatarPresets, useSignature, useTeamInfo } from '../features/settings/hooks';
+import { useAssistantName, useAvatar, useAvatarPresets, useTeamInfo, useUsageStats } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import BindMailAccountModal from '../components/BindMailAccountModal';
-import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, Edit3, RefreshCw, MicrosoftIcon } from '../components/common/Icons';
+import SignatureTemplates from '../components/SignatureTemplates';
+import UsageStatsPanel from '../components/UsageStatsPanel';
+import { Github, Search, X, Moon, Sun, LogOut, Mail, CheckCircle, Plus, ChevronRight, RefreshCw, MicrosoftIcon } from '../components/common/Icons';
 
 export default function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { section = 'general' } = useParams();
   const { assistantName, updateAssistantName } = useAssistantName();
-  const { signature, updateSignature } = useSignature();
   const { avatarUrl, updateAvatar } = useAvatar();
   const { avatarPresets } = useAvatarPresets();
   const { githubStatus, connectGitHub, disconnectGitHub } = useGitHubConnection();
@@ -23,6 +33,9 @@ export default function SettingsPage() {
   });
   const { mailAccounts, unbindMailAccount, verifyMailAccount } = useMailAccounts();
   const { teamInfo, isLoadingTeamInfo: isLoadingTeam, teamInfoError: teamError, loadTeamInfo } = useTeamInfo();
+  const [usageDays, setUsageDays] = useState(7);
+  // 403 for non-admins, so the whole section simply does not exist for them.
+  const { usageStats, usageStatsError, isUsageStatsForbidden } = useUsageStats(usageDays);
   const {
     user,
     handleLogout,
@@ -45,9 +58,6 @@ export default function SettingsPage() {
   const [verifyingMailId, setVerifyingMailId] = useState(null);
   const [assistantNameDraft, setAssistantNameDraft] = useState(assistantName);
   const [isSavingAssistantName, setIsSavingAssistantName] = useState(false);
-  const [signatureDraft, setSignatureDraft] = useState(signature);
-  const [isSavingSignature, setIsSavingSignature] = useState(false);
-  const [isEditingSignature, setIsEditingSignature] = useState(false);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const addRepoRef = useRef(null);
@@ -60,7 +70,6 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!location.hash) return;
     document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' });
-    if (location.hash === '#signature') setIsEditingSignature(true);
   }, [location.hash]);
 
   const toggleAgentExpanded = (name) => {
@@ -90,10 +99,6 @@ export default function SettingsPage() {
   useEffect(() => {
     setAssistantNameDraft(assistantName);
   }, [assistantName]);
-
-  useEffect(() => {
-    setSignatureDraft(signature);
-  }, [signature]);
 
   // Sync the local picker draft whenever the server-backed selection changes.
   useEffect(() => {
@@ -138,24 +143,6 @@ export default function SettingsPage() {
     } finally {
       setIsSavingAssistantName(false);
     }
-  };
-
-  const handleSaveSignature = async () => {
-    setIsSavingSignature(true);
-    try {
-      await updateSignature(signatureDraft.trim());
-      showToast(isZh ? '邮件签名已保存' : 'Email signature saved');
-      setIsEditingSignature(false);
-    } catch {
-      showToast(isZh ? '保存失败' : 'Failed to save signature');
-    } finally {
-      setIsSavingSignature(false);
-    }
-  };
-
-  const handleCancelSignatureEdit = () => {
-    setSignatureDraft(signature);
-    setIsEditingSignature(false);
   };
 
   const handleSelectAvatar = async (url) => {
@@ -205,7 +192,38 @@ export default function SettingsPage() {
   }, [githubRepositories.available, checked, searchQuery]);
 
   const isZh = i18n.language === 'zh';
-  const closeCommitDetails = () => navigate('/settings', { replace: true, state: null });
+  // The approval card links here with #signature to fix a sign-off mid-send,
+  // so that hash has to land in an open editor.
+  const signatureAutoEdit = location.hash === '#signature';
+  const validSections = new Set(['general', 'assistant', 'github', 'mail', 'advanced', 'usage']);
+  const activeSection = validSections.has(section) ? section : null;
+  const pageMeta = {
+    general: {
+      title: isZh ? '账号与偏好' : 'Account & preferences',
+      description: isZh ? '管理登录账号、界面外观和语言。' : 'Manage your account, appearance, and interface language.',
+    },
+    assistant: {
+      title: isZh ? '助手' : 'Assistant',
+      description: isZh ? '设置助手在聊天和邮件中的名称与头像。' : 'Choose how your assistant appears in chat and email.',
+    },
+    github: {
+      title: 'GitHub',
+      description: isZh ? '管理 GitHub 连接和日报数据范围。' : 'Manage your GitHub connection and reporting scope.',
+    },
+    mail: {
+      title: isZh ? '邮箱账号' : 'Mail accounts',
+      description: isZh ? '管理发件签名、邮箱连接和凭据状态。' : 'Manage your signature, mail connections, and credential status.',
+    },
+    advanced: {
+      title: isZh ? '开发者设置' : 'Developer settings',
+      description: isZh ? '检查智能体团队配置和实际运行提示。' : 'Inspect the agent team configuration and runtime prompts.',
+    },
+    usage: {
+      title: isZh ? '使用统计' : 'Usage',
+      description: isZh ? '查看工作区采用率、智能体调用和审批情况。' : 'Review workspace adoption, agent activity, and approvals.',
+    },
+  };
+  const closeCommitDetails = () => navigate('/settings/github', { replace: true, state: null });
   const commitUrl = selectedCommit?.repo && selectedCommit?.sha
     ? `https://github.com/${selectedCommit.repo}/commit/${selectedCommit.sha}`
     : null;
@@ -217,27 +235,64 @@ export default function SettingsPage() {
     }).format(new Date(selectedCommit.date))
     : '';
 
+  if (!activeSection || (activeSection === 'usage' && isUsageStatsForbidden)) {
+    return <Navigate to="/settings/general" replace />;
+  }
+
+  const activeMeta = pageMeta[activeSection];
+
   return (
     <div className="settings-page-container">
       <div className="settings-page-header">
-        <h1>{isZh ? '偏好设置' : 'Preferences'}</h1>
+        <span className="settings-page-kicker">{isZh ? '偏好设置' : 'Preferences'}</span>
+        <h1>{activeMeta.title}</h1>
         <p className="settings-page-subtitle">
-          {isZh ? '管理你的应用偏好、GitHub 连接以及仓库数据访问权限。' : 'Manage your application theme, languages, GitHub connection, and data scopes.'}
+          {activeMeta.description}
         </p>
       </div>
 
       <div className="settings-shell">
-        <nav className="settings-section-nav">
-          <a className="current" href="#profile">{isZh ? '账号' : 'Account'}</a>
-          <a href="#general">{isZh ? '常规' : 'General'}</a>
-          <a href="#assistant">{isZh ? '助手' : 'Assistant'}</a>
-          <a href="#github">GitHub</a>
-          <a href="#mail">{isZh ? '邮箱账号' : 'Mail Accounts'}</a>
-          <a href="#team">{isZh ? '智能体团队' : 'Agent Team'}</a>
+        <nav className="settings-section-nav" aria-label={isZh ? '设置分类' : 'Settings sections'}>
+          <div className="settings-nav-group">
+            <div className="settings-nav-label">{isZh ? '个人' : 'Personal'}</div>
+            <NavLink to="/settings/general" className={({ isActive }) => isActive ? 'current' : ''}>
+              <Person20Regular />
+              <span>{isZh ? '账号与偏好' : 'Account & preferences'}</span>
+            </NavLink>
+            <NavLink to="/settings/assistant" className={({ isActive }) => isActive ? 'current' : ''}>
+              <Bot20Regular />
+              <span>{isZh ? '助手' : 'Assistant'}</span>
+            </NavLink>
+          </div>
+          <div className="settings-nav-group">
+            <div className="settings-nav-label">{isZh ? '连接' : 'Connections'}</div>
+            <NavLink to="/settings/mail" className={({ isActive }) => isActive ? 'current' : ''}>
+              <Mail20Regular />
+              <span>{isZh ? '邮箱账号' : 'Mail accounts'}</span>
+            </NavLink>
+            <NavLink to="/settings/github" className={({ isActive }) => isActive ? 'current' : ''}>
+              <PlugConnected20Regular />
+              <span>GitHub</span>
+            </NavLink>
+          </div>
+          <div className="settings-nav-group">
+            <div className="settings-nav-label">{isZh ? '系统' : 'System'}</div>
+            {(usageStats || usageStatsError || activeSection === 'usage') && (
+              <NavLink to="/settings/usage" className={({ isActive }) => isActive ? 'current' : ''}>
+                <DataUsage20Regular />
+                <span>{isZh ? '使用统计' : 'Usage'}</span>
+              </NavLink>
+            )}
+            <NavLink to="/settings/advanced" className={({ isActive }) => isActive ? 'current' : ''}>
+              <Code20Regular />
+              <span>{isZh ? '开发者' : 'Developer'}</span>
+            </NavLink>
+          </div>
         </nav>
 
         <div className="settings-panes">
-
+          {activeSection === 'general' && (
+            <>
           {user && (
             <section className="settings-pane" id="profile">
               <div className="settings-pane-head"><h2>{isZh ? '账号' : 'Account'}</h2></div>
@@ -295,7 +350,10 @@ export default function SettingsPage() {
               </div>
             </div>
           </section>
+            </>
+          )}
 
+          {activeSection === 'assistant' && (
           <section className="settings-pane" id="assistant">
             <div className="settings-pane-head"><h2>{isZh ? '助手' : 'Assistant'}</h2></div>
             <div className="settings-panel">
@@ -358,7 +416,9 @@ export default function SettingsPage() {
               </div>
             </div>
           </section>
+          )}
 
+          {activeSection === 'github' && (
           <section className="settings-pane" id="github">
             <div className="settings-pane-head">
               <h2>GitHub</h2>
@@ -510,7 +570,9 @@ export default function SettingsPage() {
               )}
             </div>
           </section>
+          )}
 
+          {activeSection === 'mail' && (
           <section className="settings-pane" id="mail">
             <div className="settings-pane-head">
               <h2>{isZh ? '邮箱账号' : 'Mail Accounts'}</h2>
@@ -522,63 +584,7 @@ export default function SettingsPage() {
                 : '163 / QQ / Gmail / iCloud / Outlook (IMAP+SMTP) and custom servers. Credentials are encrypted at rest.'}
             </p>
             <div className="settings-panel" id="signature">
-              <div className="settings-signature-head">
-                <div>
-                  <div className="settings-field-label">{isZh ? '邮件签名' : 'Email Signature'}</div>
-                  <div className="settings-field-hint">
-                    {isZh
-                      ? '附加在每封发出邮件的末尾，对所有邮箱账号和 AI 代发都生效。留空即关闭。'
-                      : 'Appended to every email you send, from any bound account and from the assistant. Leave empty to turn it off.'}
-                  </div>
-                </div>
-                {!isEditingSignature && (
-                  <button
-                    type="button"
-                    className="settings-btn settings-signature-edit-btn"
-                    onClick={() => setIsEditingSignature(true)}
-                  >
-                    <Edit3 size={14} />
-                    {isZh ? '编辑' : 'Edit'}
-                  </button>
-                )}
-              </div>
-              <div className="settings-signature-body">
-                {isEditingSignature ? (
-                  <textarea
-                    className="settings-signature-textarea"
-                    autoFocus
-                    value={signatureDraft}
-                    maxLength={1000}
-                    rows={6}
-                    onChange={(e) => setSignatureDraft(e.target.value)}
-                    placeholder={isZh ? '此致\n张三\n产品经理 · Friday' : 'Best regards,\nJane Doe\nProduct Manager, Friday'}
-                  />
-                ) : signature.trim() ? (
-                  <p className="settings-signature-static">{signature}</p>
-                ) : (
-                  <p className="settings-signature-static settings-signature-preview-empty">
-                    {isZh ? '未设置签名，点击"编辑"添加' : 'No signature set — click Edit to add one'}
-                  </p>
-                )}
-              </div>
-              {isEditingSignature && (
-                <div className="settings-pane-foot">
-                  <span>{signatureDraft.length}/1000</span>
-                  <div className="settings-row-actions">
-                    <button type="button" className="settings-btn" onClick={handleCancelSignatureEdit}>
-                      {isZh ? '取消' : 'Cancel'}
-                    </button>
-                    <button
-                      type="button"
-                      className="settings-btn btn-primary"
-                      disabled={isSavingSignature || signatureDraft.trim() === signature}
-                      onClick={handleSaveSignature}
-                    >
-                      {isSavingSignature ? (isZh ? '保存中...' : 'Saving...') : (isZh ? '保存' : 'Save')}
-                    </button>
-                  </div>
-                </div>
-              )}
+              <SignatureTemplates isZh={isZh} showToast={showToast} autoEdit={signatureAutoEdit} />
             </div>
             <div className="settings-panel">
               {mailAccounts.length === 0 ? (
@@ -658,7 +664,9 @@ export default function SettingsPage() {
               </div>
             </div>
           </section>
+          )}
 
+          {activeSection === 'advanced' && (
           <section className="settings-pane" id="team">
             <div className="settings-pane-head">
               <h2>{isZh ? '智能体团队' : 'Agent Team'}</h2>
@@ -754,6 +762,33 @@ export default function SettingsPage() {
               )}
             </div>
           </section>
+          )}
+
+          {activeSection === 'usage' && (
+            <section className="settings-pane" id="usage">
+              <div className="settings-pane-head">
+                <h2>{isZh ? '使用统计' : 'Usage'}</h2>
+              </div>
+              <div className="settings-panel">
+                {usageStats ? (
+                  <UsageStatsPanel
+                    stats={usageStats}
+                    days={usageDays}
+                    onDaysChange={setUsageDays}
+                    isZh={isZh}
+                  />
+                ) : usageStatsError ? (
+                  <div className="usage-empty">
+                    {isZh ? '统计数据加载失败。' : 'Could not load usage stats.'}
+                  </div>
+                ) : (
+                  <div className="usage-empty">
+                    {isZh ? '正在加载统计数据...' : 'Loading usage statistics...'}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
         </div>
       </div>

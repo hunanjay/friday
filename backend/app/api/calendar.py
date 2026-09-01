@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.core.security import get_user_id
-from app.tools.graph_client import graph_delete, graph_get, graph_post
+from app.tools.graph_client import graph_delete, graph_get, graph_patch, graph_post
 
 router = APIRouter(prefix="/api/graph/calendar", tags=["calendar"])
 
@@ -49,6 +49,32 @@ async def create_event(body: EventCreate, user_id: str = Depends(get_user_id)):
     if body.location:
         graph_body["location"] = {"displayName": body.location}
     return await graph_post(user_id, "/me/events", graph_body)
+
+
+class EventUpdate(BaseModel):
+    # All optional: Graph PATCH is a partial update, so omitting a field must
+    # leave it alone rather than blank it. start/end still travel as a pair -
+    # Graph rejects a lone dateTime without its timeZone.
+    subject: str | None = None
+    start: str | None = None
+    end: str | None = None
+    location: str | None = None
+
+
+@router.patch("/events/{event_id}")
+async def update_event(event_id: str, body: EventUpdate, user_id: str = Depends(get_user_id)):
+    graph_body: dict = {}
+    if body.subject is not None:
+        graph_body["subject"] = body.subject
+    if body.start is not None:
+        graph_body["start"] = {"dateTime": body.start, "timeZone": _BEIJING_TZ}
+    if body.end is not None:
+        graph_body["end"] = {"dateTime": body.end, "timeZone": _BEIJING_TZ}
+    if body.location is not None:
+        graph_body["location"] = {"displayName": body.location}
+    if not graph_body:
+        return await graph_get(user_id, f"/me/events/{quote(event_id)}")
+    return await graph_patch(user_id, f"/me/events/{quote(event_id)}", graph_body)
 
 
 @router.delete("/events/{event_id}")

@@ -39,6 +39,15 @@ export async function createCalendarEvent(token, event) {
   };
 }
 
+export async function updateCalendarEvent(token, eventId, changes) {
+  const data = await apiRequest(`/api/graph/calendar/events/${encodeURIComponent(eventId)}`, {
+    method: 'PATCH',
+    token,
+    body: changes,
+  });
+  return { ...normalizeCalendarEvent(data), id: eventId };
+}
+
 export async function deleteCalendarEvent(token, eventId) {
   await apiRequest(`/api/graph/calendar/events/${encodeURIComponent(eventId)}`, {
     method: 'DELETE',

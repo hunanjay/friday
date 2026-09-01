@@ -90,7 +90,7 @@ describe('DashboardSecondaryPanels', () => {
     fireEvent.click(screen.getByText('Idea').closest('button'));
     expect(props.navigate).toHaveBeenCalledWith('/memos', { state: { memoId: 'memo-1' } });
     fireEvent.click(screen.getByText('Ship feature').closest('button'));
-    expect(props.navigate).toHaveBeenCalledWith('/settings', expect.any(Object));
+    expect(props.navigate).toHaveBeenCalledWith('/settings/github', expect.any(Object));
   });
 
   it('keeps GitHub week and page controls inside the GitHub panel', () => {

@@ -310,7 +310,7 @@ export default function DashboardPage() {
               <span className="metric-num">{memos.length}</span>
               <span className="metric-label">{copy.notes}</span>
             </div>
-            <div className="dashboard-hero-pill" onClick={() => navigate('/settings')} title={copy.commits}>
+            <div className="dashboard-hero-pill" onClick={() => navigate('/settings/github')} title={copy.commits}>
               <NoteAdd24Regular />
               <span className="metric-num">{commits.length}</span>
               <span className="metric-label">{copy.commits}</span>

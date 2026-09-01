@@ -99,7 +99,9 @@
       "Personal": "个人",
       "Urgent": "紧急",
       "Study": "学习"
-    }
+    },
+    "editEvent": "编辑日程",
+    "updatedSuccess": "日程更新成功！"
   },
   "chat": {
     "sidebarTitle": "聊天列表",
@@ -132,6 +134,7 @@
     "approvalStatusSent": "已发送",
     "approvalStatusCreated": "已创建",
     "approvalStatusDeleted": "已删除",
+    "approvalStatusUpdated": "已更新",
     "approvalStatusCompleted": "已完成",
     "approvalStatusExecuting": "执行中",
     "approvalStatusFailed": "执行失败",
@@ -139,10 +142,12 @@
     "approvalStatusExpired": "已过期",
     "reviewAction": "检查待执行操作",
     "reviewCalendarCreate": "检查日历日程",
+    "reviewCalendarUpdate": "检查日程修改操作",
     "reviewCalendarDelete": "检查日程删除操作",
     "reviewCalendarAccept": "检查接受邀请操作",
     "reviewCalendarDecline": "检查拒绝邀请操作",
     "confirmCreate": "确认并创建",
+    "confirmUpdate": "确认并修改",
     "approvalFailed": "操作未能完成",
     "emailSent": "您确认后，邮件已发送至 {{to}}。",
     "emailDeleted": "您确认后，邮件已移至“已删除”。",

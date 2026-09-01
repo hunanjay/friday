@@ -1,5 +1,5 @@
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../i18n';
@@ -36,6 +36,11 @@ vi.mock('../features/settings/hooks', () => ({
     updateAvatar: settingsState.handleUpdateAvatar,
   }),
   useAvatarPresets: () => ({ avatarPresets: settingsState.avatarPresets }),
+  useUsageStats: () => ({
+    usageStats: settingsState.usageStats ?? null,
+    usageStatsError: settingsState.usageStatsError ?? false,
+    isUsageStatsForbidden: !settingsState.usageStats,
+  }),
   useTeamInfo: () => ({
     teamInfo: null,
     isLoadingTeamInfo: false,
@@ -66,7 +71,7 @@ vi.mock('../features/mail/accountHooks', () => ({
   useMailProviders: () => ({ mailProviders: mailState.mailProviders }),
 }));
 
-function renderSettings(overrides = {}) {
+function renderSettings(overrides = {}, initialPath = '/settings/assistant') {
   Object.assign(settingsState, {
     assistantName: 'Friday',
     handleUpdateAssistantName: vi.fn(),
@@ -75,6 +80,8 @@ function renderSettings(overrides = {}) {
     avatarUrl: '/avatars/avatar-01.png',
     avatarPresets: [{ id: 'avatar-01.png', url: '/avatars/avatar-01.png' }],
     handleUpdateAvatar: vi.fn().mockResolvedValue('/avatars/avatar-01.png'),
+    usageStats: null,
+    usageStatsError: false,
   }, overrides);
   Object.assign(githubState, {
     githubStatus: { connected: false },
@@ -109,8 +116,10 @@ function renderSettings(overrides = {}) {
   providerState.theme = { theme: value.theme, toggleTheme: value.toggleTheme };
   providerState.ui = { showToast: value.showToast };
   render(
-    <MemoryRouter>
-      <SettingsPage />
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Routes>
+        <Route path="/settings/:section" element={<SettingsPage />} />
+      </Routes>
     </MemoryRouter>
   );
   return { ...value, ...settingsState, ...githubState, ...mailState };
@@ -155,5 +164,29 @@ describe('SettingsPage assistant avatar', () => {
     });
     await act(async () => fireEvent.click(screen.getByTitle('avatar-02.png')));
     expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/failed to update/i));
+  });
+});
+
+describe('SettingsPage usage section', () => {
+  const usageStats = {
+    users: { registered: { total: 3, new_in_window: 1 }, dau: 1, wau: 2, mau: 3, wau_over_mau: 0.67 },
+    agent: {
+      turns: 5, active_users: 2, turns_per_user: 2.5, tool_calls: 6,
+      errors: 0, error_rate: 0, median_duration_ms: 900,
+      by_route: { supervisor: 5 }, by_agent: { mail_agent: 5 },
+    },
+    hitl: { by_status: {}, by_tool: {}, approval_rate: null },
+  };
+
+  it('stays hidden for a non-admin, nav entry included', () => {
+    renderSettings();
+    expect(document.getElementById('usage')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Usage' })).toBeNull();
+  });
+
+  it('appears once the backend answers, so the 403 is the only gate', () => {
+    renderSettings({ usageStats }, '/settings/usage');
+    expect(document.getElementById('usage')).not.toBeNull();
+    expect(screen.getByRole('link', { name: 'Usage' })).toBeTruthy();
   });
 });

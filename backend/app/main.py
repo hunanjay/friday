@@ -25,6 +25,7 @@ from app.api import (
     mail_accounts,
     memos,
     settings as settings_api,
+    stats,
     todos,
 )
 from app.core.config import settings
@@ -112,6 +113,7 @@ app.include_router(settings_api.router)
 app.include_router(github_auth.router)
 app.include_router(github.router)
 app.include_router(mail_accounts.router)
+app.include_router(stats.router)
 
 import os
 
