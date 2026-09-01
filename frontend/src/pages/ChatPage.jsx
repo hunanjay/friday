@@ -82,6 +82,7 @@ export default function ChatPage() {
     Icon: CHAT_AGENT_ICONS[id],
     label: t(`chat.agents.${id}.label`),
     desc: t(`chat.agents.${id}.desc`),
+    beta: id === 'github_agent',
   }));
   const filteredAgents = slashMatch
     ? agents.filter(a => {

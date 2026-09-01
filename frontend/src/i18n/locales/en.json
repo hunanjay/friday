@@ -1,6 +1,7 @@
 {
   "common": {
     "appName": "Friday",
+    "beta": "Beta",
     "themeLight": "Light Mode",
     "themeDark": "Dark Mode",
     "signOut": "Sign Out",

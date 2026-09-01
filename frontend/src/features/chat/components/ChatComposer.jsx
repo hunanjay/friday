@@ -117,7 +117,12 @@ export default function ChatComposer({
             >
               <agent.Icon size={16} />
               <div className="agent-slash-menu-item-text">
-                <span className="agent-slash-menu-item-label">{agent.label}</span>
+                <span className="agent-slash-menu-item-label">
+                  {agent.label}
+                  {agent.beta && (
+                    <span className="beta-badge" style={{ marginLeft: 6 }}>{t('common.beta')}</span>
+                  )}
+                </span>
                 <span className="agent-slash-menu-item-desc">{agent.desc}</span>
               </div>
             </div>

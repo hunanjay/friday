@@ -1,6 +1,7 @@
 {
   "common": {
     "appName": "Friday",
+    "beta": "测试版",
     "themeLight": "浅色模式",
     "themeDark": "深色模式",
     "signOut": "安全退出",
