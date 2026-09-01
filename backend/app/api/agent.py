@@ -566,7 +566,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
             route=route.source,
             agent=handled_by,
             tool_calls=tool_calls,
-            paused=bool(pending_actions),
+            paused=bool(state.interrupts),
             ok=ok,
             duration_ms=int((time.perf_counter() - started_at) * 1000),
         )
