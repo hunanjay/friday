@@ -9,7 +9,6 @@ from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.types import Interrupt
 
-from app.tools.graph_client import graph_get
 from app.tools.html_sanitizer import sanitize_html_to_text
 
 HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
@@ -132,7 +131,13 @@ async def _fetch_forward_source(user_id: str, email_id: str) -> dict[str, str]:
     The forward_email tool never took a `body` argument - Graph carries the
     original along server-side at send time - so without this the approval
     card would ask the user to bless a forward of content they can't see.
+
+    Imported lazily: graph_client pulls in app.core.security, which builds a
+    Supabase client at import time and needs real credentials - hitl.py has
+    to stay importable (e.g. by the offline smoke tests) without them.
     """
+    from app.tools.graph_client import graph_get
+
     try:
         data = await graph_get(
             user_id, f"/me/messages/{quote(email_id)}?$select=subject,from,body,bodyPreview"

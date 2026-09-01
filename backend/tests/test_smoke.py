@@ -335,8 +335,14 @@ check("approve maps to official HITL resume payload",
       resume_value_for(fake_interrupt, "approve") == {"decisions": [{"type": "approve"}]})
 
 # The forward card has to preview the original message, not just the note -
-# forward_email never took a body argument, so this is fetched separately.
-import app.agents.hitl as _hitl_module  # noqa: E402
+# forward_email never took a body argument, so this is fetched separately via
+# a lazy `from app.tools.graph_client import graph_get` inside the fetch
+# helper (deferred so hitl.py itself stays free of a hard Graph/DB import).
+# Patching the real module's attribute - not hitl's own namespace, which no
+# longer holds this name - is what the lazy re-import inside the helper sees.
+from fastapi import HTTPException as _HTTPException  # noqa: E402
+
+import app.tools.graph_client as _graph_client_module  # noqa: E402
 
 _fake_forward_interrupt = Interrupt(
     {
@@ -360,7 +366,7 @@ async def _fake_graph_get(user_id, path):
     }
 
 
-_hitl_module.graph_get = _fake_graph_get
+_graph_client_module.graph_get = _fake_graph_get
 forward_preview = asyncio.run(
     interrupt_to_action(_fake_forward_interrupt, "session-1", "user-1")
 )
@@ -378,14 +384,11 @@ check(
 # No live Graph token exists in this test process, so every other
 # interrupt_to_action() call below runs against a stub that mimics
 # "account not connected" (the real function's own fallback).
-from fastapi import HTTPException as _HTTPException  # noqa: E402
-
-
 async def _stub_graph_get(user_id, path):
     raise _HTTPException(status_code=401, detail="not connected")
 
 
-_hitl_module.graph_get = _stub_graph_get
+_graph_client_module.graph_get = _stub_graph_get
 
 from langchain.agents import create_agent  # noqa: E402
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel  # noqa: E402
