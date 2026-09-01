@@ -753,8 +753,13 @@ async def _rewrite_search_query(user_query: str) -> str:
                     "You are a search query rewriting specialist for RAG vector retrieval. "
                     "The user's query is short, ambiguous, or uses pronouns like 'it/they/this'. "
                     "Rewrite it into a clear, standalone, semantically rich search query "
-                    "that contains all the key topics and entities needed for retrieval. "
-                    "Do NOT answer the question. Reply with ONLY the rewritten query in the same language."
+                    "that contains all the key topics and entities already present in the input. "
+                    "This is still a query, not an answer: if the input is a question, keep it a "
+                    "question — never turn it into a statement that asserts an answer. Never add "
+                    "any fact, detail, or entity that is not already in the input (e.g. 'what car "
+                    "did X buy' must not become 'X bought a car'; it has no brand to add). Only "
+                    "reorganize and expand on what's already there to make it more retrievable. "
+                    "Reply with ONLY the rewritten query in the same language."
                 ),
             },
             {"role": "user", "content": user_query},
