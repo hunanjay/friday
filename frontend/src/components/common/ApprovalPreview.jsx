@@ -190,12 +190,26 @@ function Detail({ label, value }) {
   );
 }
 
+/** A batch item is a raw tool-call request ({name, args}), not a scalar - so
+ * it needs its own readable summary instead of GenericPreview's String(value). */
+function _batchRowValue(request) {
+  const args = request?.args || {};
+  const parts = [args.subject, args.sender].filter(Boolean);
+  if (parts.length) return parts.join(' — ');
+  const scalarValues = Object.values(args).filter((value) => typeof value !== 'object');
+  return scalarValues.join(', ') || request?.name || '';
+}
+
 function GenericPreview({ payload }) {
-  const fields = Object.entries(payload).filter(([key]) => (
-    !key.endsWith('_id') && key !== 'time_zone'
+  const { actions, ...rest } = payload;
+  const fields = Object.entries(rest).filter(([key, value]) => (
+    !key.endsWith('_id') && key !== 'time_zone' && typeof value !== 'object'
   ));
   return (
     <div className="approval-details">
+      {Array.isArray(actions) && actions.map((request, i) => (
+        <Detail key={request?.args?.email_id || i} label={`#${i + 1}`} value={_batchRowValue(request)} />
+      ))}
       {fields.map(([key, value]) => (
         <Detail key={key} label={key.replaceAll('_', ' ')} value={String(value)} />
       ))}

@@ -132,6 +132,44 @@ describe('ApprovalCard', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
+  it('interpolates the assistant name into the backend-provided subtitle key', () => {
+    render(
+      <ApprovalCard
+        action={{
+          action_type: 'mail.forward',
+          payload: { to: 'a@b.com', comment: 'FYI' },
+          presentation: { renderer: 'email_forward', subtitle_key: 'chat.approvalRequired' },
+          decisions: [{ id: 'approve', outcome: 'approve', label_key: 'chat.confirmForward', style: 'primary' }],
+        }}
+        assistantName="Dora"
+        onDecision={() => {}}
+      />,
+    );
+    expect(screen.getByText('Your approval is required. Dora cannot perform this action.')).toBeInTheDocument();
+  });
+
+  it('renders each batch item readably instead of dumping [object Object]', () => {
+    render(
+      <ApprovalCard
+        action={{
+          action_type: 'batch',
+          payload: {
+            actions: [
+              { name: 'delete_email', args: { email_id: '1', subject: 'Nexus weekly digest', sender: 'a@nexus.io' } },
+              { name: 'delete_email', args: { email_id: '2', subject: 'Nexus onboarding', sender: 'b@nexus.io' } },
+            ],
+          },
+          presentation: { renderer: 'generic', title_key: 'chat.reviewDelete' },
+          decisions: [{ id: 'approve', outcome: 'approve', label_key: 'chat.confirmDelete', style: 'danger' }],
+        }}
+        onDecision={() => {}}
+      />,
+    );
+    expect(screen.getByText('Nexus weekly digest — a@nexus.io')).toBeInTheDocument();
+    expect(screen.getByText('Nexus onboarding — b@nexus.io')).toBeInTheDocument();
+    expect(screen.queryByText(/object Object/)).not.toBeInTheDocument();
+  });
+
   it.each([
     ['failed', 'Failed'],
     ['cancelled', 'Cancelled'],
