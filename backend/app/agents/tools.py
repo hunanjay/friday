@@ -1,6 +1,8 @@
+import hashlib
 import logging
 import os
-from datetime import timedelta
+import re
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -8,7 +10,7 @@ from langchain_core.tools import tool
 
 from app.agents.calendar_dates import resolve_calendar_day
 from app.agents.internal_links import markdown_internal_link
-from app.infrastructure.db.repositories import memos as memos_db, user_memory as user_memory_db
+from app.infrastructure.db.repositories import memos as memos_db, todos as todos_db, user_memory as user_memory_db
 from app.services.mail_compose import parse_recipients, render_body
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
@@ -25,6 +27,51 @@ _EMAIL_DETAIL_FIELDS = (
     "id,subject,from,toRecipients,ccRecipients,receivedDateTime,"
     "bodyPreview,body,hasAttachments,importance,isRead"
 )
+
+# Cheap first-pass filters for find_unanswered_questions - a real question
+# judgment is left to the model, these just keep obvious noise out of what
+# it has to read.
+_AUTOMATED_SENDER_RE = re.compile(
+    r"^(no-?reply|notifications?|newsletter|marketing|do-?not-?reply)@", re.IGNORECASE
+)
+# Marks a todo as already tracking one email, so a rerun doesn't duplicate it.
+_TODO_REF_RE = re.compile(r"\[ref:([0-9a-f]{10})\]")
+
+
+def _todo_ref(email_id: str) -> str:
+    return hashlib.sha1(email_id.encode()).hexdigest()[:10]
+
+
+def _build_todo_text(subject: str, reason: str, ref: str) -> str:
+    """Subject/reason are truncated to fit; the [ref:...] suffix never is -
+    dedup in find_unanswered_questions depends on it surviving intact."""
+    ref_suffix = f" [ref:{ref}]"
+    budget = 100 - len(ref_suffix)
+    body = f"跟进: {subject.strip()} — {reason.strip()}"
+    if len(body) > budget:
+        body = body[: max(budget - 1, 0)].rstrip() + "…"
+    return body + ref_suffix
+
+
+def _is_followup_candidate(
+    message: dict, sent_latest: dict[str, str], tracked_refs: set[str], max_recipients: int
+) -> bool:
+    """One inbox message's accept/reject decision for find_unanswered_questions -
+    pulled out of the tool so the filtering logic is testable without mocking
+    Graph or the DB."""
+    cid = message.get("conversationId")
+    if cid and sent_latest.get(cid, "") >= message.get("receivedDateTime", ""):
+        return False  # already replied after this message arrived
+    address = (message.get("from") or {}).get("emailAddress", {}).get("address", "")
+    if _AUTOMATED_SENDER_RE.match(address):
+        return False
+    recipients = len(message.get("toRecipients", [])) + len(message.get("ccRecipients", []))
+    if recipients > max_recipients:
+        return False
+    headers = message.get("internetMessageHeaders") or []
+    if any(h.get("name", "").lower() == "list-unsubscribe" for h in headers):
+        return False
+    return _todo_ref(message["id"]) not in tracked_refs
 
 
 async def _graph(coro):
@@ -67,7 +114,9 @@ def _format_email_row(m: dict, folder: str = "inbox") -> str:
 
 
 def _format_contact(c: dict, matches: list[dict] | None = None) -> str:
-    parts = [f"=== Contact: {c['name']} ==="]
+    # id is surfaced so a tool that needs to act on a specific contact
+    # (e.g. sync_memo_to_contact) can reference it after a search_contacts call.
+    parts = [f"=== Contact: {c['name']} (id={c['id']}) ==="]
     meta = [
         f"Email: {c.get('email', '') or 'N/A'}",
         f"Phone: {c.get('phone', '') or 'N/A'}",
@@ -319,6 +368,85 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         )
         return f"Email moved to Deleted Items: {subject or email_id}."
 
+    @tool
+    async def find_unanswered_questions(
+        hours: int = 0, lookback_days: int = 7, max_recipients: int = 5
+    ) -> str:
+        """Find inbox emails, already read, received between `hours` ago and
+        `lookback_days` ago, that got no reply since (checked by comparing
+        each conversation's latest inbox message against its latest Sent
+        Items message). Automated/marketing mail, messages sent to more than
+        `max_recipients` people, and emails already tracked by an open
+        create_followup_todo are excluded. Judge which results are genuinely
+        a question or request needing a reply before calling
+        create_followup_todo - not everything returned qualifies."""
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lookback = (now - timedelta(days=lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        inbox_path = (
+            "/me/mailFolders/inbox/messages"
+            f"?$filter=isRead eq true and receivedDateTime ge {lookback} and receivedDateTime le {cutoff}"
+            "&$select=id,subject,from,toRecipients,ccRecipients,conversationId,"
+            "receivedDateTime,bodyPreview,internetMessageHeaders"
+            "&$orderby=receivedDateTime desc"
+        )
+        inbox_data, err = await _graph(graph_get_paginated(user_id, inbox_path, 50))
+        if err:
+            return err
+        inbox_msgs = inbox_data.get("value", [])
+        if not inbox_msgs:
+            return "No read emails in that window."
+
+        sent_path = (
+            "/me/mailFolders/sentItems/messages"
+            f"?$filter=sentDateTime ge {lookback}&$select=conversationId,sentDateTime"
+        )
+        sent_data, sent_err = await _graph(graph_get_paginated(user_id, sent_path, 200))
+        sent_msgs = [] if sent_err else sent_data.get("value", [])
+        sent_latest: dict[str, str] = {}
+        for m in sent_msgs:
+            cid = m.get("conversationId")
+            sent_at = m.get("sentDateTime", "")
+            if cid and sent_at > sent_latest.get(cid, ""):
+                sent_latest[cid] = sent_at
+
+        existing = await todos_db.list_todos(user_id)
+        tracked_refs = {
+            match.group(1)
+            for todo in existing
+            if not todo["completed"]
+            for match in [_TODO_REF_RE.search(todo["text"])]
+            if match
+        }
+
+        candidates = [
+            m for m in inbox_msgs if _is_followup_candidate(m, sent_latest, tracked_refs, max_recipients)
+        ]
+
+        if not candidates:
+            return "No unanswered emails matched - nothing needs a follow-up todo."
+
+        lines = []
+        for m in candidates[:20]:
+            address = (m.get("from") or {}).get("emailAddress", {}).get("address", "")
+            link = markdown_internal_link(m.get("subject") or "(no subject)", "email", m["id"], folder="inbox")
+            lines.append(
+                f"- id={m['id']} from={address} received={m.get('receivedDateTime')} "
+                f"subject={link} preview={m.get('bodyPreview', '')[:150]!r}"
+            )
+        return "\n".join(lines)
+
+    @tool
+    async def create_followup_todo(email_id: str, subject: str, reason: str) -> str:
+        """Create a todo for one email that find_unanswered_questions returned
+        and that actually needs a reply - a real question or request, not an
+        FYI or marketing message. `reason` is a short (under ~30 char) note
+        on why it needs a reply, shown in the todo."""
+        text = _build_todo_text(subject, reason, _todo_ref(email_id))
+        todo = await todos_db.create_todo(user_id, text, None)
+        return f"Todo created: id={todo['id']} text={todo['text']!r}"
+
     return [
         list_inbox,
         search_contacts,
@@ -330,6 +458,8 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         forward_email,
         mark_email_read,
         delete_email,
+        find_unanswered_questions,
+        create_followup_todo,
     ]
 
 
@@ -879,12 +1009,88 @@ def make_memos_tools(user_id: str) -> list:
             logging.exception("failed to index area %s in Qdrant", memo["id"])
         return f"{verb} area: id={memo['id']} name={name!r}"
 
+    @tool
+    async def route_pending_memos(limit: int = 20) -> str:
+        """List memos not yet routed anywhere (sync_status='pending'), for you
+        to classify. For each one, decide: does it mention an existing
+        contact (resolve the person with search_contacts first, and only call
+        sync_memo_to_contact when you're confident it's the same person -
+        otherwise leave it pending rather than guessing) - is it about the
+        user themselves (sync_memo_to_profile) - does it carry an action or
+        deadline (sync_memo_to_todo) - or none of those (mark_memo_no_action).
+        A memo can match more than one target."""
+        memos = [m for m in await memos_db.list_memos(user_id) if m["sync_status"] == "pending"]
+        if not memos:
+            return "No pending memos - everything has already been routed or marked no-action."
+        return "\n".join(_format_memo_row(m) for m in memos[:max(1, min(limit, 50))])
+
+    @tool
+    async def sync_memo_to_contact(
+        memo_id: str, contact_id: str, dimension: str, category: str, fact_key: str, fact_value: str
+    ) -> str:
+        """Route a pending memo to an existing contact's memory facts.
+        `contact_id` must come from a prior search_contacts result for this
+        memo - never guess or invent one. `dimension`/`category`/`fact_key`/
+        `fact_value` follow the same vocabulary as record_contact_fact."""
+        from app.infrastructure.db.repositories import contacts as contacts_repo
+
+        fact = await contacts_repo.add_contact_profile(
+            user_id=user_id,
+            contact_id=contact_id,
+            dimension=dimension,
+            category=category,
+            fact_key=fact_key.strip(),
+            fact_value=fact_value.strip(),
+            source_type="memo",
+            source_id=memo_id,
+        )
+        await memos_db.set_sync_status(user_id, memo_id, "synced")
+        return f"Synced memo {memo_id} to contact fact: [{fact['dimension']}/{fact['category']}] {fact_key}"
+
+    @tool
+    async def sync_memo_to_profile(memo_id: str, category: str, fact_key: str, fact_value: str, topic: str = "") -> str:
+        """Route a pending memo that's about the user themselves into their
+        own profile (same categories/fields as remember_user_fact)."""
+        await user_memory_db.remember_fact(
+            user_id, category, fact_key.strip(), fact_value.strip(), topic=topic or None,
+            source_type="memo", source_id=memo_id,
+        )
+        await memos_db.set_sync_status(user_id, memo_id, "synced")
+        return f"Synced memo {memo_id} to the user's profile: [{category}] {fact_key}"
+
+    @tool
+    async def sync_memo_to_todo(memo_id: str, text: str, due_date: str = "") -> str:
+        """Route a pending memo that carries an action or deadline into a todo.
+        `due_date`, if any, must be YYYY-MM-DD."""
+        parsed_due = None
+        if due_date:
+            try:
+                parsed_due = date.fromisoformat(due_date)
+            except ValueError:
+                return f"Error: due_date {due_date!r} must be YYYY-MM-DD."
+        todo = await todos_db.create_todo(user_id, text[:100], parsed_due)
+        await memos_db.set_sync_status(user_id, memo_id, "synced")
+        return f"Synced memo {memo_id} to todo: id={todo['id']} text={todo['text']!r}"
+
+    @tool
+    async def mark_memo_no_action(memo_id: str) -> str:
+        """Mark a pending memo as not needing any routing - it's neither
+        about an existing contact, about the user themselves, nor actionable
+        (e.g. a standalone idea or code snippet)."""
+        await memos_db.set_sync_status(user_id, memo_id, "no_action")
+        return f"Memo {memo_id} marked no_action."
+
     return [
         list_memos,
         _make_create_memo_tool(user_id),
         _make_search_memos_tool(user_id),
         _make_search_contacts_tool(user_id),
         track_area,
+        route_pending_memos,
+        sync_memo_to_contact,
+        sync_memo_to_profile,
+        sync_memo_to_todo,
+        mark_memo_no_action,
     ]
 
 

@@ -1,10 +1,48 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import StreamingMarkdown from '../../../components/common/StreamingMarkdown';
+import { Calendar, CheckCircle, FileText, Github } from '../../../components/common/Icons';
 import { CHAT_AGENT_ICONS } from '../agentMeta';
 import { getApprovalPlacementMode } from '../approvalPlacement';
 import { byApprovalPriority } from '../approvalState';
 import { ChatApprovalAction } from './ChatApprovalAction';
+
+// One-click chat starters. Each fills the composer with a slash command
+// routed straight to its agent (the user still has to press send), so
+// there's no routing guesswork and no backend wiring beyond what the agent
+// already exposes. tipKey is a hover tooltip explaining what the prompt does.
+const QUICK_PROMPTS = [
+  { id: 'reviewEmails', Icon: CheckCircle, labelKey: 'chat.reviewEmailsPrompt', messageKey: 'chat.reviewEmailsMessage', tipKey: 'chat.reviewEmailsTip' },
+  { id: 'todaySchedule', Icon: Calendar, labelKey: 'chat.todaySchedulePrompt', messageKey: 'chat.todayScheduleMessage', tipKey: 'chat.todayScheduleTip' },
+  { id: 'dailyReport', Icon: Github, labelKey: 'chat.dailyReportPrompt', messageKey: 'chat.dailyReportMessage', tipKey: 'chat.dailyReportTip' },
+  { id: 'recentMemos', Icon: FileText, labelKey: 'chat.recentMemosPrompt', messageKey: 'chat.recentMemosMessage', tipKey: 'chat.recentMemosTip' },
+];
+
+function QuickPromptGrid({ onQuickPrompt }) {
+  if (!onQuickPrompt) return null;
+  return (
+    <div className="chat-quick-prompts-grid">
+      {QUICK_PROMPTS.map(({ id, Icon, labelKey, messageKey, tipKey }) => (
+        <QuickPromptCard key={id} Icon={Icon} labelKey={labelKey} messageKey={messageKey} tipKey={tipKey} onQuickPrompt={onQuickPrompt} />
+      ))}
+    </div>
+  );
+}
+
+function QuickPromptCard({ Icon, labelKey, messageKey, tipKey, onQuickPrompt }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      className="chat-quick-prompt-card"
+      onClick={() => onQuickPrompt(t(messageKey))}
+      title={t(tipKey)}
+    >
+      <Icon size={18} />
+      <span>{t(labelKey)}</span>
+    </button>
+  );
+}
 
 function ToolCallList({ toolCalls }) {
   if (!toolCalls?.length) return null;
@@ -110,6 +148,7 @@ export default function ChatMessageList({
   isTyping,
   messages,
   onApprovalDecision,
+  onQuickPrompt,
   pendingActions,
 }) {
   const { t } = useTranslation();
@@ -123,7 +162,10 @@ export default function ChatMessageList({
       {isLoading ? (
         <div className="chat-empty-state"><p>{t('chat.loading')}</p></div>
       ) : messages.length === 0 && pendingActions.length === 0 ? (
-        <div className="chat-empty-state"><p>{t('chat.startConversation')}</p></div>
+        <div className="chat-empty-state">
+          <p>{t('chat.startConversation')}</p>
+          <QuickPromptGrid onQuickPrompt={onQuickPrompt} />
+        </div>
       ) : (
         messages.map((message, index) => (
           <React.Fragment key={message.id}>

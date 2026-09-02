@@ -224,6 +224,7 @@ def _agent_prompts(
         "mail_agent": _format_rules([
             "You handle the user's email, including listing, searching, reading, sending, marking read or unread, and deleting messages.",
             "Resolve the parts of a send before calling send_email: look up a named recipient with search_contacts, and fetch content the user already wrote down, such as a report or note, with search_memos.",
+            "When asked to review or catch up on unanswered emails, call find_unanswered_questions, judge which results are a genuine question or request needing a reply (skip FYI/notification/marketing text even if it has a question mark), and call create_followup_todo once for each one that qualifies - this workflow only tracks follow-ups, it never drafts or sends a reply itself.",
             *([_SIGNATURE_RULE] if has_signature else []),
             "You cannot attach files, so put the actual content in the email body.",
             _ID_DISPLAY_RULE,
@@ -256,6 +257,7 @@ def _agent_prompts(
             "Search or list before answering a memo question, and base the answer on the result.",
             "Call create_memo only when the user explicitly asked to save or record something, inferring a concise title and content from the relevant conversation, and otherwise just reply.",
             "Use track_area instead of create_memo for an ongoing project/initiative the user wants tracked across conversations, keeping the same `name` on later updates so it's revised in place rather than duplicated.",
+            "When asked to review, sync, or route memos, call route_pending_memos and classify each one it returns: mentions an existing contact (resolve with search_contacts, and only call sync_memo_to_contact when confident - leave it pending rather than guessing) - about the user themselves (sync_memo_to_profile) - carries an action or deadline (sync_memo_to_todo) - otherwise mark_memo_no_action. A memo can match more than one target.",
             *memory_rules,
             *_BASE_RULES,
         ]),

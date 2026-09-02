@@ -16,10 +16,11 @@ create table if not exists memos (
 );
 alter table memos add column if not exists attachments jsonb not null default '[]'::jsonb;
 alter table memos add column if not exists agent_maintained boolean not null default false;
+alter table memos add column if not exists sync_status text not null default 'pending';
 create index if not exists memos_user_id_idx on memos (user_id, updated_at desc);
 """
 
-_COLUMNS = "id, title, content, category, color, pinned, updated_at, attachments, agent_maintained"
+_COLUMNS = "id, title, content, category, color, pinned, updated_at, attachments, agent_maintained, sync_status"
 
 
 def _db_pool():
@@ -54,6 +55,7 @@ def _row_to_dict(row) -> dict:
         "updated_at": row[6].isoformat(),
         "attachments": attachments,
         "agent_maintained": row[8],
+        "sync_status": row[9],
     }
 
 
@@ -128,3 +130,16 @@ async def delete_memo(user_id: str, memo_id: str) -> bool:
             (memo_id, user_id),
         )
         return await cur.fetchone() is not None
+
+
+async def set_sync_status(user_id: str, memo_id: str, sync_status: str) -> dict | None:
+    """Flip only sync_status, not the full update_memo field set - the
+    memo-routing tools don't touch title/content/category/etc."""
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            "update memos set sync_status = %s, updated_at = now() "
+            f"where id = %s and user_id = %s returning {_COLUMNS}",
+            (sync_status, memo_id, user_id),
+        )
+        row = await cur.fetchone()
+    return _row_to_dict(row) if row else None
