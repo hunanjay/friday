@@ -292,9 +292,11 @@ export default function ChatPage() {
     dispatchMessage(sentText);
   };
 
+  // Fills the composer so the user can review/edit before sending - a
+  // quick-prompt card is a starting point, not a one-click trigger.
   const handleQuickPrompt = (text) => {
-    if (!activeThreadId || isSendingRef.current) return;
-    dispatchMessage(text);
+    setInputText(text);
+    inputRef.current?.focus();
   };
 
   const handleStop = stopAgentStream;
