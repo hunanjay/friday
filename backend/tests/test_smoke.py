@@ -18,6 +18,17 @@ from pathlib import Path
 # modules instead of duplicating their implementation.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# app.core.security builds a Supabase client at import time (before any test
+# gets a chance to mock it out), which raises if the URL/key are empty - so
+# any module that transitively imports it (most of the app) is unimportable
+# without real credentials. Whether those are present in the environment
+# this script runs in varies (e.g. by CI trigger type); placeholders that
+# merely construct the client - no test here calls out over the network -
+# make every import deterministic regardless.
+os.environ.setdefault("SUPABASE_URL", "https://placeholder.supabase.co")
+os.environ.setdefault("SUPABASE_ANON_KEY", "placeholder-anon-key")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "placeholder-service-key")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
