@@ -208,16 +208,15 @@ export default function ChatPage() {
     handleDeleteSession(sessionId);
   };
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!inputText.trim() || !activeThreadId || isSendingRef.current) return;
+  // The actual send: shared by the composer submit and any quick-prompt
+  // card, which pass a fully-formed message rather than going through
+  // inputText/selectedAgent. Callers are responsible for their own guard
+  // (empty input, no active thread, already sending) before calling this.
+  const dispatchMessage = async (sentText) => {
     isSendingRef.current = true;
 
     const sessionId = activeThreadId;
-    const sentText = selectedAgent ? `/${selectedAgent} ${inputText}` : inputText;
     const explicitAgent = parseAgentCommand(sentText);
-    setInputText('');
-    setSelectedAgent(null);
     handleUpdateSessionPreview(sessionId, explicitAgent?.message || sentText);
 
     const userMsg = {
@@ -282,6 +281,20 @@ export default function ChatPage() {
     } finally {
       isSendingRef.current = false;
     }
+  };
+
+  const handleSend = (e) => {
+    e.preventDefault();
+    if (!inputText.trim() || !activeThreadId || isSendingRef.current) return;
+    const sentText = selectedAgent ? `/${selectedAgent} ${inputText}` : inputText;
+    setInputText('');
+    setSelectedAgent(null);
+    dispatchMessage(sentText);
+  };
+
+  const handleQuickPrompt = (text) => {
+    if (!activeThreadId || isSendingRef.current) return;
+    dispatchMessage(text);
   };
 
   const handleStop = stopAgentStream;
@@ -389,6 +402,7 @@ export default function ChatPage() {
               isTyping={isTyping}
               messages={threadMessages}
               onApprovalDecision={handleActionDecision}
+              onQuickPrompt={handleQuickPrompt}
               pendingActions={pendingActions}
             />
 
