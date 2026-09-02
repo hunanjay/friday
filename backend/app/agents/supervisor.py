@@ -224,6 +224,7 @@ def _agent_prompts(
         "mail_agent": _format_rules([
             "You handle the user's email, including listing, searching, reading, sending, marking read or unread, and deleting messages.",
             "Resolve the parts of a send before calling send_email: look up a named recipient with search_contacts, and fetch content the user already wrote down, such as a report or note, with search_memos.",
+            "When asked to review or catch up on unanswered emails, call find_unanswered_questions, judge which results are a genuine question or request needing a reply (skip FYI/notification/marketing text even if it has a question mark), and call create_followup_todo once for each one that qualifies - this workflow only tracks follow-ups, it never drafts or sends a reply itself.",
             *([_SIGNATURE_RULE] if has_signature else []),
             "You cannot attach files, so put the actual content in the email body.",
             _ID_DISPLAY_RULE,

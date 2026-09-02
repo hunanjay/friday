@@ -1397,6 +1397,107 @@ check("it also drops the in-memory token cache for this user", _invalidate_call.
 
 
 # ---------------------------------------------------------------------------
+# 20. Review-emails workflow (find_unanswered_questions / create_followup_todo)
+# ---------------------------------------------------------------------------
+
+section("20. review-emails workflow")
+
+from app.agents.tools import (  # noqa: E402
+    _AUTOMATED_SENDER_RE,
+    _TODO_REF_RE,
+    _build_todo_text,
+    _is_followup_candidate,
+    _todo_ref,
+)
+
+check(
+    "the agent has both new tools, so it can find and track follow-ups",
+    {"find_unanswered_questions", "create_followup_todo"} <= _returned_tool_names("make_mail_tools"),
+)
+check(
+    "neither tool is HITL-gated - discovery and a private todo are not destructive",
+    "find_unanswered_questions" not in HITL_TOOL_CONFIGS and "create_followup_todo" not in HITL_TOOL_CONFIGS,
+)
+
+check(
+    "the ref fingerprint is a stable, short, hex tag round-tripped by its own regex",
+    _todo_ref("msg-1") == _todo_ref("msg-1")
+    and _todo_ref("msg-1") != _todo_ref("msg-2")
+    and bool(_TODO_REF_RE.fullmatch(f"[ref:{_todo_ref('msg-1')}]")),
+)
+
+_long_text = _build_todo_text("A" * 200, "B" * 200, _todo_ref("msg-1"))
+check("the todo text never exceeds the column's practical length", len(_long_text) <= 100)
+check(
+    "truncation never eats the ref suffix dedup depends on", _TODO_REF_RE.search(_long_text) is not None
+)
+check(
+    "a short subject/reason round-trips without truncation",
+    _build_todo_text("Q3 numbers", "asked for a decision by Friday", _todo_ref("msg-2"))
+    == "跟进: Q3 numbers — asked for a decision by Friday [ref:" + _todo_ref("msg-2") + "]",
+)
+
+check(
+    "an automated sender is recognized regardless of case",
+    bool(_AUTOMATED_SENDER_RE.match("No-Reply@example.com"))
+    and bool(_AUTOMATED_SENDER_RE.match("notifications@example.com"))
+    and not _AUTOMATED_SENDER_RE.match("alice@example.com"),
+)
+
+_base_msg = {
+    "id": "msg-1",
+    "conversationId": "conv-1",
+    "receivedDateTime": "2026-08-20T10:00:00Z",
+    "from": {"emailAddress": {"address": "alice@example.com"}},
+    "toRecipients": [{}],
+    "ccRecipients": [],
+}
+check(
+    "an unanswered, human-sent, small-audience email is a candidate",
+    _is_followup_candidate(_base_msg, {}, set(), max_recipients=5) is True,
+)
+check(
+    "a later reply in the same conversation clears it",
+    _is_followup_candidate(
+        _base_msg, {"conv-1": "2026-08-21T00:00:00Z"}, set(), max_recipients=5
+    )
+    is False,
+)
+check(
+    "an earlier reply doesn't clear it - the thread was reopened",
+    _is_followup_candidate(
+        _base_msg, {"conv-1": "2026-08-19T00:00:00Z"}, set(), max_recipients=5
+    )
+    is True,
+)
+check(
+    "an automated sender is excluded even with no reply on record",
+    _is_followup_candidate(
+        {**_base_msg, "from": {"emailAddress": {"address": "noreply@example.com"}}}, {}, set(), max_recipients=5
+    )
+    is False,
+)
+check(
+    "a mass email over the recipient cap is excluded",
+    _is_followup_candidate({**_base_msg, "toRecipients": [{}] * 10}, {}, set(), max_recipients=5) is False,
+)
+check(
+    "a List-Unsubscribe header excludes it even without an automated-looking address",
+    _is_followup_candidate(
+        {**_base_msg, "internetMessageHeaders": [{"name": "List-Unsubscribe", "value": "<...>"}]},
+        {},
+        set(),
+        max_recipients=5,
+    )
+    is False,
+)
+check(
+    "an email already tracked by an open todo is not offered again",
+    _is_followup_candidate(_base_msg, {}, {_todo_ref("msg-1")}, max_recipients=5) is False,
+)
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

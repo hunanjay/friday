@@ -1,6 +1,8 @@
+import hashlib
 import logging
 import os
-from datetime import timedelta
+import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -8,7 +10,7 @@ from langchain_core.tools import tool
 
 from app.agents.calendar_dates import resolve_calendar_day
 from app.agents.internal_links import markdown_internal_link
-from app.infrastructure.db.repositories import memos as memos_db, user_memory as user_memory_db
+from app.infrastructure.db.repositories import memos as memos_db, todos as todos_db, user_memory as user_memory_db
 from app.services.mail_compose import parse_recipients, render_body
 from app.tools import vector_store
 from app.tools.github_client import format_commits, list_commits
@@ -25,6 +27,51 @@ _EMAIL_DETAIL_FIELDS = (
     "id,subject,from,toRecipients,ccRecipients,receivedDateTime,"
     "bodyPreview,body,hasAttachments,importance,isRead"
 )
+
+# Cheap first-pass filters for find_unanswered_questions - a real question
+# judgment is left to the model, these just keep obvious noise out of what
+# it has to read.
+_AUTOMATED_SENDER_RE = re.compile(
+    r"^(no-?reply|notifications?|newsletter|marketing|do-?not-?reply)@", re.IGNORECASE
+)
+# Marks a todo as already tracking one email, so a rerun doesn't duplicate it.
+_TODO_REF_RE = re.compile(r"\[ref:([0-9a-f]{10})\]")
+
+
+def _todo_ref(email_id: str) -> str:
+    return hashlib.sha1(email_id.encode()).hexdigest()[:10]
+
+
+def _build_todo_text(subject: str, reason: str, ref: str) -> str:
+    """Subject/reason are truncated to fit; the [ref:...] suffix never is -
+    dedup in find_unanswered_questions depends on it surviving intact."""
+    ref_suffix = f" [ref:{ref}]"
+    budget = 100 - len(ref_suffix)
+    body = f"跟进: {subject.strip()} — {reason.strip()}"
+    if len(body) > budget:
+        body = body[: max(budget - 1, 0)].rstrip() + "…"
+    return body + ref_suffix
+
+
+def _is_followup_candidate(
+    message: dict, sent_latest: dict[str, str], tracked_refs: set[str], max_recipients: int
+) -> bool:
+    """One inbox message's accept/reject decision for find_unanswered_questions -
+    pulled out of the tool so the filtering logic is testable without mocking
+    Graph or the DB."""
+    cid = message.get("conversationId")
+    if cid and sent_latest.get(cid, "") >= message.get("receivedDateTime", ""):
+        return False  # already replied after this message arrived
+    address = (message.get("from") or {}).get("emailAddress", {}).get("address", "")
+    if _AUTOMATED_SENDER_RE.match(address):
+        return False
+    recipients = len(message.get("toRecipients", [])) + len(message.get("ccRecipients", []))
+    if recipients > max_recipients:
+        return False
+    headers = message.get("internetMessageHeaders") or []
+    if any(h.get("name", "").lower() == "list-unsubscribe" for h in headers):
+        return False
+    return _todo_ref(message["id"]) not in tracked_refs
 
 
 async def _graph(coro):
@@ -319,6 +366,85 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         )
         return f"Email moved to Deleted Items: {subject or email_id}."
 
+    @tool
+    async def find_unanswered_questions(
+        hours: int = 0, lookback_days: int = 7, max_recipients: int = 5
+    ) -> str:
+        """Find inbox emails, already read, received between `hours` ago and
+        `lookback_days` ago, that got no reply since (checked by comparing
+        each conversation's latest inbox message against its latest Sent
+        Items message). Automated/marketing mail, messages sent to more than
+        `max_recipients` people, and emails already tracked by an open
+        create_followup_todo are excluded. Judge which results are genuinely
+        a question or request needing a reply before calling
+        create_followup_todo - not everything returned qualifies."""
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lookback = (now - timedelta(days=lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        inbox_path = (
+            "/me/mailFolders/inbox/messages"
+            f"?$filter=isRead eq true and receivedDateTime ge {lookback} and receivedDateTime le {cutoff}"
+            "&$select=id,subject,from,toRecipients,ccRecipients,conversationId,"
+            "receivedDateTime,bodyPreview,internetMessageHeaders"
+            "&$orderby=receivedDateTime desc"
+        )
+        inbox_data, err = await _graph(graph_get_paginated(user_id, inbox_path, 50))
+        if err:
+            return err
+        inbox_msgs = inbox_data.get("value", [])
+        if not inbox_msgs:
+            return "No read emails in that window."
+
+        sent_path = (
+            "/me/mailFolders/sentItems/messages"
+            f"?$filter=sentDateTime ge {lookback}&$select=conversationId,sentDateTime"
+        )
+        sent_data, sent_err = await _graph(graph_get_paginated(user_id, sent_path, 200))
+        sent_msgs = [] if sent_err else sent_data.get("value", [])
+        sent_latest: dict[str, str] = {}
+        for m in sent_msgs:
+            cid = m.get("conversationId")
+            sent_at = m.get("sentDateTime", "")
+            if cid and sent_at > sent_latest.get(cid, ""):
+                sent_latest[cid] = sent_at
+
+        existing = await todos_db.list_todos(user_id)
+        tracked_refs = {
+            match.group(1)
+            for todo in existing
+            if not todo["completed"]
+            for match in [_TODO_REF_RE.search(todo["text"])]
+            if match
+        }
+
+        candidates = [
+            m for m in inbox_msgs if _is_followup_candidate(m, sent_latest, tracked_refs, max_recipients)
+        ]
+
+        if not candidates:
+            return "No unanswered emails matched - nothing needs a follow-up todo."
+
+        lines = []
+        for m in candidates[:20]:
+            address = (m.get("from") or {}).get("emailAddress", {}).get("address", "")
+            link = markdown_internal_link(m.get("subject") or "(no subject)", "email", m["id"], folder="inbox")
+            lines.append(
+                f"- id={m['id']} from={address} received={m.get('receivedDateTime')} "
+                f"subject={link} preview={m.get('bodyPreview', '')[:150]!r}"
+            )
+        return "\n".join(lines)
+
+    @tool
+    async def create_followup_todo(email_id: str, subject: str, reason: str) -> str:
+        """Create a todo for one email that find_unanswered_questions returned
+        and that actually needs a reply - a real question or request, not an
+        FYI or marketing message. `reason` is a short (under ~30 char) note
+        on why it needs a reply, shown in the todo."""
+        text = _build_todo_text(subject, reason, _todo_ref(email_id))
+        todo = await todos_db.create_todo(user_id, text, None)
+        return f"Todo created: id={todo['id']} text={todo['text']!r}"
+
     return [
         list_inbox,
         search_contacts,
@@ -330,6 +456,8 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         forward_email,
         mark_email_read,
         delete_email,
+        find_unanswered_questions,
+        create_followup_todo,
     ]
 
 
