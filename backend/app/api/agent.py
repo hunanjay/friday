@@ -84,8 +84,8 @@ async def _visible_actions_signature(user_id: str) -> str:
 
 async def _visible_actions(user_id: str, session_id: str, interrupts: tuple) -> list[dict]:
     """Combine official interrupts with their durable execution state."""
-    pending = pending_actions_from_interrupts(
-        interrupts, session_id, await _visible_actions_signature(user_id)
+    pending = await pending_actions_from_interrupts(
+        interrupts, session_id, user_id, await _visible_actions_signature(user_id)
     )
     for action in pending:
         await hitl_audit.ensure_pending(user_id, session_id, action)
@@ -269,9 +269,10 @@ async def _decide_action(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        pending_action = interrupt_to_action(
+        pending_action = await interrupt_to_action(
             pending,
             session_id,
+            user_id,
             anchor_message_id=f"hitl_{pending.id}",
             signature=await _visible_actions_signature(user_id),
         )
@@ -357,9 +358,10 @@ async def _decide_action(
                     execution_results,
                 )
             status = "failed" if execution_error else "succeeded"
-        action = interrupt_to_action(
+        action = await interrupt_to_action(
             pending,
             session_id,
+            user_id,
             status=status,
             anchor_message_id=final_reply[1] if final_reply else None,
             signature=await _visible_actions_signature(user_id),
@@ -519,7 +521,6 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
             yield f"data: {json.dumps({'error': user_err})}\n\n"
 
         state = await graph.aget_state(config)
-        pending_actions = pending_actions_from_interrupts(state.interrupts, session_id)
         public_actions = await _visible_actions(user_id, session_id, state.interrupts)
 
         # What the user ends up seeing never comes from the streamed chunks:
@@ -531,7 +532,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
         # that endpoint reconstructs for each pending interrupt.
         final_text = (
             _paused_reply(routed_message)
-            if pending_actions
+            if state.interrupts
             else final_reply_text((state.values or {}).get("messages", []))
         )
         # Empty means "no authoritative answer to show", never "clear the
@@ -565,7 +566,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
             route=route.source,
             agent=handled_by,
             tool_calls=tool_calls,
-            paused=bool(pending_actions),
+            paused=bool(state.interrupts),
             ok=ok,
             duration_ms=int((time.perf_counter() - started_at) * 1000),
         )

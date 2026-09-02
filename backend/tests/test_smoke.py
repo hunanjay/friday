@@ -18,6 +18,17 @@ from pathlib import Path
 # modules instead of duplicating their implementation.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# app.core.security builds a Supabase client at import time (before any test
+# gets a chance to mock it out), which raises if the URL/key are empty - so
+# any module that transitively imports it (most of the app) is unimportable
+# without real credentials. Whether those are present in the environment
+# this script runs in varies (e.g. by CI trigger type); placeholders that
+# merely construct the client - no test here calls out over the network -
+# make every import deterministic regardless.
+os.environ.setdefault("SUPABASE_URL", "https://placeholder.supabase.co")
+os.environ.setdefault("SUPABASE_ANON_KEY", "placeholder-anon-key")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "placeholder-service-key")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -323,16 +334,72 @@ fake_interrupt = Interrupt(
     },
     id="interrupt-1",
 )
-public_interrupt = interrupt_to_action(fake_interrupt, "session-1")
+public_interrupt = asyncio.run(interrupt_to_action(fake_interrupt, "session-1", "user-1"))
 check("official interrupt is adapted to the existing confirmation card",
       public_interrupt["id"] == "interrupt-1"
       and public_interrupt["canonical_action_type"] == "mail.send")
-anchored_interrupt = pending_actions_from_interrupts((fake_interrupt,), "session-1")[0]
+anchored_interrupt = asyncio.run(pending_actions_from_interrupts((fake_interrupt,), "session-1", "user-1"))[0]
 check("pending confirmation card has a stable history-message anchor",
       anchored_interrupt["placement"]["mode"] == "after_message"
       and anchored_interrupt["placement"]["anchor_message_id"] == "hitl_interrupt-1")
 check("approve maps to official HITL resume payload",
       resume_value_for(fake_interrupt, "approve") == {"decisions": [{"type": "approve"}]})
+
+# The forward card has to preview the original message, not just the note -
+# forward_email never took a body argument, so this is fetched separately via
+# a lazy `from app.tools.graph_client import graph_get` inside the fetch
+# helper (deferred so hitl.py itself stays free of a hard Graph/DB import).
+# Patching the real module's attribute - not hitl's own namespace, which no
+# longer holds this name - is what the lazy re-import inside the helper sees.
+from fastapi import HTTPException as _HTTPException  # noqa: E402
+
+import app.tools.graph_client as _graph_client_module  # noqa: E402
+
+_fake_forward_interrupt = Interrupt(
+    {
+        "action_requests": [
+            {"name": "forward_email", "args": {"email_id": "msg-1", "to": "b@example.com", "comment": "FYI"}}
+        ],
+        "review_configs": [
+            {"action_name": "forward_email", "allowed_decisions": ["approve", "edit", "reject"]}
+        ],
+    },
+    id="interrupt-2",
+)
+
+
+async def _fake_graph_get(user_id, path):
+    assert "msg-1" in path
+    return {
+        "subject": "Q3 numbers",
+        "from": {"emailAddress": {"name": "Alice", "address": "alice@example.com"}},
+        "body": {"contentType": "text", "content": "x" * 5000},
+    }
+
+
+_graph_client_module.graph_get = _fake_graph_get
+forward_preview = asyncio.run(
+    interrupt_to_action(_fake_forward_interrupt, "session-1", "user-1")
+)
+check(
+    "forward card previews the original subject/sender",
+    forward_preview["payload"]["original_subject"] == "Q3 numbers"
+    and forward_preview["payload"]["original_from"] == "Alice <alice@example.com>",
+)
+check(
+    "forward card's original-body preview is capped, not the whole email",
+    len(forward_preview["payload"]["original_body"]) == 4000,
+)
+
+
+# No live Graph token exists in this test process, so every other
+# interrupt_to_action() call below runs against a stub that mimics
+# "account not connected" (the real function's own fallback).
+async def _stub_graph_get(user_id, path):
+    raise _HTTPException(status_code=401, detail="not connected")
+
+
+_graph_client_module.graph_get = _stub_graph_get
 
 from langchain.agents import create_agent  # noqa: E402
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel  # noqa: E402
@@ -1029,8 +1096,8 @@ def _edit_error(interrupt, edits: dict) -> str:
 
 check(
     "the email card is marked editable, the delete card is not",
-    interrupt_to_action(_mail_interrupt, "s1")["presentation"]["editable"] is True
-    and interrupt_to_action(_delete_interrupt, "s1")["presentation"]["editable"] is False,
+    asyncio.run(interrupt_to_action(_mail_interrupt, "s1", "user-1"))["presentation"]["editable"] is True
+    and asyncio.run(interrupt_to_action(_delete_interrupt, "s1", "user-1"))["presentation"]["editable"] is False,
 )
 check(
     "an edited body resumes as a LangChain edit decision, other fields intact",
@@ -1113,12 +1180,16 @@ check(
 )
 check(
     "an approval card carries the signature it will be sent with",
-    interrupt_to_action(_mail_interrupt, "s1", signature="Yours\nJane")["presentation"]["signature"]
+    asyncio.run(interrupt_to_action(_mail_interrupt, "s1", "user-1", signature="Yours\nJane"))[
+        "presentation"
+    ]["signature"]
     == "Yours\nJane",
 )
 check(
     "a non-email card carries no signature to render",
-    interrupt_to_action(_delete_interrupt, "s1", signature="Yours\nJane")["presentation"]["signature"]
+    asyncio.run(interrupt_to_action(_delete_interrupt, "s1", "user-1", signature="Yours\nJane"))[
+        "presentation"
+    ]["signature"]
     == "",
 )
 from app.agents import draft as draft_module  # noqa: E402
@@ -1168,11 +1239,14 @@ _reply_interrupt = Interrupt(
 )
 check(
     "replying is offered as its own card, not the generic fallback",
-    interrupt_to_action(_reply_interrupt, "s1")["presentation"]["renderer"] == "email_reply",
+    asyncio.run(interrupt_to_action(_reply_interrupt, "s1", "user-1"))["presentation"]["renderer"]
+    == "email_reply",
 )
 check(
     "the reply card is editable and previews the signature",
-    interrupt_to_action(_reply_interrupt, "s1", signature="Yours")["presentation"]["signature"]
+    asyncio.run(interrupt_to_action(_reply_interrupt, "s1", "user-1", signature="Yours"))[
+        "presentation"
+    ]["signature"]
     == "Yours",
 )
 check(
@@ -1190,12 +1264,20 @@ _forward_interrupt = Interrupt(
 )
 check(
     "forwarding is offered as its own card, not the generic fallback",
-    interrupt_to_action(_forward_interrupt, "s1")["presentation"]["renderer"] == "email_forward",
+    asyncio.run(interrupt_to_action(_forward_interrupt, "s1", "user-1"))["presentation"]["renderer"]
+    == "email_forward",
 )
 check(
     "the forward card is editable and previews the signature",
-    interrupt_to_action(_forward_interrupt, "s1", signature="Yours")["presentation"]["signature"]
+    asyncio.run(interrupt_to_action(_forward_interrupt, "s1", "user-1", signature="Yours"))[
+        "presentation"
+    ]["signature"]
     == "Yours",
+)
+check(
+    "account not connected leaves the forward card without a crash, just no original preview",
+    asyncio.run(interrupt_to_action(_forward_interrupt, "s1", "user-1"))["payload"].get("original_body")
+    is None,
 )
 check(
     "the agent can forward, so it never has to retype an email it was given",

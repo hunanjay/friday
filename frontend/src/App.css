@@ -2671,6 +2671,34 @@
   overflow-wrap: anywhere;
 }
 
+.approval-email-quote {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border-light);
+  background: var(--bg-app);
+  border-radius: 6px;
+}
+
+.approval-email-quote .approval-email-label {
+  font-size: 0.68rem;
+}
+
+.approval-email-quote .approval-email-subject {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.approval-email-quote-body {
+  margin: 8px 0 0;
+  max-height: 160px;
+  overflow-y: auto;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .approval-email-signature {
   position: relative;
   margin-top: 10px;

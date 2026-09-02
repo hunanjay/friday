@@ -88,7 +88,7 @@ function EmailPreview({ payload, action, t, onEdit }) {
   );
 }
 
-/** Forwarding carries the original along, so the card previews only the note. */
+/** Forwarding carries the original along - the note is editable, the original is a read-only quote below it. */
 function EmailForwardPreview({ payload, action, t, onEdit }) {
   const edit = (field) => (onEdit ? (value) => onEdit(field, value) : null);
   const signature = (action?.presentation?.signature || '').trim();
@@ -111,6 +111,25 @@ function EmailForwardPreview({ payload, action, t, onEdit }) {
         )}
         <p className="approval-email-note">{t('email.forwardCarriesOriginal')}</p>
       </div>
+      {(payload.original_subject || payload.original_body) && (
+        <div className="approval-email-quote">
+          <div className="approval-email-head">
+            {payload.original_subject && (
+              <>
+                <span className="approval-email-label">{t('email.subject')}</span>
+                <div className="approval-email-subject">{payload.original_subject}</div>
+              </>
+            )}
+            {payload.original_from && (
+              <>
+                <span className="approval-email-label">{t('chat.sender')}</span>
+                <div className="approval-email-to">{payload.original_from}</div>
+              </>
+            )}
+          </div>
+          {payload.original_body && <p className="approval-email-quote-body">{payload.original_body}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -171,12 +190,26 @@ function Detail({ label, value }) {
   );
 }
 
+/** A batch item is a raw tool-call request ({name, args}), not a scalar - so
+ * it needs its own readable summary instead of GenericPreview's String(value). */
+function _batchRowValue(request) {
+  const args = request?.args || {};
+  const parts = [args.subject, args.sender].filter(Boolean);
+  if (parts.length) return parts.join(' — ');
+  const scalarValues = Object.values(args).filter((value) => typeof value !== 'object');
+  return scalarValues.join(', ') || request?.name || '';
+}
+
 function GenericPreview({ payload }) {
-  const fields = Object.entries(payload).filter(([key]) => (
-    !key.endsWith('_id') && key !== 'time_zone'
+  const { actions, ...rest } = payload;
+  const fields = Object.entries(rest).filter(([key, value]) => (
+    !key.endsWith('_id') && key !== 'time_zone' && typeof value !== 'object'
   ));
   return (
     <div className="approval-details">
+      {Array.isArray(actions) && actions.map((request, i) => (
+        <Detail key={request?.args?.email_id || i} label={`#${i + 1}`} value={_batchRowValue(request)} />
+      ))}
       {fields.map(([key, value]) => (
         <Detail key={key} label={key.replaceAll('_', ' ')} value={String(value)} />
       ))}

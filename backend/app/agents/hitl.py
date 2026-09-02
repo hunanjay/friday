@@ -2,10 +2,14 @@
 
 import json
 from typing import Any
+from urllib.parse import quote
 
+from fastapi import HTTPException
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.types import Interrupt
+
+from app.tools.html_sanitizer import sanitize_html_to_text
 
 HITL_TOOL_CONFIGS: dict[str, dict[str, Any]] = {
     "send_email": {
@@ -116,6 +120,42 @@ _ACTION_UI = {
 }
 
 
+# Kept short: this is a preview so the user can see what they're forwarding,
+# not the whole email replayed back to them.
+_ORIGINAL_BODY_PREVIEW_LIMIT = 4000
+
+
+async def _fetch_forward_source(user_id: str, email_id: str) -> dict[str, str]:
+    """Original subject/sender/body for a forward card.
+
+    The forward_email tool never took a `body` argument - Graph carries the
+    original along server-side at send time - so without this the approval
+    card would ask the user to bless a forward of content they can't see.
+
+    Imported lazily: graph_client pulls in app.core.security, which builds a
+    Supabase client at import time and needs real credentials - hitl.py has
+    to stay importable (e.g. by the offline smoke tests) without them.
+    """
+    from app.tools.graph_client import graph_get
+
+    try:
+        data = await graph_get(
+            user_id, f"/me/messages/{quote(email_id)}?$select=subject,from,body,bodyPreview"
+        )
+    except HTTPException:
+        return {}
+    body = data.get("body") or {}
+    content = body.get("content", data.get("bodyPreview", ""))
+    text = sanitize_html_to_text(content) if body.get("contentType") == "html" else content
+    sender = (data.get("from") or {}).get("emailAddress", {})
+    name, address = sender.get("name", ""), sender.get("address", "")
+    return {
+        "original_subject": data.get("subject", ""),
+        "original_from": f"{name} <{address}>" if name else address,
+        "original_body": text[:_ORIGINAL_BODY_PREVIEW_LIMIT],
+    }
+
+
 def make_hitl_middleware(tool_names: set[str]) -> HumanInTheLoopMiddleware | None:
     policies = {name: config for name, config in HITL_TOOL_CONFIGS.items() if name in tool_names}
     if not policies:
@@ -123,9 +163,10 @@ def make_hitl_middleware(tool_names: set[str]) -> HumanInTheLoopMiddleware | Non
     return HumanInTheLoopMiddleware(interrupt_on=policies)
 
 
-def interrupt_to_action(
+async def interrupt_to_action(
     interrupt: Interrupt,
     session_id: str,
+    user_id: str,
     *,
     status: str = "pending",
     anchor_message_id: str | None = None,
@@ -150,6 +191,8 @@ def interrupt_to_action(
         canonical = "batch"
         renderer = "generic"
         payload = {"actions": requests}
+    elif tool_name == "forward_email" and payload.get("email_id"):
+        payload.update(await _fetch_forward_source(user_id, payload["email_id"]))
 
     allowed = set(configs[0].get("allowed_decisions") or []) if configs else {"approve", "reject"}
     decisions = []
@@ -197,15 +240,17 @@ def interrupt_to_action(
     }
 
 
-def pending_actions_from_interrupts(
+async def pending_actions_from_interrupts(
     interrupts: tuple[Interrupt, ...],
     session_id: str,
+    user_id: str,
     signature: str = "",
 ) -> list[dict]:
     return [
-        interrupt_to_action(
+        await interrupt_to_action(
             item,
             session_id,
+            user_id,
             anchor_message_id=f"hitl_{item.id}",
             signature=signature,
         )

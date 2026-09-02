@@ -34,9 +34,8 @@ export default function ApprovalCard({
   const defaultTitle = title || (presentation.title_key
     ? t(presentation.title_key)
     : t('chat.reviewAction'));
-  const defaultSubtitle = subtitle || (presentation.subtitle_key
-    ? t(presentation.subtitle_key)
-    : t('chat.approvalRequired', { name: assistantName }));
+  const defaultSubtitle = subtitle
+    || t(presentation.subtitle_key || 'chat.approvalRequired', { name: assistantName });
   const terminalStatusKeys = {
     cancelled: 'chat.approvalStatusCancelled',
     expired: 'chat.approvalStatusExpired',
