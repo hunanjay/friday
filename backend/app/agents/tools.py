@@ -2,7 +2,7 @@ import hashlib
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -114,7 +114,9 @@ def _format_email_row(m: dict, folder: str = "inbox") -> str:
 
 
 def _format_contact(c: dict, matches: list[dict] | None = None) -> str:
-    parts = [f"=== Contact: {c['name']} ==="]
+    # id is surfaced so a tool that needs to act on a specific contact
+    # (e.g. sync_memo_to_contact) can reference it after a search_contacts call.
+    parts = [f"=== Contact: {c['name']} (id={c['id']}) ==="]
     meta = [
         f"Email: {c.get('email', '') or 'N/A'}",
         f"Phone: {c.get('phone', '') or 'N/A'}",
@@ -1007,12 +1009,88 @@ def make_memos_tools(user_id: str) -> list:
             logging.exception("failed to index area %s in Qdrant", memo["id"])
         return f"{verb} area: id={memo['id']} name={name!r}"
 
+    @tool
+    async def route_pending_memos(limit: int = 20) -> str:
+        """List memos not yet routed anywhere (sync_status='pending'), for you
+        to classify. For each one, decide: does it mention an existing
+        contact (resolve the person with search_contacts first, and only call
+        sync_memo_to_contact when you're confident it's the same person -
+        otherwise leave it pending rather than guessing) - is it about the
+        user themselves (sync_memo_to_profile) - does it carry an action or
+        deadline (sync_memo_to_todo) - or none of those (mark_memo_no_action).
+        A memo can match more than one target."""
+        memos = [m for m in await memos_db.list_memos(user_id) if m["sync_status"] == "pending"]
+        if not memos:
+            return "No pending memos - everything has already been routed or marked no-action."
+        return "\n".join(_format_memo_row(m) for m in memos[:max(1, min(limit, 50))])
+
+    @tool
+    async def sync_memo_to_contact(
+        memo_id: str, contact_id: str, dimension: str, category: str, fact_key: str, fact_value: str
+    ) -> str:
+        """Route a pending memo to an existing contact's memory facts.
+        `contact_id` must come from a prior search_contacts result for this
+        memo - never guess or invent one. `dimension`/`category`/`fact_key`/
+        `fact_value` follow the same vocabulary as record_contact_fact."""
+        from app.infrastructure.db.repositories import contacts as contacts_repo
+
+        fact = await contacts_repo.add_contact_profile(
+            user_id=user_id,
+            contact_id=contact_id,
+            dimension=dimension,
+            category=category,
+            fact_key=fact_key.strip(),
+            fact_value=fact_value.strip(),
+            source_type="memo",
+            source_id=memo_id,
+        )
+        await memos_db.set_sync_status(user_id, memo_id, "synced")
+        return f"Synced memo {memo_id} to contact fact: [{fact['dimension']}/{fact['category']}] {fact_key}"
+
+    @tool
+    async def sync_memo_to_profile(memo_id: str, category: str, fact_key: str, fact_value: str, topic: str = "") -> str:
+        """Route a pending memo that's about the user themselves into their
+        own profile (same categories/fields as remember_user_fact)."""
+        await user_memory_db.remember_fact(
+            user_id, category, fact_key.strip(), fact_value.strip(), topic=topic or None,
+            source_type="memo", source_id=memo_id,
+        )
+        await memos_db.set_sync_status(user_id, memo_id, "synced")
+        return f"Synced memo {memo_id} to the user's profile: [{category}] {fact_key}"
+
+    @tool
+    async def sync_memo_to_todo(memo_id: str, text: str, due_date: str = "") -> str:
+        """Route a pending memo that carries an action or deadline into a todo.
+        `due_date`, if any, must be YYYY-MM-DD."""
+        parsed_due = None
+        if due_date:
+            try:
+                parsed_due = date.fromisoformat(due_date)
+            except ValueError:
+                return f"Error: due_date {due_date!r} must be YYYY-MM-DD."
+        todo = await todos_db.create_todo(user_id, text[:100], parsed_due)
+        await memos_db.set_sync_status(user_id, memo_id, "synced")
+        return f"Synced memo {memo_id} to todo: id={todo['id']} text={todo['text']!r}"
+
+    @tool
+    async def mark_memo_no_action(memo_id: str) -> str:
+        """Mark a pending memo as not needing any routing - it's neither
+        about an existing contact, about the user themselves, nor actionable
+        (e.g. a standalone idea or code snippet)."""
+        await memos_db.set_sync_status(user_id, memo_id, "no_action")
+        return f"Memo {memo_id} marked no_action."
+
     return [
         list_memos,
         _make_create_memo_tool(user_id),
         _make_search_memos_tool(user_id),
         _make_search_contacts_tool(user_id),
         track_area,
+        route_pending_memos,
+        sync_memo_to_contact,
+        sync_memo_to_profile,
+        sync_memo_to_todo,
+        mark_memo_no_action,
     ]
 
 

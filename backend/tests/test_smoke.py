@@ -1498,6 +1498,33 @@ check(
 
 
 # ---------------------------------------------------------------------------
+# 21. Memo auto-routing workflow (issue #44)
+# ---------------------------------------------------------------------------
+
+section("21. memo auto-routing workflow")
+
+_memo_router_tools = {
+    "route_pending_memos",
+    "sync_memo_to_contact",
+    "sync_memo_to_profile",
+    "sync_memo_to_todo",
+    "mark_memo_no_action",
+}
+check(
+    "memos_agent has all five routing tools, so it can classify and sync pending memos",
+    _memo_router_tools <= _returned_tool_names("make_memos_tools"),
+)
+check(
+    "none of the routing tools are HITL-gated - each writes to the user's own private data",
+    _memo_router_tools.isdisjoint(HITL_TOOL_CONFIGS),
+)
+check(
+    "memos_agent already had search_contacts before this feature, so no new wiring was needed",
+    "search_contacts" in _returned_tool_names("make_memos_tools"),
+)
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
