@@ -85,6 +85,15 @@ function useDialogFocus(isOpen, onClose) {
   return dialogRef;
 }
 
+// create_followup_todo (backend/app/agents/tools.py) appends a
+// "[ref:xxxxxxxxxx]" dedup marker to the stored text so a rerun doesn't
+// double-track the same email - strip it for display only, never from what
+// gets saved back, or editing a followup todo would silently break dedup.
+const TODO_REF_SUFFIX_RE = / \[ref:[0-9a-f]{10}\]$/;
+function displayTodoText(text) {
+  return (text || '').replace(TODO_REF_SUFFIX_RE, '');
+}
+
 function handleAutoResize(event, minHeight = 34, maxHeight = 120) {
   const target = event.target;
   target.style.height = 'auto';
@@ -140,11 +149,13 @@ export function DashboardTodoPanel({ copy, isZh }) {
   } = useTodos();
   const [newTodoText, setNewTodoText] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
+  const [quickAddText, setQuickAddText] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [todoToEdit, setTodoToEdit] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [editingDueDate, setEditingDueDate] = useState('');
   const [todoToDelete, setTodoToDelete] = useState(null);
+  const [page, setPage] = useState(1);
 
   // Sort Todos: Uncompleted first -> Overdue / Earliest Due Date -> Newest Created
   const sortedTodos = useMemo(() => {
@@ -166,6 +177,29 @@ export function DashboardTodoPanel({ copy, isZh }) {
       return timeB - timeA;
     });
   }, [todos]);
+
+  // The panel no longer scrolls internally (fixed height left dead space
+  // when there wasn't much else on the page) - past a page's worth of
+  // todos, page instead so the panel keeps a content-driven height.
+  const todosPerPage = 5;
+  const totalTodoPages = Math.max(1, Math.ceil(sortedTodos.length / todosPerPage));
+  useEffect(() => {
+    if (page > totalTodoPages) setPage(totalTodoPages);
+  }, [page, totalTodoPages]);
+  const pagedTodos = useMemo(
+    () => sortedTodos.slice((page - 1) * todosPerPage, page * todosPerPage),
+    [sortedTodos, page]
+  );
+
+  const handleQuickAdd = async (e) => {
+    e.preventDefault();
+    const text = quickAddText.trim();
+    if (!text) return;
+    setQuickAddText('');
+    try {
+      await createTodo({ text, dueDate: null });
+    } catch { /* mutation exposes the panel error */ }
+  };
 
   const handleModalAddTodo = async (e) => {
     if (e) e.preventDefault();
@@ -270,7 +304,13 @@ export function DashboardTodoPanel({ copy, isZh }) {
                     {copy.clearDone}
                   </button>
                 )}
-                <Button appearance="primary" size="small" icon={<Add24Regular />} onClick={() => setIsAddModalOpen(true)}>
+                <Button
+                  appearance="primary"
+                  size="small"
+                  icon={<Add24Regular />}
+                  className="dashboard-add-todo-btn"
+                  onClick={() => setIsAddModalOpen(true)}
+                >
                   {isZh ? '新建' : 'Add'}
                 </Button>
               </div>
@@ -279,8 +319,9 @@ export function DashboardTodoPanel({ copy, isZh }) {
             {/* Todo Item List */}
             <div className="dashboard-todo-list">
               {isTodosLoading ? <PanelSkeleton rows={3} /> : sortedTodos.length ? (
-                sortedTodos.map(todo => {
+                pagedTodos.map(todo => {
                   const dueInfo = getDueDateStatus(todo.dueDate);
+                  const isAiTodo = TODO_REF_SUFFIX_RE.test(todo.text);
                   return (
                     <div
                       key={todo.id}
@@ -300,7 +341,12 @@ export function DashboardTodoPanel({ copy, isZh }) {
                       </button>
 
                       <div className="dashboard-todo-content">
-                        <span className="dashboard-todo-text">{todo.text}</span>
+                        <div className="dashboard-todo-title-row">
+                          <span className={`todo-source-badge ${isAiTodo ? 'ai' : 'manual'}`}>
+                            {isAiTodo ? (isZh ? 'AI 跟进' : 'AI follow-up') : (isZh ? '手动添加' : 'Manual')}
+                          </span>
+                          <span className="dashboard-todo-text">{displayTodoText(todo.text)}</span>
+                        </div>
                         {todo.createdAt && (
                           <div className="dashboard-todo-meta">
                             <span className="todo-meta-item created" title={isZh ? '创建时间' : 'Creation time'}>
@@ -315,7 +361,6 @@ export function DashboardTodoPanel({ copy, isZh }) {
                         {dueInfo && (
                           <div className="todo-due-badge-slot">
                             <span className={`todo-meta-item due-badge ${dueInfo.status}`} title={isZh ? '截止日期' : 'Due date'}>
-                              <CalendarLtr24Regular className="meta-icon" />
                               <span>{dueInfo.label}</span>
                             </span>
                           </div>
@@ -346,7 +391,41 @@ export function DashboardTodoPanel({ copy, isZh }) {
               ) : (
                 <EmptyState icon={<TaskListLtr24Regular />} message={copy.noTodos} action={isZh ? '新建待办' : 'Add Task'} onAction={() => setIsAddModalOpen(true)} />
               )}
+              {!isTodosLoading && (
+                <form className="dashboard-todo-quickadd" onSubmit={handleQuickAdd}>
+                  <Add24Regular className="quickadd-icon" />
+                  <input
+                    type="text"
+                    className="quickadd-input"
+                    value={quickAddText}
+                    onChange={(e) => setQuickAddText(e.target.value)}
+                    maxLength={100}
+                    placeholder={isZh ? '添加一条待办，回车即可保存' : 'Add a task, press Enter to save'}
+                  />
+                </form>
+              )}
             </div>
+            {totalTodoPages > 1 && (
+              <div className="dashboard-panel-footer-pagination">
+                <button
+                  type="button"
+                  className="dashboard-page-btn"
+                  disabled={page <= 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                >
+                  ‹
+                </button>
+                <span className="dashboard-page-num">{page} / {totalTodoPages}</span>
+                <button
+                  type="button"
+                  className="dashboard-page-btn"
+                  disabled={page >= totalTodoPages}
+                  onClick={() => setPage(p => Math.min(totalTodoPages, p + 1))}
+                >
+                  ›
+                </button>
+              </div>
+            )}
             {todosError && (
               <div className="dashboard-todo-error" role="status">
                 <Text>{isZh ? '待办同步失败' : 'Could not sync tasks'}</Text>
@@ -547,7 +626,7 @@ export function DashboardTodoPanel({ copy, isZh }) {
                     {isZh ? '确认要删除以下待办事项吗？此操作无法撤销。' : 'Are you sure you want to delete this task? This action cannot be undone.'}
                   </p>
                   <div className="dashboard-modal-preview">
-                    "{todoToDelete.text}"
+                    "{displayTodoText(todoToDelete.text)}"
                   </div>
                   <div className="dashboard-modal-footer">
                     <button

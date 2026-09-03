@@ -237,6 +237,7 @@ def _agent_prompts(
             "Call search_contacts before answering anything about a person or a relationship, and never claim you do not know or cannot access personal information without searching first.",
             "Use create_contact for the identity fields of a new person, which is name, company, phone, email, location, and job title.",
             "Anything else the user tells you about a person, such as where they live, what they pay in rent, a habit, or a plan, is a fact: record each one with record_contact_fact rather than stopping at create_contact or repeating it back unsaved.",
+            "A nickname or alias for a contact (what people call them, a short form of their name) is a fact too - record it with record_contact_fact (dimension='basic', category='nickname'). search_contacts only matches text that has actually been saved, so an alias mentioned but never recorded stays unfindable by that name later.",
             "Say which contact the information was filed under, so the user knows where to find it later.",
             "Cite the source marker returned with each contact fact.",
             *memory_rules,
@@ -264,6 +265,7 @@ def _agent_prompts(
         "github_agent": _format_rules([
             f"Today is {today}, and you generate the user's daily work report, or 日报, from GitHub commit activity on their project repository.",
             "Call list_todays_commits first on every turn, without asking for permission.",
+            "If it reports the account isn't connected, relay that message to the user verbatim, including the markdown link - never paraphrase it into plain text, which would drop the link.",
             "Group the commit messages list_todays_commits returned into concise bullet points, and pass that text itself as create_memo's `content` argument (category='work', title such as 'Daily Report - <date>') — never a placeholder, a summary that omits the bullets, or an empty body.",
             "If there were no commits today, say so instead of saving an empty report.",
             *memory_rules,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Button,
@@ -7,23 +7,17 @@ import {
   webDarkTheme,
   webLightTheme,
 } from '@fluentui/react-components';
-import {
-  CalendarLtr24Regular,
-  Chat24Regular,
-  DocumentBulletList24Regular,
-  Mail24Regular,
-  NoteAdd24Regular,
-} from '@fluentui/react-icons';
+import { Chat24Regular } from '@fluentui/react-icons';
 import { useAuth } from '../features/auth/useAuth';
 import { useCalendarEvents } from '../features/calendar/hooks';
 import { useDashboardInbox } from '../features/dashboard/useDashboardInbox';
 import {
+  DashboardBubbleField,
   DashboardSecondaryPanels,
 } from '../features/dashboard/components/DashboardSecondaryPanels';
 import { DashboardTodoPanel } from '../features/dashboard/components/DashboardTodoPanel';
 import { useGitHubCommits, useGitHubConnection } from '../features/github/hooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
-import { useMemos } from '../features/memos/hooks';
 import { useAssistantName } from '../features/settings/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -44,15 +38,21 @@ const doraLightTheme = {
 
 const doraDarkTheme = {
   ...webDarkTheme,
-  colorBrandBackground: '#E27E5B',
-  colorBrandBackgroundHover: '#F09675',
-  colorBrandBackgroundPressed: '#C96648',
+  // Solid-fill button backgrounds need to stay dark enough for white button
+  // text to clear WCAG AA (4.5:1) - the old #E27E5B was picked to be
+  // visible against the dark app background, but that made white text on
+  // top of it (e.g. the primary "+新建" button) drop to ~2.85:1. Text/link/
+  // stroke uses below are a different pairing (bright color on the dark
+  // neutral background, not white-on-brand) and were already fine.
+  colorBrandBackground: '#B24A2E',
+  colorBrandBackgroundHover: '#A5432A',
+  colorBrandBackgroundPressed: '#963D25',
   colorBrandForeground1: '#F09675',
   colorBrandForegroundLink: '#F09675',
   colorBrandStroke1: '#E27E5B',
-  colorCompoundBrandBackground: '#E27E5B',
-  colorCompoundBrandBackgroundHover: '#F09675',
-  colorCompoundBrandBackgroundPressed: '#C96648',
+  colorCompoundBrandBackground: '#B24A2E',
+  colorCompoundBrandBackgroundHover: '#A5432A',
+  colorCompoundBrandBackgroundPressed: '#963D25',
 };
 
 const DASHBOARD_TIME_ZONE = 'Asia/Shanghai';
@@ -149,9 +149,9 @@ export default function DashboardPage() {
   const { githubStatus } = useGitHubConnection();
   const { emails } = useMailMessages();
   const { inboxUnread } = useInboxUnread();
-  const { memos, isLoadingMemos } = useMemos();
   const { user } = useAuth();
   const isZh = i18n.language === 'zh';
+  const [composerText, setComposerText] = useState('');
 
   // ── Independent panel queries ────────────────────────────────────────────
   const dashboardCalendarRange = useMemo(() => {
@@ -172,31 +172,25 @@ export default function DashboardPage() {
     refetchInbox,
   } = useDashboardInbox();
 
-  // ── GitHub Commits Week Window & Pagination ──────────────────────────────
-  const [weekOffset, setWeekOffset] = useState(0); // 0 = this week, -1 = last week
-  const [commitsPage, setCommitsPage] = useState(1);
-  const commitsPerPage = 3;
-  const currentWeekInfo = useMemo(() => getWeekWindow(weekOffset), [weekOffset]);
+  // ── GitHub commits, current week only - the dashboard ticker is ambient,
+  // not a browsable archive, so there's no week-nav/pagination to maintain.
+  const currentWeekInfo = useMemo(() => getWeekWindow(0), []);
   const {
     commits,
     commitsError,
     isLoadingCommits: isCommitsLoading,
     refetchCommits,
   } = useGitHubCommits(currentWeekInfo);
-  useEffect(() => setCommitsPage(1), [currentWeekInfo]);
 
-  const loadError = inboxError || isCalendarError || commitsError;
+  // A commits fetch error is expected (a 404) when GitHub simply isn't
+  // connected - the GitHub panel already shows its own "not connected"
+  // state for that, so it shouldn't also trip the page-level error banner.
+  const loadError = inboxError || isCalendarError || (commitsError && githubStatus?.connected);
   const handleRetry = () => {
     void refetchCalendarEvents();
     void refetchInbox();
     void refetchCommits();
   };
-
-  const totalCommitPages = useMemo(() => Math.max(1, Math.ceil(commits.length / commitsPerPage)), [commits]);
-  const pagedCommits = useMemo(() => {
-    const start = (commitsPage - 1) * commitsPerPage;
-    return commits.slice(start, start + commitsPerPage);
-  }, [commits, commitsPage]);
 
   const todayEvents = useMemo(() => events
     .filter(event => eventDateTime(event).slice(0, 10) === dayKey())
@@ -210,19 +204,15 @@ export default function DashboardPage() {
     if (unread.length > 0) return unread.slice(0, 4);
     return emails.filter(email => email.parentFolderId === 'inbox').slice(0, 4);
   }, [emails]);
-  const relevantMemos = useMemo(() => [...memos]
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || (b.updatedAt || 0) - (a.updatedAt || 0))
-    .slice(0, 3), [memos]);
-
   const copy = isZh ? {
     greeting: `早上好，${displayName(user) || '朋友'}`,
     date: new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()),
     summary: '今日概览',
     askDora: `问问 ${assistantName}`,
+    composerPlaceholder: `问问 ${assistantName}：今天有什么该注意的？`,
     unread: '未读邮件',
     meetings: '今日日程',
-    notes: '便签',
-    commits: '今日提交',
+    commits: '次提交',
     todosTitle: '待办事项',
     addTodoPlaceholder: '添加新的待办事项...',
     noTodos: '暂无待办事项',
@@ -230,32 +220,27 @@ export default function DashboardPage() {
     filterPending: '未完成',
     filterDone: '已完成',
     clearDone: '清除已完成',
-    agenda: '接下来的日程',
-    inbox: '需要留意的邮件',
-    memoTitle: '最近便签',
     githubTitle: 'GitHub 动态',
-    openCalendar: '日历',
-    openEmail: '邮箱',
-    openMemos: '便签',
     openGithub: 'GitHub',
-    noEvents: '未来 7 天暂无日程',
-    noEmails: '收件箱无未读邮件',
-    noMemos: '暂无便签',
     noCommits: '暂无提交记录',
     disconnected: '未连接 GitHub',
     error: '部分数据未更新',
     retry: '刷新',
     allDay: '全天',
     connect: '连接',
+    radarTitle: '关系雷达',
+    radarPreviewTag: '概念预览',
+    radarPreviewCopy: '即将推出：在合适的时机，主动提醒你该联系哪些人。',
+    bubbleFieldLabel: '邮件 · 日程速览',
   } : {
     greeting: `Good morning, ${displayName(user) || 'there'}`,
     date: new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()),
     summary: 'Today\'s overview',
     askDora: `Ask ${assistantName}`,
+    composerPlaceholder: `Ask ${assistantName}: what should I keep in mind today?`,
     unread: 'Unread mail',
     meetings: 'Events today',
-    notes: 'Memos',
-    commits: 'Commits',
+    commits: 'commits',
     todosTitle: 'To-Do List',
     addTodoPlaceholder: 'Add a new task...',
     noTodos: 'No tasks yet',
@@ -263,23 +248,18 @@ export default function DashboardPage() {
     filterPending: 'Pending',
     filterDone: 'Done',
     clearDone: 'Clear Done',
-    agenda: 'Coming up',
-    inbox: 'Inbox notice',
-    memoTitle: 'Recent notes',
     githubTitle: 'GitHub activity',
-    openCalendar: 'Calendar',
-    openEmail: 'Inbox',
-    openMemos: 'Memos',
     openGithub: 'GitHub',
-    noEvents: 'No upcoming events',
-    noEmails: 'Inbox clear',
-    noMemos: 'No notes yet',
     noCommits: 'No commits today',
     disconnected: 'Not connected',
     error: 'Partial sync error',
     retry: 'Refresh',
     allDay: 'All day',
     connect: 'Connect',
+    radarTitle: 'Relationship Radar',
+    radarPreviewTag: 'Concept preview',
+    radarPreviewCopy: 'Coming soon: proactive nudges for who to reach out to, at the right time.',
+    bubbleFieldLabel: 'Mail · Calendar at a glance',
   };
 
   const unreadCount = inboxUnread ?? displayEmails.filter(e => !e.isRead).length;
@@ -287,41 +267,33 @@ export default function DashboardPage() {
   return (
     <FluentProvider theme={theme === 'dark' ? doraDarkTheme : doraLightTheme} className="dashboard-fluent">
       <div className="dashboard-page">
-        {/* ── Top Executive Hero Header ── */}
+        {/* ── Command bar ── */}
         <header className="dashboard-hero-header">
           <div className="dashboard-hero-left">
             <Text as="p" className="dashboard-date">{copy.date}</Text>
             <h1>{copy.greeting}</h1>
+            <p className="dashboard-glance-line">
+              <b>{unreadCount}</b> {copy.unread}
+              {' · '}
+              <b>{todayEvents.length}</b> {copy.meetings}
+            </p>
           </div>
 
-          <div className="dashboard-hero-metrics">
-            <div className="dashboard-hero-pill" onClick={() => navigate('/email')} title={copy.unread}>
-              <Mail24Regular />
-              <span className="metric-num">{unreadCount}</span>
-              <span className="metric-label">{copy.unread}</span>
-            </div>
-            <div className="dashboard-hero-pill" onClick={() => navigate('/calendar')} title={copy.meetings}>
-              <CalendarLtr24Regular />
-              <span className="metric-num">{todayEvents.length}</span>
-              <span className="metric-label">{copy.meetings}</span>
-            </div>
-            <div className="dashboard-hero-pill" onClick={() => navigate('/memos')} title={copy.notes}>
-              <DocumentBulletList24Regular />
-              <span className="metric-num">{memos.length}</span>
-              <span className="metric-label">{copy.notes}</span>
-            </div>
-            <div className="dashboard-hero-pill" onClick={() => navigate('/settings/github')} title={copy.commits}>
-              <NoteAdd24Regular />
-              <span className="metric-num">{commits.length}</span>
-              <span className="metric-label">{copy.commits}</span>
-            </div>
-          </div>
-
-          <div className="dashboard-hero-actions">
-            <Button appearance="primary" size="medium" icon={<Chat24Regular />} onClick={() => navigate('/chat')}>
-              {copy.askDora}
-            </Button>
-          </div>
+          <form
+            className="dashboard-hero-actions"
+            onSubmit={(e) => { e.preventDefault(); navigate('/chat'); }}
+          >
+            <input
+              type="text"
+              className="dashboard-composer-input"
+              value={composerText}
+              onChange={(e) => setComposerText(e.target.value)}
+              placeholder={copy.composerPlaceholder}
+            />
+            <button type="submit" className="dashboard-composer-send" aria-label={copy.askDora}>
+              <Chat24Regular />
+            </button>
+          </form>
         </header>
 
         {loadError && (
@@ -331,37 +303,31 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── 3-Column Asymmetric Workspace Grid ── */}
+        {/* ── Priority feed + side column ── */}
         <main className="dashboard-workspace-grid">
-          {/* ── COLUMN 1: TODO LIST (Rich Interactive Task Manager) ── */}
-          <DashboardTodoPanel copy={copy} isZh={isZh} />
+          <div className="dashboard-column-stack">
+            <DashboardTodoPanel copy={copy} isZh={isZh} />
+            <DashboardBubbleField
+              copy={copy}
+              eventTime={eventTime}
+              events={isLoadingCalendarEvents ? [] : upcomingEvents}
+              emails={isEmailsLoading ? [] : displayEmails}
+              formatEmailDate={formatEmailDate}
+              isZh={isZh}
+              locale={i18n.language}
+              navigate={navigate}
+            />
+          </div>
 
           <DashboardSecondaryPanels
-            agenda={{ events: upcomingEvents, isLoading: isLoadingCalendarEvents }}
             copy={copy}
-            eventDateTime={eventDateTime}
-            eventTime={eventTime}
             formatCommitDate={formatCommitDate}
-            formatEmailDate={formatEmailDate}
             github={{
-              commits: pagedCommits,
+              commits,
               isConnected: Boolean(githubStatus?.connected),
               isLoading: isCommitsLoading,
-              page: commitsPage,
-              setPage: setCommitsPage,
-              setWeekOffset,
-              totalPages: totalCommitPages,
-              weekInfo: currentWeekInfo,
-              weekOffset,
             }}
-            inbox={{
-              emails: displayEmails,
-              isLoading: isEmailsLoading,
-              unreadCount,
-            }}
-            isZh={isZh}
             locale={i18n.language}
-            memos={{ items: relevantMemos, isLoading: isLoadingMemos }}
             navigate={navigate}
           />
         </main>

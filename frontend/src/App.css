@@ -1809,6 +1809,7 @@
   display: flex;
   height: 100%;
   width: 100%;
+  min-width: 0;
 }
 
 .calendar-sidebar {
@@ -1919,6 +1920,7 @@
 /* Main Calendar Month View Panel */
 .calendar-grid-panel {
   flex-grow: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-card);
@@ -1997,6 +1999,7 @@
   cursor: pointer;
   transition: background-color var(--transition-fast);
   min-height: 80px;
+  min-width: 0;
 }
 
 .grid-cell:hover {
@@ -2039,6 +2042,7 @@
   gap: 2px;
   overflow-y: hidden;
   flex-grow: 1;
+  min-width: 0;
 }
 
 .cell-event {
@@ -2049,6 +2053,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
+  min-width: 0;
 }
 
 /* Event categories colors */
@@ -3312,6 +3317,9 @@
 .memo-modal {
   width: 100%;
   max-width: 500px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   background-color: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: 12px;
@@ -3631,6 +3639,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .modal-header h3,
@@ -3715,6 +3724,7 @@
   justify-content: flex-end;
   gap: 10px;
   padding-top: 12px;
+  flex-shrink: 0;
 }
 
 .send-btn,
@@ -3750,14 +3760,79 @@
 
 /* Calendar details modal tweaks */
 .details-modal {
-  max-width: 440px;
+  max-width: 760px;
+  aspect-ratio: 4 / 3;
+}
+
+.details-body-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .details-body {
-  padding: 20px;
+  padding: 14px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.details-title {
+  flex: none;
+}
+
+.details-body .details-title-field {
+  flex: none;
+}
+
+.details-title-field input {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.details-columns {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.details-info-col .form-group {
+  gap: 6px;
+  flex: none;
+}
+
+.details-desc .form-group {
+  height: 100%;
+}
+
+.details-desc .form-group textarea {
+  flex: 1 1 auto;
+  resize: none;
+  scrollbar-width: none;
+}
+
+.details-desc .form-group textarea::-webkit-scrollbar {
+  display: none;
+}
+
+.details-info-col {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.details-info-col::-webkit-scrollbar {
+  display: none;
 }
 
 .event-badge {
@@ -3770,7 +3845,6 @@
 .details-title {
   font-size: 1.3rem;
   font-weight: 600;
-  margin-bottom: 8px;
 }
 
 .details-meta-row {
@@ -3782,13 +3856,26 @@
 }
 
 .meta-icon {
-  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background-color: var(--accent-light);
+  color: var(--accent-primary);
 }
 
 .details-desc {
-  border-top: 1px solid var(--border-light);
-  padding-top: 12px;
-  margin-top: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.details-desc::-webkit-scrollbar {
+  display: none;
 }
 
 .details-desc h4 {
@@ -3805,6 +3892,52 @@
   line-height: 1.4;
 }
 
+.details-modal .modal-header {
+  padding: 12px 20px;
+}
+
+.details-modal .modal-footer {
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--border-light);
+  align-items: center;
+}
+
+.modal-footer .category-selector {
+  flex: 0 1 auto;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+@media (max-width: 560px) {
+  .details-modal {
+    aspect-ratio: unset;
+  }
+
+  .details-body {
+    overflow-y: auto;
+  }
+
+  .details-columns {
+    flex-direction: column;
+    overflow-y: visible;
+  }
+
+  .details-info-col {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
+
+  .details-desc {
+    border-top: 1px solid var(--border-light);
+    padding-top: 12px;
+    overflow-y: visible;
+  }
+}
+
 .delete-event-btn {
   color: var(--color-urgent);
   background-color: var(--color-urgent-bg);
@@ -3816,7 +3949,6 @@
   gap: 6px;
   font-weight: 500;
   font-size: 0.85rem;
-  margin-right: auto;
 }
 
 .delete-event-btn:hover {
@@ -3917,12 +4049,6 @@
 .color-teal { background-color: #EBF8F5; }
 .color-purple { background-color: #F3EFFF; }
 .color-gray { background-color: #F5F5F3; }
-
-/* Dynamic month selector */
-.modal-date-display {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-}
 
 /* --------------------------------------------------------------------------
    8. DORA AI EMAIL ASSISTANT
