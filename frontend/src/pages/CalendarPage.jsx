@@ -3,8 +3,24 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useCalendarEvents } from '../features/calendar/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
-import { Calendar, ChevronLeft, ChevronRight, Edit3, X, Trash } from '../components/common/Icons';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Edit3, MapPin, X, Trash } from '../components/common/Icons';
 import EmailContentRenderer from '../components/common/EmailContentRenderer';
+
+function CalendarEventModal({ onClose, headerLeft, children }) {
+  return (
+    <div className="calendar-modal-overlay" onClick={onClose}>
+      <div className="calendar-modal details-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          {headerLeft}
+          <button className="close-modal-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function hasVisibleEventBody(body) {
   const content = body?.content || '';
@@ -345,131 +361,136 @@ export default function CalendarPage() {
 
       {/* New / Edit Event Modal */}
       {isModalOpen && (
-        <div className="calendar-modal-overlay" onClick={closeEventModal}>
-          <div className="calendar-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{t(editingEventId ? 'calendar.editEvent' : 'calendar.newEvent')}</h3>
-              <button className="close-modal-btn" onClick={closeEventModal}>
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleFormSubmit} className="modal-form">
-              <div className="modal-date-display">
-                {i18n.language === 'zh' ? "日期" : "Date"}: <strong>{selectedDateStr}</strong>
-              </div>
-              <div className="form-group">
+        <CalendarEventModal
+          onClose={closeEventModal}
+          headerLeft={<h3>{t(editingEventId ? 'calendar.editEvent' : 'calendar.newEvent')}</h3>}
+        >
+          <form onSubmit={handleFormSubmit} className="details-body-form">
+            <div className="details-body">
+              <div className="form-group details-title-field">
                 <label htmlFor="event-title">{t('calendar.subject')}</label>
                 <input
                   type="text"
                   id="event-title"
-                  placeholder="e.g. Project Sync Meeting"
+                  placeholder={t('calendar.subjectPlaceholder')}
                   value={eventTitle}
                   onChange={e => setEventTitle(e.target.value)}
                   required
                 />
               </div>
-
-              <div className="form-row">
-                <div className="form-group half">
-                  <label htmlFor="event-start">{t('calendar.start')}</label>
-                  <input
-                    type="time"
-                    id="event-start"
-                    value={eventStart}
-                    onChange={e => setEventStart(e.target.value)}
-                    required
-                  />
+              <div className="details-columns">
+                <div className="details-info-col">
+                  <div className="form-group">
+                    <label htmlFor="event-date">{t('calendar.date')}</label>
+                    <input
+                      type="date"
+                      id="event-date"
+                      value={selectedDateStr}
+                      onChange={e => setSelectedDateStr(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group half">
+                      <label htmlFor="event-start">{t('calendar.start')}</label>
+                      <input
+                        type="time"
+                        id="event-start"
+                        value={eventStart}
+                        onChange={e => setEventStart(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group half">
+                      <label htmlFor="event-end">{t('calendar.end')}</label>
+                      <input
+                        type="time"
+                        id="event-end"
+                        value={eventEnd}
+                        onChange={e => setEventEnd(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="event-location">{t('calendar.location')}</label>
+                    <input
+                      type="text"
+                      id="event-location"
+                      placeholder={t('calendar.locationPlaceholder')}
+                      value={eventLocation}
+                      onChange={e => setEventLocation(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div className="form-group half">
-                  <label htmlFor="event-end">{t('calendar.end')}</label>
-                  <input
-                    type="time"
-                    id="event-end"
-                    value={eventEnd}
-                    onChange={e => setEventEnd(e.target.value)}
-                    required
-                  />
+                <div className="details-desc">
+                  <div className="form-group">
+                    <label htmlFor="event-desc">{t('calendar.description')}</label>
+                    <textarea
+                      id="event-desc"
+                      placeholder={t('calendar.descriptionPlaceholder')}
+                      value={eventDesc}
+                      onChange={e => setEventDesc(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
-
-              <div className="form-group">
-                <label htmlFor="event-location">{t('calendar.location')}</label>
-                <input
-                  type="text"
-                  id="event-location"
-                  placeholder="e.g. Microsoft Teams Room, Room 3B"
-                  value={eventLocation}
-                  onChange={e => setEventLocation(e.target.value)}
-                />
+            </div>
+            <div className="modal-footer">
+              <div className="category-selector">
+                {['work', 'personal', 'urgent', 'study'].map(cat => {
+                  const label = t(`calendar.categories.${cat.charAt(0).toUpperCase() + cat.slice(1)}`);
+                  return (
+                    <label key={cat} className={`category-radio category-${cat} ${eventCategory === cat ? 'selected' : ''}`}>
+                      <input
+                        type="radio"
+                        name="category"
+                        value={cat}
+                        checked={eventCategory === cat}
+                        onChange={() => setEventCategory(cat)}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  );
+                })}
               </div>
-
-              <div className="form-group">
-                <label>{t('calendar.category')}</label>
-                <div className="category-selector">
-                  {['work', 'personal', 'urgent', 'study'].map(cat => {
-                    const label = t(`calendar.categories.${cat.charAt(0).toUpperCase() + cat.slice(1)}`);
-                    return (
-                      <label key={cat} className={`category-radio category-${cat} ${eventCategory === cat ? 'selected' : ''}`}>
-                        <input
-                          type="radio"
-                          name="category"
-                          value={cat}
-                          checked={eventCategory === cat}
-                          onChange={() => setEventCategory(cat)}
-                        />
-                        <span>{label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="event-desc">{t('calendar.description')}</label>
-                <textarea
-                  id="event-desc"
-                  placeholder="Add meeting agenda details..."
-                  value={eventDesc}
-                  onChange={e => setEventDesc(e.target.value)}
-                />
-              </div>
-
-              <div className="modal-footer">
+              <div className="footer-actions">
                 <button type="button" className="cancel-btn" onClick={closeEventModal}>{t('common.cancel')}</button>
                 <button type="submit" className="save-btn">{t(editingEventId ? 'calendar.saveEvent' : 'calendar.newEvent')}</button>
               </div>
-            </form>
-          </div>
-        </div>
+            </div>
+          </form>
+        </CalendarEventModal>
       )}
 
       {/* Event Details Viewer Drawer/Modal */}
       {selectedEvent && (
-        <div className="calendar-modal-overlay" onClick={() => setSelectedEvent(null)}>
-          <div className="calendar-modal details-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className={`event-badge category-${getCleanCategory(selectedEvent.categories)}`}>
-                {t(`calendar.categories.${selectedEvent.categories?.[0] || 'Work'}`)}
-              </span>
-              <button className="close-modal-btn" onClick={() => setSelectedEvent(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className="details-body">
-              <h2 className="details-title">{selectedEvent.subject}</h2>
-              <div className="details-meta-row">
-                <span className="meta-icon">📅</span>
-                <span>{selectedEvent.start.dateTime.split('T')[0]}</span>
-              </div>
-              <div className="details-meta-row">
-                <span className="meta-icon">⏰</span>
-                <span>
-                  {selectedEvent.start.dateTime.split('T')[1].substring(0, 5)} - {selectedEvent.end.dateTime.split('T')[1].substring(0, 5)}
-                </span>
-              </div>
-              <div className="details-meta-row">
-                <span className="meta-icon">📍</span>
-                <span>{selectedEvent.location?.displayName || 'Virtual Meeting'}</span>
+        <CalendarEventModal
+          onClose={() => setSelectedEvent(null)}
+          headerLeft={(
+            <span className={`event-badge category-${getCleanCategory(selectedEvent.categories)}`}>
+              {t(`calendar.categories.${selectedEvent.categories?.[0] || 'Work'}`)}
+            </span>
+          )}
+        >
+          <div className="details-body">
+            <h2 className="details-title">{selectedEvent.subject}</h2>
+            <div className="details-columns">
+              <div className="details-info-col">
+                <div className="details-meta-row">
+                  <span className="meta-icon"><Calendar size={15} /></span>
+                  <span>{selectedEvent.start.dateTime.split('T')[0]}</span>
+                </div>
+                <div className="details-meta-row">
+                  <span className="meta-icon"><Clock size={15} /></span>
+                  <span>
+                    {selectedEvent.start.dateTime.split('T')[1].substring(0, 5)} - {selectedEvent.end.dateTime.split('T')[1].substring(0, 5)}
+                  </span>
+                </div>
+                <div className="details-meta-row">
+                  <span className="meta-icon"><MapPin size={15} /></span>
+                  <span>{selectedEvent.location?.displayName || 'Virtual Meeting'}</span>
+                </div>
               </div>
               <div className="details-desc">
                 <h4>{t('calendar.agenda')}</h4>
@@ -480,27 +501,26 @@ export default function CalendarPage() {
                 )}
               </div>
             </div>
-            <div className="modal-footer">
-              <button 
-                type="button" 
-                className="delete-event-btn" 
-                onClick={(e) => handleDeleteEventClick(selectedEvent.id, e)}
-              >
-                <Trash size={16} />
-                <span>{t('calendar.deleteEvent')}</span>
-              </button>
-              <button
-                type="button"
-                className="close-details-btn"
-                onClick={() => handleEditEventClick(selectedEvent)}
-              >
-                <Edit3 size={16} />
-                <span>{t('calendar.editEvent')}</span>
-              </button>
-              <button type="button" className="close-details-btn" onClick={() => setSelectedEvent(null)}>{i18n.language === 'zh' ? "关闭" : "Close"}</button>
-            </div>
           </div>
-        </div>
+          <div className="modal-footer">
+            <button
+              type="button"
+              className="delete-event-btn"
+              onClick={(e) => handleDeleteEventClick(selectedEvent.id, e)}
+            >
+              <Trash size={16} />
+              <span>{t('calendar.deleteEvent')}</span>
+            </button>
+            <button
+              type="button"
+              className="close-details-btn"
+              onClick={() => handleEditEventClick(selectedEvent)}
+            >
+              <Edit3 size={16} />
+              <span>{t('calendar.editEvent')}</span>
+            </button>
+          </div>
+        </CalendarEventModal>
       )}
     </div>
   );
