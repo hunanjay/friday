@@ -2,8 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.core.security import get_user_id
-from app.infrastructure.db.repositories import contacts as contacts_repo
-from app.infrastructure.db.repositories import user_memory as user_memory_repo
+from app.infrastructure.db.repositories import contacts as contacts_repo, user_memory as user_memory_repo
 from app.services.contact_brain_service import ContactBrainService
 from app.services.contact_service import ContactService
 
