@@ -5,7 +5,7 @@
 Friday (Dora) 作为一个个人智能工作空间，处理用户的邮件、日程、文档及 Auth Token，安全与隐私是项目的重中之重：
 
 1. **Token 隔离与安全存储**：Microsoft OAuth Refresh Token 仅存在服务端数据库中，严禁暴露给前端 DOM。
-2. **破坏性操作 Human-in-the-Loop 门禁**：发送邮件、删除邮件等写操作必须经过 `pending_agent_actions` 门禁与 15 分钟 TTL 用户显式二次确认，避免 Agent 自增权或 LLM Prompt 注入越权。
+2. **破坏性操作 Human-in-the-Loop 门禁**：发送邮件、删除邮件等写操作必须经过 LangGraph Interrupt 门禁与 `hitl_action_audit` 表记录的用户显式二次确认，默认 24 小时未确认自动过期（`HITL_ACTION_TTL_SECONDS` 可调），避免 Agent 自增权或 LLM Prompt 注入越权。
 3. **输入输出清洗**：所有邮件 HTML 内容在解析展示前均强制经过 `html_sanitizer` 过滤。
 
 ## 🐛 漏洞上报机制

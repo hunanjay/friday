@@ -50,7 +50,7 @@ running it against:
 Either way `alembic upgrade head` finishes at the same schema and stamps
 `alembic_version`. Both paths are covered by manually running the migration
 twice against fresh vs. pre-seeded databases before merging any change here
-(there's no CI Postgres service yet — see PLAN_SPEC.md Phase 0).
+(there's no CI Postgres service yet, so this isn't exercised automatically).
 
 ## Backup and rollback
 
