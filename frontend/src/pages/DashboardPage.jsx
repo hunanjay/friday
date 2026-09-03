@@ -185,7 +185,10 @@ export default function DashboardPage() {
   } = useGitHubCommits(currentWeekInfo);
   useEffect(() => setCommitsPage(1), [currentWeekInfo]);
 
-  const loadError = inboxError || isCalendarError || commitsError;
+  // A commits fetch error is expected (a 404) when GitHub simply isn't
+  // connected - the GitHub panel already shows its own "not connected"
+  // state for that, so it shouldn't also trip the page-level error banner.
+  const loadError = inboxError || isCalendarError || (commitsError && githubStatus?.connected);
   const handleRetry = () => {
     void refetchCalendarEvents();
     void refetchInbox();

@@ -1179,7 +1179,7 @@ def make_user_memory_tools(user_id: str, session_id: str | None = None) -> list:
 
 _GITHUB_NOT_CONNECTED = (
     "The user's GitHub account isn't connected, or the connection was revoked. "
-    "Tell them to connect GitHub (see the sidebar) to generate a report."
+    "Tell them to [connect GitHub](/settings/github) to generate a report."
 )
 
 

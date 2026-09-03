@@ -55,6 +55,13 @@ def _today_beijing_window() -> tuple[str, str]:
 
 
 async def list_commits(user_id: str, since: str | None = None, until: str | None = None) -> list[dict]:
+    # Check this once, up front: the per-repo loop below also swallows 404s
+    # (a repo that's gone or the token can't see), and that catch must not
+    # also eat "no token at all" - otherwise "not connected" silently reads
+    # as "no commits today" instead of surfacing the real reason.
+    if not await run_in_threadpool(get_github_token, user_id):
+        raise HTTPException(status_code=404, detail="No GitHub account linked")
+
     if since is None or until is None:
         default_since, default_until = _today_beijing_window()
         since = since or default_since
