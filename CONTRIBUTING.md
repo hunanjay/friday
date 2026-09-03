@@ -27,7 +27,7 @@
 
 ### Scope 作用域（可选）
 
-`backend` / `frontend` / `agents` / `auth` / `mail` / `calendar` / `memos` / `github` / `rag` / `ci` / `docs`
+`backend` / `frontend` / `agents` / `auth` / `mail` / `calendar` / `contacts` / `memos` / `github` / `rag` / `ci` / `docs`
 
 ### Subject 要求
 

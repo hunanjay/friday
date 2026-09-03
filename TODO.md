@@ -32,12 +32,13 @@
 > **目标**：允许用户自定义助手的名称（Dora/Friday/Jarvis等）、性格风格（干练/治愈/科技感/学术）、个性化 Custom Prompt 指令及专属头像。
 
 #### 阶段 1：数据持久化与设置面板 (Settings & DB Schema)
-- [ ] **数据库 Schema 扩充**：在 Postgres / Supabase 的 `user_profiles` 中增加 `agent_name`, `agent_avatar_url`, `persona_preset`, `custom_instructions` 字段。
-- [ ] **前端 Settings 设置面板**：在 `/settings` 页面新增 "Agent Persona & Identity" 设置区域，支持切换性格预设（Preset）与编写 Custom Instructions。
+- [x] **助手名称 + 头像**：`user_settings` 表存 `assistant_name`/`avatar_url`，`/settings/assistant` 页面可改，头像走预设选择器（`OSS_AVATAR_BUCKET`）。
+- [ ] **性格预设 / Custom Instructions**：`persona_preset`、`custom_instructions` 字段和对应 UI 还没有——现在只能改名字和头像，改不了语气/性格。
 
 #### 阶段 2：后端 Dynamic System Prompt 注入 (Dynamic Prompt Injection)
-- [ ] **Supervisor Prompt 闭包构造**：在 `supervisor.py` 中，根据当前 caller 的 `user_id` 读取 `agent_name`、`persona_preset` 和 `custom_instructions`，动态注入 System Prompt 前置上下文。
-- [ ] **子 Agent 语气同步**：保证 `mail_agent`, `calendar_agent`, `memos_agent` 均同步共享用户的性格与表达风格设定。
+- [x] **助手名称注入**：`supervisor.py` 的 `build_supervisor`/`build_agent` 已经按 `user_id` 读 `assistant_name` 并闭包进每个 agent 和 supervisor 的 system prompt（`_name_line`）。
+- [ ] **Persona preset / custom instructions 注入**：还没做，需要先有阶段 1 的字段。
+- [x]（间接达成）**跨 agent 一致的用户偏好**：不是走这里规划的 persona_preset，而是 `user_memory` 表的 `preference` 类事实——用户在聊天里说"以后回复简短点"之类的话，`remember_user_fact` 记录后自动注入每个 agent 和 supervisor 的 prompt。跟这里设想的"预设风格开关"是两条不同路子，覆盖的是同一类需求。
 
 #### 阶段 3：前端 UI 形象与头像全量响应 (Dynamic Identity UI)
 - [ ] **WorkspaceContext 全局响应**：全局状态绑定 `agentIdentity`。

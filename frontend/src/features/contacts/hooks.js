@@ -7,6 +7,7 @@ import {
   deleteContactFact,
   getContactTags,
   getContacts,
+  getSelfMemory,
   syncMicrosoftContacts,
   updateContact,
 } from './api';
@@ -88,5 +89,28 @@ export function useContacts({ query = '', tag = null, debounceMs = 250 } = {}) {
     deleteContact: deleteMutation.mutateAsync,
     deleteContactFact: (contactId, factId) => deleteFactMutation.mutateAsync({ contactId, factId }),
     refetchContacts: () => invalidate(),
+  };
+}
+
+// The user's own long-term memory (profile/preference/topic facts), shaped
+// like a contact so ContactsPage can show it with the same facts UI.
+export function useSelfMemory() {
+  const { authToken, scope } = useContactsAccess();
+  const queryClient = useQueryClient();
+  const queryKey = contactKeys.self(scope);
+  const query = useQuery({
+    queryKey,
+    queryFn: () => getSelfMemory(authToken),
+    enabled: Boolean(authToken),
+  });
+  const deleteFactMutation = useMutation({
+    mutationFn: factId => deleteContactFact(authToken, 'me', factId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  return {
+    selfMemory: query.data ?? null,
+    isLoadingSelfMemory: Boolean(authToken) && query.isPending,
+    deleteSelfMemoryFact: deleteFactMutation.mutateAsync,
   };
 }

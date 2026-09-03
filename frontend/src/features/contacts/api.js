@@ -35,6 +35,10 @@ export async function deleteContact(token, contactId) {
   return contactId;
 }
 
+export async function getSelfMemory(token) {
+  return apiRequest('/api/contacts/me', { token });
+}
+
 export async function deleteContactFact(token, contactId, factId) {
   await apiRequest(`/api/contacts/${encodeURIComponent(contactId)}/facts/${encodeURIComponent(factId)}`, {
     method: 'DELETE',

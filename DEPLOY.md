@@ -66,8 +66,10 @@ QDRANT_API_KEY=...
 
 ### 3. 启动 PostgreSQL 数据库
 
+`docker-compose.yml` 里除了 `db` 还定义了 `backend` 服务（容器化跑法，见下方"生产部署"）。本地开发用裸机 `uvicorn` 起后端，所以这里只起 `db`，避免两边都占 8005 端口冲突：
+
 ```bash
-docker compose up -d
+docker compose up -d db
 ```
 
 验证数据库已就绪：
@@ -87,6 +89,10 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # 安装依赖
 pip install -r requirements.txt
+
+# 数据库迁移（首次启动前，以及之后每次 pull 到 schema 变更都要跑一次；
+# 后端启动时不会自动建/改业务表）
+alembic upgrade head
 
 # 启动开发服务器（支持热重载）
 uvicorn app.main:app --host 0.0.0.0 --port 8005 --reload --reload-dir app
@@ -185,11 +191,15 @@ server {
       - backend
 ```
 
-### 5. 启动全部服务
+### 5. 数据库迁移 + 启动全部服务
 
 ```bash
+docker compose up -d --build db
+docker compose run --rm backend alembic upgrade head
 docker compose up -d --build
 ```
+
+（`backend/docs/migrations.md` 有完整说明；这一步不会在后端启动时自动执行，漏跑会导致业务表缺失。）
 
 ### 6. HTTPS 配置（推荐）
 
@@ -234,28 +244,36 @@ VITE_SUPABASE_ANON_KEY=<your_anon_key>
 
 | 变量 | 说明 | 是否必填 |
 |------|------|----------|
-| `OPENAI_API_KEY` | OpenAI / 中转 API Key | ✅ |
-| `OPENAI_BASE_URL` | API 代理地址（用中转站时填） | 可选 |
-| `OPENAI_MODEL` | 模型名，默认 `gpt-4o` | 可选 |
+| `LLM_PROVIDER` | `qwen` / `zhipu` / `custom`，切换整个 LLM profile | ✅（默认 `custom`） |
+| `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL` | `LLM_PROVIDER=qwen` 时用 | 按 provider 二选一 |
+| `ZHIPU_API_KEY` / `ZHIPU_BASE_URL` / `ZHIPU_MODEL` | `LLM_PROVIDER=zhipu` 时用 | 按 provider 二选一 |
+| `OPENAI_API_KEY` | `LLM_PROVIDER=custom` 时用，OpenAI / 中转 API Key | 按 provider 二选一 |
+| `OPENAI_BASE_URL` | `LLM_PROVIDER=custom` 时的 API 地址 | 按 provider 二选一 |
+| `OPENAI_MODEL` | `LLM_PROVIDER=custom` 时的模型名，默认 `gpt-4o-mini` | 可选 |
 | `SUPABASE_URL` | Supabase 项目 URL | ✅ |
 | `SUPABASE_ANON_KEY` | 公开 Key | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | 服务端 Key（保密，勿提交） | ✅ |
 | `SUPABASE_JWT_SECRET` | JWT 验证密钥 | ✅ |
-| `CHECKPOINT_DB_URL` | PostgreSQL 连接串 | ✅ |
-| `QDRANT_URL` | Qdrant 集群地址 | ✅ |
+| `ADMIN_USER_IDS` | 逗号分隔的 Supabase user id，允许读取 `GET /api/stats`；留空则该接口对所有人 403 | 可选 |
+| `CHECKPOINT_DB_URL` | PostgreSQL 连接串（LangGraph checkpointer 用，`docker compose up` 会自动注入） | ✅ |
+| `QDRANT_URL` | Qdrant 集群地址（memos 语义检索用） | ✅ |
 | `QDRANT_API_KEY` | Qdrant API Key | ✅ |
 | `AZURE_CLIENT_ID` | Azure AD OAuth App ID | 需要 MS 登录时 |
 | `AZURE_CLIENT_SECRET` | Azure AD OAuth Secret | 需要 MS 登录时 |
+| `MAIL_ENCRYPTION_KEY` | 加密第三方邮箱（IMAP/SMTP）授权码的 Fernet key，生成方式见 [`docs/mail-accounts.md`](./docs/mail-accounts.md) | 需要绑定第三方邮箱时 |
 | `GITHUB_REPORT_REPO` | 报告目标仓库，如 `hunanjay/friday` | 可选 |
 | `GITHUB_CLIENT_ID` | GitHub OAuth App ID | 需要 GitHub 连接时 |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth Secret | 需要 GitHub 连接时 |
 | `OSS_ACCESS_KEY_ID` | 阿里云 OSS Key | 需要文件上传时 |
 | `OSS_ACCESS_KEY_SECRET` | 阿里云 OSS Secret | 需要文件上传时 |
 | `OSS_ENDPOINT` | OSS 区域 Endpoint | 需要文件上传时 |
-| `OSS_BUCKET` | OSS Bucket 名称 | 需要文件上传时 |
+| `OSS_BUCKET` | 备忘录附件私有 Bucket | 需要文件上传时 |
+| `OSS_AVATAR_BUCKET` | 头像预设公开 Bucket（Settings 头像选择器读这里的对象列表） | 可选 |
 | `BACKEND_URL` | 后端公开地址 | 生产环境必填 |
 | `FRONTEND_URL` | 前端公开地址 | 生产环境必填 |
 | `TIMEZONE` | 时区，默认 `Asia/Shanghai` | 可选 |
+
+> Langfuse tracing（`LANGFUSE_*`）是可选项，独立在 `docker-compose.tracing.yml` 里，`docker compose --profile tracing up -d` 才会启用，完整字段见 `backend/.env.example`。
 
 ### `frontend/.env`
 
