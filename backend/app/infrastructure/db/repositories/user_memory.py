@@ -113,6 +113,28 @@ async def get_injectable_memory(user_id: str) -> tuple[list[dict], list[dict]]:
     return [_row_to_dict(r) for r in profile_rows], [_row_to_dict(r) for r in preference_rows]
 
 
+async def list_all_facts(user_id: str) -> list[dict]:
+    """Every fact across all categories, most recently updated first - the
+    full set for a "this is everything the assistant remembers about me"
+    view (contrast get_injectable_memory, which caps and excludes topic)."""
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            f"select {_COLUMNS} from user_memory where user_id = %s order by updated_at desc",
+            (user_id,),
+        )
+        rows = await cur.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def delete_fact_by_id(user_id: str, fact_id: str) -> bool:
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            "delete from user_memory where id = %s and user_id = %s returning id",
+            (fact_id, user_id),
+        )
+        return await cur.fetchone() is not None
+
+
 async def search_facts(user_id: str, query: str, category: str | None = None) -> list[dict]:
     like = f"%{query}%"
     params: list = [user_id, like, like]

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from app.core.security import get_user_id
 from app.infrastructure.db.repositories import contacts as contacts_repo
+from app.infrastructure.db.repositories import user_memory as user_memory_repo
 from app.services.contact_brain_service import ContactBrainService
 from app.services.contact_service import ContactService
 
@@ -54,6 +55,36 @@ async def list_contacts(
 async def list_tags(user_id: str = Depends(get_user_id)):
     """List all unique tags created for contacts."""
     return await contacts_repo.get_all_user_tags(user_id)
+
+
+@router.get("/me")
+async def get_self_memory(user_id: str = Depends(get_user_id)):
+    """The user's own long-term memory (profile/preference/topic facts saved
+    via remember_user_fact), shaped like a contact so it reuses the same
+    facts UI as a real contact's Memory Profiles panel."""
+    facts = await user_memory_repo.list_all_facts(user_id)
+    return {
+        "id": "me",
+        "name": None,
+        "email": None,
+        "phone": None,
+        "company": None,
+        "jobTitle": None,
+        "location": None,
+        "ai_summary": None,
+        "profiles": [{**f, "dimension": f["category"]} for f in facts],
+        "tags": [],
+        "timeline": [],
+    }
+
+
+@router.delete("/me/facts/{fact_id}")
+async def delete_self_fact(fact_id: str, user_id: str = Depends(get_user_id)):
+    """Delete one of the user's own memory facts (not a contact fact)."""
+    ok = await user_memory_repo.delete_fact_by_id(user_id, fact_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    return {"status": "ok", "fact_id": fact_id}
 
 
 @router.get("/{contact_id}")

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/useAuth';
-import { useContactTags, useContacts } from '../features/contacts/hooks';
+import { useContactTags, useContacts, useSelfMemory } from '../features/contacts/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import {
@@ -20,9 +20,22 @@ import {
   Clock,
   MapPin,
   ChevronLeft,
+  Heart,
+  UserIcon,
+  Zap,
 } from '../components/common/Icons';
 import ChatLogPasteModal from '../components/ChatLogPasteModal';
 import { DIMENSION_META, factDimensionOrder } from './contactDimensions';
+
+// The user's own long-term memory uses category, not dimension, and always
+// has exactly these three buckets - no "coined by the agent" extras to sort
+// in, unlike a real contact's dimensions.
+const SELF_CATEGORY_ORDER = ['profile', 'preference', 'topic'];
+const SELF_CATEGORY_META = {
+  profile: { zh: '个人信息 (Profile)', en: 'Profile Facts', emptyZh: '暂无个人信息', icon: UserIcon, color: '#0891b2' },
+  preference: { zh: '偏好设置 (Preference)', en: 'Preferences', emptyZh: '暂无偏好设置', icon: Heart, color: '#ec4899' },
+  topic: { zh: '话题习惯 (Topic)', en: 'Topic Habits', emptyZh: '暂无话题习惯', icon: Zap, color: '#8b5cf6' },
+};
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -145,9 +158,12 @@ export default function ContactsPage() {
     deleteContactFact,
     refetchContacts,
   } = useContacts({ query: searchQuery, tag: selectedTag });
+  const { selfMemory, deleteSelfMemoryFact } = useSelfMemory();
 
   useEffect(() => {
     setSelectedContact(current => {
+      // The self-memory card isn't in `contacts`, so leave it selected.
+      if (current?.id === 'me') return current;
       const isDesktop = typeof window !== 'undefined' && window.innerWidth > 768;
       if (!current) return isDesktop ? (contacts[0] || null) : null;
       const updated = contacts.find(c => c.id === current.id);
@@ -202,7 +218,11 @@ export default function ContactsPage() {
   const handleDeleteFact = async (factId) => {
     if (!selectedContact) return;
     try {
-      await deleteContactFact(selectedContact.id, factId);
+      if (selectedContact.id === 'me') {
+        await deleteSelfMemoryFact(factId);
+      } else {
+        await deleteContactFact(selectedContact.id, factId);
+      }
       showToast(i18n.language === 'zh' ? '已删除该条事实' : 'Fact deleted');
       const updatedProfiles = (selectedContact.profiles || []).filter(p => p.id !== factId);
       setSelectedContact({ ...selectedContact, profiles: updatedProfiles });
@@ -240,15 +260,16 @@ export default function ContactsPage() {
   };
 
   const isZh = i18n.language === 'zh';
+  const isSelf = selectedContact?.id === 'me';
 
-  // Group profiles by dimension
+  // Group profiles by dimension (self-memory rows carry category as dimension)
   const profilesByDimension = (selectedContact?.profiles || []).reduce((acc, p) => {
     const dim = p.dimension || 'basic';
     if (!acc[dim]) acc[dim] = [];
     acc[dim].push(p);
     return acc;
   }, {});
-  const dimensionKeys = factDimensionOrder(profilesByDimension);
+  const dimensionKeys = isSelf ? SELF_CATEGORY_ORDER : factDimensionOrder(profilesByDimension);
 
   // Interactions keyed by id: a fact's source_id points at the record it came from.
   const originsById = (selectedContact?.timeline || []).reduce((acc, item) => {
@@ -369,6 +390,22 @@ export default function ContactsPage() {
 
         {/* Contacts Scroll List */}
         <div className="contacts-scroll-list">
+          {selfMemory && (
+            <div
+              className={`contact-card-item ${selectedContact?.id === 'me' ? 'selected' : ''}`}
+              onClick={() => setSelectedContact(selfMemory)}
+            >
+              <div className="contact-card-avatar">{isZh ? '我' : 'Me'}</div>
+              <div className="contact-card-info">
+                <div className="contact-card-name-row">
+                  <span className="contact-card-name">{isZh ? '我的长期记忆' : 'My Memory'}</span>
+                </div>
+                <span className="contact-card-company">
+                  {isZh ? '助手记住的关于你的事实' : "What the assistant remembers about you"}
+                </span>
+              </div>
+            </div>
+          )}
           {isLoading ? (
             <div className="contacts-empty-state">
               <span className="spinner" style={{ width: 24, height: 24 }} />
@@ -454,10 +491,10 @@ export default function ContactsPage() {
                 <ChevronLeft size={18} />
                 <span>{isZh ? '返回' : 'Back'}</span>
               </button>
-              <div className="contact-detail-avatar-large">{(selectedContact.name?.[0] || 'C').toUpperCase()}</div>
+              <div className="contact-detail-avatar-large">{isSelf ? (isZh ? '我' : 'Me') : (selectedContact.name?.[0] || 'C').toUpperCase()}</div>
               <div className="contact-detail-meta">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <h2>{selectedContact.name}</h2>
+                  <h2>{isSelf ? (isZh ? '我的长期记忆' : 'My Memory') : selectedContact.name}</h2>
                   {selectedContact.outlook_contact_id && (
                     <span style={{ fontSize: '0.72rem', background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
                       MS Outlook
@@ -465,18 +502,20 @@ export default function ContactsPage() {
                   )}
                 </div>
                 <p className="contact-detail-subtitle">
-                  {[selectedContact.jobTitle, selectedContact.company, selectedContact.location].filter(Boolean).join(' · ') || (isZh ? '联系人档案' : 'Profile')}
+                  {isSelf
+                    ? (isZh ? '跨会话共享的个人事实，每次对话助手都会看到。' : 'Facts shared across every chat session.')
+                    : ([selectedContact.jobTitle, selectedContact.company, selectedContact.location].filter(Boolean).join(' · ') || (isZh ? '联系人档案' : 'Profile'))}
                 </p>
               </div>
 
               <div className="contact-detail-top-actions">
-                {!isEditing && (
+                {!isSelf && !isEditing && (
                   <button type="button" className="action-icon-btn" onClick={handleStartEdit}>
                     <Edit3 size={16} />
                     <span>{isZh ? '编辑' : 'Edit'}</span>
                   </button>
                 )}
-                {selectedContact.email && !isEditing && (
+                {!isSelf && selectedContact.email && !isEditing && (
                   <button type="button" className="action-icon-btn active" onClick={() => navigate('/email')}>
                     <Mail size={16} />
                     <span>{isZh ? '发邮件' : 'Email'}</span>
@@ -486,7 +525,29 @@ export default function ContactsPage() {
             </header>
 
             <div className="contact-detail-body">
-              {isEditing ? (
+              {isSelf ? (
+                <section style={{ marginTop: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    {dimensionKeys.map((dim) => {
+                      const meta = SELF_CATEGORY_META[dim];
+                      const Icon = meta.icon;
+                      return (
+                        <FactGroup
+                          key={dim}
+                          title={isZh ? meta.zh : meta.en}
+                          icon={<Icon size={16} />}
+                          color={meta.color}
+                          facts={profilesByDimension[dim]}
+                          emptyText={isZh ? meta.emptyZh : `No ${dim} facts recorded`}
+                          originsById={{}}
+                          isZh={isZh}
+                          onDelete={handleDeleteFact}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : isEditing ? (
                 <form onSubmit={handleUpdateSubmit} className="contact-edit-form">
                   <h4>{isZh ? '修改联系人资料' : 'Edit Profile'}</h4>
                   <div className="contact-info-grid">
