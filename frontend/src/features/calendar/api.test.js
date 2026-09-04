@@ -65,6 +65,7 @@ describe('calendar API', () => {
         start: event.start,
         end: event.end,
         location: event.location,
+        categories: event.categories,
       },
     });
   });
