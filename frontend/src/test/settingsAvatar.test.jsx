@@ -169,24 +169,19 @@ describe('SettingsPage assistant avatar', () => {
 
 describe('SettingsPage usage section', () => {
   const usageStats = {
-    users: { registered: { total: 3, new_in_window: 1 }, dau: 1, wau: 2, mau: 3, wau_over_mau: 0.67 },
-    agent: {
-      turns: 5, active_users: 2, turns_per_user: 2.5, tool_calls: 6,
-      errors: 0, error_rate: 0, median_duration_ms: 900,
-      by_route: { supervisor: 5 }, by_agent: { mail_agent: 5 },
-    },
-    hitl: { by_status: {}, by_tool: {}, approval_rate: null },
+    users: { registered: { total: 3 } },
+    agents: { by_agent: { supervisor: 2, calendar_agent: 1 } },
   };
 
   it('stays hidden for a non-admin, nav entry included', () => {
     renderSettings();
     expect(document.getElementById('usage')).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Usage' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Users' })).toBeNull();
   });
 
   it('appears once the backend answers, so the 403 is the only gate', () => {
     renderSettings({ usageStats }, '/settings/usage');
     expect(document.getElementById('usage')).not.toBeNull();
-    expect(screen.getByRole('link', { name: 'Usage' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Users' })).toBeTruthy();
   });
 });

@@ -12,6 +12,7 @@ Deliberately no foreign key to chat_sessions: deleting a conversation must not
 erase the usage history that conversation contributed to.
 """
 
+import json
 import logging
 
 from app.infrastructure.db.pool import get_pool
@@ -25,12 +26,15 @@ create table if not exists agent_runs (
     session_id uuid not null,
     route text not null,
     agent text,
+    agent_calls jsonb not null default '{}'::jsonb,
     tool_calls integer not null default 0,
     paused boolean not null default false,
     ok boolean not null default true,
     duration_ms integer,
     created_at timestamptz not null default now()
 );
+alter table agent_runs
+    add column if not exists agent_calls jsonb not null default '{}'::jsonb;
 create index if not exists agent_runs_created_idx on agent_runs (created_at desc);
 create index if not exists agent_runs_user_idx on agent_runs (user_id, created_at desc);
 """
@@ -54,6 +58,7 @@ async def record_run(
     *,
     route: str,
     agent: str | None,
+    agent_calls: dict[str, int] | None = None,
     tool_calls: int,
     paused: bool,
     ok: bool,
@@ -63,12 +68,23 @@ async def record_run(
     here degrades to "this turn is missing from the stats" rather than raising
     into the SSE stream."""
     try:
+        calls = agent_calls if agent_calls is not None else {agent or "supervisor": 1}
         async with _db_pool().connection() as conn:
             await conn.execute(
                 "insert into agent_runs "
-                "(user_id, session_id, route, agent, tool_calls, paused, ok, duration_ms) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (user_id, session_id, route, agent, tool_calls, paused, ok, duration_ms),
+                "(user_id, session_id, route, agent, agent_calls, tool_calls, paused, ok, duration_ms) "
+                "values (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)",
+                (
+                    user_id,
+                    session_id,
+                    route,
+                    agent,
+                    json.dumps(calls),
+                    tool_calls,
+                    paused,
+                    ok,
+                    duration_ms,
+                ),
             )
     except Exception:
         logger.exception("failed to record agent run")
@@ -116,6 +132,27 @@ async def agent_stats(days: int) -> dict:
         "by_route": by_route,
         "by_agent": by_agent,
     }
+
+
+async def agent_call_counts() -> dict[str, int]:
+    """All-time delegation count for every agent invoked in a turn.
+
+    Rows written before agent_calls existed fall back to their single handled
+    agent, so deploying this migration does not reset the visible totals.
+    """
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            "with calls as ("
+            "  select entry.key as agent, entry.value::bigint as call_count "
+            "  from agent_runs cross join lateral jsonb_each_text(agent_calls) as entry "
+            "  union all "
+            "  select coalesce(agent, 'supervisor'), 1 "
+            "  from agent_runs where agent_calls = '{}'::jsonb"
+            ") "
+            "select agent, sum(call_count)::bigint from calls group by agent order by agent"
+        )
+        rows = await cur.fetchall()
+    return {agent: count for agent, count in rows}
 
 
 # Every business table carries user_id + updated_at (memos has no created_at),

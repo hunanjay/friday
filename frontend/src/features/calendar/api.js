@@ -29,6 +29,7 @@ export async function createCalendarEvent(token, event) {
       start: event.start,
       end: event.end,
       location: event.location,
+      categories: event.categories,
     },
   });
   const created = normalizeCalendarEvent(data);

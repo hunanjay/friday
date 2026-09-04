@@ -318,8 +318,12 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertIn("extract_contact_memory", tools_dict)
 
         search_tool = tools_dict["search_contacts"]
+        create_tool = tools_dict["create_contact"]
         record_tool = tools_dict["record_contact_fact"]
         extract_tool = tools_dict["extract_contact_memory"]
+        record_schema = record_tool.args_schema.model_json_schema()
+        self.assertIn("contact_id", record_schema["required"])
+        self.assertNotIn("contact_name", record_schema["properties"])
 
         # 5a. search_contacts tool execution
         with patch("app.services.contact_service.ContactService.get_contacts", new_callable=AsyncMock) as mock_get_contacts:
@@ -346,15 +350,41 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
             self.assertIn("普洱茶", output)
             self.assertIn("问界M9", output)
 
-        # 5b. record_contact_fact tool execution (casual single fact saving)
+        # Same-name contacts are valid data, so creation must not silently
+        # update whichever row happened to be returned first.
         with patch("app.services.contact_service.ContactService.get_contacts", new_callable=AsyncMock) as mock_get_c, \
-             patch("app.infrastructure.db.repositories.contacts.add_contact_profile", new_callable=AsyncMock) as mock_add_p:
+             patch("app.services.contact_service.ContactService.update_contact", new_callable=AsyncMock) as mock_update_c, \
+             patch("app.services.contact_service.ContactService.create_contact", new_callable=AsyncMock) as mock_create_c:
+            mock_get_c.return_value = [
+                {"id": "cid-1", "name": "曾佳丽", "email": "first@example.com", "company": ""},
+                {"id": "cid-2", "name": "曾佳丽", "email": "", "company": "Example Co"},
+            ]
 
-            mock_get_c.return_value = [{"id": "cid-zhangming", "name": "张明"}]
-            mock_add_p.return_value = {"id": "fact-new-1"}
+            output = await create_tool.ainvoke({"name": "曾佳丽"})
+
+            self.assertIn("Multiple contacts are named '曾佳丽'", output)
+            self.assertIn("ask the user which contact", output)
+            mock_update_c.assert_not_awaited()
+            mock_create_c.assert_not_awaited()
+
+        # 5b. record_contact_fact tool execution (casual single fact saving)
+        with patch("app.services.contact_service.ContactService.get_contact_by_id", new_callable=AsyncMock) as mock_get_c, \
+             patch("app.infrastructure.db.repositories.contacts.add_contact_profile", new_callable=AsyncMock) as mock_add_p, \
+             patch("app.infrastructure.db.repositories.contacts.get_fact_vocabulary", new_callable=AsyncMock) as mock_vocab:
+
+            mock_get_c.return_value = {"id": "cid-zhangming", "name": "张明"}
+            mock_add_p.return_value = {
+                "id": "fact-new-1",
+                "dimension": "private",
+                "category": "preference",
+            }
+            mock_vocab.return_value = {
+                "dimensions": ["basic", "private"],
+                "categories": ["preference"],
+            }
 
             output = await record_tool.ainvoke({
-                "contact_name": "张明",
+                "contact_id": "cid-zhangming",
                 "dimension": "private",
                 "category": "preference",
                 "fact_key": "tea_preference",
@@ -363,6 +393,27 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Successfully recorded memory fact for 张明", output)
             self.assertIn("private", output)
             self.assertIn("tea_preference", output)
+
+        # A missing/stale id never creates a contact implicitly. This keeps a
+        # parallel create_contact + record_contact_fact response from inserting
+        # two same-name rows.
+        with patch("app.services.contact_service.ContactService.get_contact_by_id", new_callable=AsyncMock) as mock_get_c, \
+             patch("app.services.contact_service.ContactService.create_contact", new_callable=AsyncMock) as mock_create_c, \
+             patch("app.infrastructure.db.repositories.contacts.add_contact_profile", new_callable=AsyncMock) as mock_add_p:
+            mock_get_c.return_value = None
+
+            output = await record_tool.ainvoke({
+                "contact_id": "missing-contact-id",
+                "dimension": "private",
+                "category": "pet",
+                "fact_key": "guinea_pigs",
+                "fact_value": "团团和妞妞",
+            })
+
+            self.assertIn("was not found", output)
+            self.assertIn("Nothing was recorded", output)
+            mock_create_c.assert_not_awaited()
+            mock_add_p.assert_not_awaited()
 
         # 5c. extract_contact_memory tool execution (full chat log extraction)
         with patch("app.services.contact_brain_service.ContactBrainService.extract_and_save", new_callable=AsyncMock) as mock_extract_save:

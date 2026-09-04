@@ -115,6 +115,7 @@ class TestStatsAggregation(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(agent_runs, "get_pool", return_value=self.pool):
             stats = await agent_runs.agent_stats(7)
+            call_counts = await agent_runs.agent_call_counts()
 
         self.assertEqual(stats["turns"], 4)
         self.assertEqual(stats["active_users"], 2)
@@ -127,6 +128,10 @@ class TestStatsAggregation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["by_route"], {"supervisor": 3, "slash_command": 1})
         # A turn the supervisor answered itself is reported, not dropped.
         self.assertEqual(stats["by_agent"], {"mail_agent": 2, "memos_agent": 1, "none": 1})
+        self.assertEqual(
+            call_counts,
+            {"mail_agent": 2, "memos_agent": 1, "supervisor": 1},
+        )
 
     async def test_window_excludes_older_runs(self):
         user_id = f"u-{uuid.uuid4().hex}"
@@ -139,6 +144,38 @@ class TestStatsAggregation(unittest.IsolatedAsyncioTestCase):
         with patch.object(agent_runs, "get_pool", return_value=self.pool):
             self.assertEqual((await agent_runs.agent_stats(7))["turns"], 0)
             self.assertEqual((await agent_runs.agent_stats(365))["turns"], 1)
+
+    async def test_agent_call_counts_split_multi_agent_turns(self):
+        user_id = f"u-{uuid.uuid4().hex}"
+        with patch.object(agent_runs, "get_pool", return_value=self.pool):
+            await agent_runs.record_run(
+                user_id,
+                str(uuid.uuid4()),
+                route="supervisor",
+                agent="mail_agent",
+                agent_calls={"mail_agent": 2, "calendar_agent": 1},
+                tool_calls=0,
+                paused=False,
+                ok=True,
+                duration_ms=100,
+            )
+            counts = await agent_runs.agent_call_counts()
+
+        self.assertEqual(counts, {"calendar_agent": 1, "mail_agent": 2})
+
+    async def test_agent_call_counts_keep_legacy_rows(self):
+        user_id = f"u-{uuid.uuid4().hex}"
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "insert into agent_runs "
+                "(user_id, session_id, route, agent) values (%s, %s, %s, %s)",
+                (user_id, str(uuid.uuid4()), "supervisor", "memos_agent"),
+            )
+
+        with patch.object(agent_runs, "get_pool", return_value=self.pool):
+            counts = await agent_runs.agent_call_counts()
+
+        self.assertEqual(counts, {"memos_agent": 1})
 
     async def test_active_users_spans_every_table(self):
         chatter = f"u-{uuid.uuid4().hex}"
@@ -199,11 +236,13 @@ class TestStatsAggregation(unittest.IsolatedAsyncioTestCase):
             stats = await agent_runs.agent_stats(7)
             hitl = await agent_runs.hitl_stats(7)
             active = await agent_runs.active_users()
+            call_counts = await agent_runs.agent_call_counts()
         self.assertEqual(stats["turns"], 0)
         self.assertEqual(stats["error_rate"], 0.0)
         self.assertIsNone(stats["median_duration_ms"])
         self.assertIsNone(hitl["approval_rate"])
         self.assertEqual(active["wau_over_mau"], 0.0)
+        self.assertEqual(call_counts, {})
 
     async def test_record_run_never_raises_into_the_stream(self):
         broken = AsyncConnectionPool("postgresql://nobody@127.0.0.1:1/none", open=False)

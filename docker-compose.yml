@@ -40,6 +40,9 @@ services:
       - ./backend/.env
     environment:
       CHECKPOINT_DB_URL: postgresql://friday:friday@db:5432/friday
+      # Langfuse is opt-in; keys may remain in backend/.env without causing
+      # the SDK to export traces when the tracing stack is not running.
+      LANGFUSE_TRACING_ENABLED: "false"
       # QDRANT_URL: http://qdrant:6333  # Overridden by backend/.env QDRANT_URL for cloud
     ports:
       - "8005:8005"

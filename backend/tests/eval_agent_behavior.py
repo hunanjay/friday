@@ -70,7 +70,7 @@ CANNED = {
     "forward_email": "Email forwarded to wang.zong@example.com.",
     "delete_email": "Moved to Deleted Items.",
     "search_contacts": (
-        "=== Contact: 李娜 ===\n"
+        "=== Contact: 李娜 (id=cid-lina) ===\n"
         "Email: lina@example.com | Phone: 138-0000-1111 | Company: 明远科技 | "
         "Job Title: 产品总监 | Location: 深圳\n"
         "[private / preference] tea_preference = 喜欢喝普洱茶 (source: chat)\n"

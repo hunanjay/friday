@@ -144,9 +144,11 @@
         "contact_agent"
       ],
       "expect_tools": [
+        "search_contacts",
         "record_contact_fact"
       ],
       "forbid_tools": [
+        "create_contact",
         "create_memo"
       ],
       "rubric": "确认已把这条信息记到这个人名下。"

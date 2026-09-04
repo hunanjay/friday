@@ -7,6 +7,7 @@ import {
   createSignature,
   deleteSignature,
   getSignatures,
+  getUsageStats,
   setDefaultSignature,
   getTeamInfo,
   updateAssistantName,
@@ -24,6 +25,7 @@ describe('settings API', () => {
     ['signatures', getSignatures, '/api/settings/signatures', { signatures: [{ id: '1' }] }, [{ id: '1' }]],
     ['avatar', getAvatar, '/api/settings/avatar', { avatar_url: '/avatars/2.png' }, '/avatars/2.png'],
     ['avatar presets', getAvatarPresets, '/api/settings/avatar-presets', { presets: [{ id: '2' }] }, [{ id: '2' }]],
+    ['user and agent totals', getUsageStats, '/api/stats', { users: { registered: { total: 42 } }, agents: { by_agent: { supervisor: 3 } } }, { users: { registered: { total: 42 } }, agents: { by_agent: { supervisor: 3 } } }],
   ])('loads %s through the shared client', async (_label, request, path, response, expected) => {
     apiRequest.mockResolvedValueOnce(response);
 

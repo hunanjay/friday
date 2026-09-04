@@ -3,7 +3,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, backend_dir)
@@ -106,6 +106,56 @@ class TestSubagentIsolation(unittest.IsolatedAsyncioTestCase):
             {(edge.target, edge.conditional) for edge in start_edges},
             {(_PARENT_MODEL_ENTRY, True), ("tools", True)},
         )
+
+    async def test_parent_can_remember_a_preference_without_delegating(self):
+        fake_model = _ToolCallingFakeModel(
+            responses=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "remember_user_fact",
+                            "args": {
+                                "category": "preference",
+                                "fact_key": "reply_ending_tilde",
+                                "fact_value": "End every reply with ～",
+                            },
+                            "id": "memory-1",
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                AIMessage(content="I'll remember that～"),
+            ]
+        )
+        remembered = AsyncMock(
+            return_value={
+                "category": "preference",
+                "topic": None,
+                "fact_key": "reply_ending_tilde",
+                "fact_value": "End every reply with ～",
+            }
+        )
+        with (
+            patch("app.agents.supervisor._get_model", return_value=fake_model),
+            patch("app.agents.supervisor.get_checkpointer", return_value=None),
+            patch("app.agents.tools.user_memory_db.remember_fact", remembered),
+        ):
+            graph = build_supervisor("memory-test-user", session_id="session-1")
+            result = await graph.ainvoke(
+                {"messages": [HumanMessage(content="End every reply with ～")]}
+            )
+
+        remembered.assert_awaited_once_with(
+            user_id="memory-test-user",
+            category="preference",
+            fact_key="reply_ending_tilde",
+            fact_value="End every reply with ～",
+            topic=None,
+            source_type="chat",
+            source_id="session-1",
+        )
+        self.assertEqual(result["messages"][-1].content, "I'll remember that～")
 
     async def test_nested_hitl_interrupt_resumes_through_parent(self):
         executions = []

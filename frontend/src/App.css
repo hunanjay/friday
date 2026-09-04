@@ -2046,14 +2046,30 @@
 }
 
 .cell-event {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 0.75rem;
   padding: 2px 6px;
   border-radius: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-weight: 500;
   min-width: 0;
+}
+
+.cell-event-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-event-time {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
 }
 
 /* Event categories colors */
@@ -3753,6 +3769,17 @@
   font-weight: 500;
 }
 
+.close-details-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.close-details-btn svg {
+  flex-shrink: 0;
+}
+
 .cancel-btn:hover,
 .close-details-btn:hover {
   background-color: var(--bg-app);
@@ -3853,6 +3880,39 @@
   gap: 10px;
   font-size: 0.9rem;
   color: var(--text-secondary);
+}
+
+.event-details-body .details-title,
+.event-details-body .details-meta-row,
+.event-details-body .details-agenda-content {
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+
+.event-details-body .details-title {
+  padding: 10px 12px;
+}
+
+.event-details-body .details-meta-row {
+  padding: 8px 10px;
+}
+
+.event-details-body .details-desc {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.event-details-body .details-agenda-content {
+  flex: 1 1 auto;
+  min-height: 72px;
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+
+.event-details-body .details-agenda-content > :last-child {
+  margin-bottom: 0;
 }
 
 .meta-icon {
@@ -6560,10 +6620,6 @@
   background-color: var(--color-urgent-bg);
 }
 
-.settings-pane[id="usage"] .settings-panel {
-  padding: 20px;
-}
-
 @media (max-width: 680px) {
   .settings-page-container {
     padding-top: 24px !important;
@@ -6636,132 +6692,261 @@
     min-width: 0;
   }
 
-  .github-repositories-section,
-  .settings-pane[id="usage"] .settings-panel {
+  .github-repositories-section {
     padding: 16px;
   }
 
-  .settings-repo-grid,
-  .usage-kpis,
-  .usage-breakdowns {
+  .settings-repo-grid {
     grid-template-columns: 1fr;
   }
 }
 
-/* Usage stats panel (Settings > Usage). Numbers and one-hue magnitude bars -
-   no chart library, no second accent colour. */
-.usage-toolbar {
+/* Settings > Users. This mirrors the Dashboard's warm surface, restrained
+   accent wash and softly elevated panel while keeping one metric dominant. */
+.usage-overview {
+  width: 100%;
+}
+
+.usage-overview-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.user-volume-card,
+.usage-state,
+.agent-call-card {
+  box-sizing: border-box;
+  border: 1px solid var(--border-light);
+  border-radius: 18px;
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent),
+    0 8px 20px -12px color-mix(in srgb, var(--text-primary) 16%, transparent);
+}
+
+.user-volume-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 28px 22px;
+  min-height: 300px;
+}
+
+.user-volume-card::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: -120px;
+  right: -90px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: var(--accent-light);
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.user-volume-card-header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.user-volume-icon,
+.agent-call-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 12px;
+  background: var(--accent-light);
+  color: var(--accent-primary);
+}
+
+.user-volume-icon svg,
+.agent-call-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.user-volume-card-header h3 {
+  margin: 0 0 3px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.user-volume-card-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.user-volume-value {
+  margin-top: auto;
+  padding: 32px 0 28px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: clamp(3.6rem, 10vw, 5.6rem);
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.065em;
+  line-height: 0.92;
+}
+
+.user-volume-card-footer {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.agent-call-card {
+  overflow: hidden;
+}
+
+.agent-call-header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 22px 24px 18px;
+}
+
+.agent-call-header h3 {
+  margin: 0 0 3px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.agent-call-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.agent-call-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--border-light);
+}
+
+.agent-call-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 4px;
+  min-height: 54px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--border-light);
 }
 
-.usage-group-title {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin: 18px 0 10px;
+.agent-call-row:nth-child(odd) {
+  border-right: 1px solid var(--border-light);
 }
 
-/* Wider tracks than the tiles need, so six tiles wrap 4+2 instead of
-   stranding one alone on a second row. */
-.usage-kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+.agent-call-row:nth-last-child(-n + 2) {
+  border-bottom: 0;
 }
 
-.usage-kpi {
-  padding: 12px 14px;
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  background-color: var(--bg-card-hover);
+.agent-call-list.has-odd-count .agent-call-row:nth-last-child(2) {
+  border-bottom: 1px solid var(--border-light);
 }
 
-.usage-kpi-value {
-  font-size: 1.35rem;
-  font-weight: 600;
-  line-height: 1.2;
+.agent-call-list.has-odd-count .agent-call-row:last-child {
+  grid-column: 1 / -1;
+  border-right: 0;
+}
+
+.agent-call-name {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.agent-call-value {
   color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
-}
-
-.usage-kpi-label {
-  margin-top: 4px;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-
-.usage-breakdowns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 20px;
-  margin-top: 18px;
-}
-
-.usage-breakdown-title {
-  font-size: 0.78rem;
   font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
 }
 
-.usage-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.usage-bar-row {
-  display: grid;
-  grid-template-columns: minmax(72px, 120px) 1fr 34px;
-  align-items: center;
-  gap: 10px;
-}
-
-.usage-bar-label {
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Recessive track, one accent hue for every bar: these encode magnitude, so a
-   second colour would imply an identity that is not in the data. */
-.usage-bar-track {
-  height: 6px;
-  border-radius: 3px;
-  background-color: var(--border-light);
-}
-
-.usage-bar-fill {
-  height: 100%;
-  min-width: 3px;
-  border-radius: 3px;
-  background-color: var(--accent-primary);
-}
-
-.usage-bar-value {
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.usage-empty,
-.usage-note {
-  font-size: 0.78rem;
+.agent-call-unavailable {
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-light);
   color: var(--text-muted);
+  font-size: 0.78rem;
 }
 
-.usage-note {
-  margin-top: 10px;
+.usage-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 300px;
+  padding: 28px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.usage-state-skeleton {
+  width: 54px;
+  height: 16px;
+  border-radius: 6px;
+  background: var(--border-light);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .usage-state-loading .usage-state-skeleton {
+    animation: usage-skeleton-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes usage-skeleton-pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (max-width: 680px) {
+  .user-volume-card,
+  .usage-state {
+    min-height: 250px;
+  }
+
+  .user-volume-card {
+    padding: 22px 20px 18px;
+  }
+
+  .user-volume-value {
+    padding: 30px 0 24px;
+    font-size: clamp(3.25rem, 18vw, 4.5rem);
+  }
+
+  .agent-call-header {
+    padding: 20px 18px 16px;
+  }
+
+  .agent-call-list {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-call-row,
+  .agent-call-row:nth-child(odd),
+  .agent-call-row:nth-last-child(-n + 2),
+  .agent-call-list.has-odd-count .agent-call-row:nth-last-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .agent-call-row:last-child {
+    border-bottom: 0;
+  }
 }
 
 

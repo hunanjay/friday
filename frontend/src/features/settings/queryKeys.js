@@ -5,5 +5,5 @@ export const settingsKeys = {
   avatar: scope => [...settingsKeys.all(scope), 'avatar'],
   avatarPresets: scope => [...settingsKeys.all(scope), 'avatar-presets'],
   teamInfo: scope => [...settingsKeys.all(scope), 'team-info'],
-  usageStats: (scope, days) => [...settingsKeys.all(scope), 'usage-stats', days],
+  usageStats: scope => [...settingsKeys.all(scope), 'usage-stats'],
 };

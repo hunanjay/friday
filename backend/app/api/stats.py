@@ -1,4 +1,4 @@
-"""Aggregate usage stats for whoever operates this deployment.
+"""Registered user total and agent call counts for deployment operators.
 
 Every other route in this API is scoped to the caller's own user_id. This one
 is not - it reports across all users - so it is gated on an explicit
@@ -6,9 +6,8 @@ ADMIN_USER_IDS allowlist that is empty by default.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
@@ -31,7 +30,7 @@ async def require_admin(user_id: str = Depends(get_user_id)) -> str:
     return user_id
 
 
-def _count_registered(days: int) -> dict:
+def _count_registered() -> dict:
     """Registration counts from Supabase.
 
     auth.users lives in the Supabase project, not in this backend's Postgres
@@ -39,41 +38,37 @@ def _count_registered(days: int) -> dict:
     the admin API is the only way to count sign-ups. Synchronous client, so
     call this in a threadpool.
     """
-    since = datetime.now(timezone.utc) - timedelta(days=days)
     total = 0
-    new_in_window = 0
     truncated = True
     for page in range(1, _MAX_USER_PAGES + 1):
         users = supabase_admin.auth.admin.list_users(page=page, per_page=_USER_PAGE_SIZE)
         total += len(users)
-        for user in users:
-            created_at = getattr(user, "created_at", None)
-            if created_at and created_at.tzinfo and created_at > since:
-                new_in_window += 1
         if len(users) < _USER_PAGE_SIZE:
             truncated = False
             break
-    return {"total": total, "new_in_window": new_in_window, "truncated": truncated}
+    return {"total": total, "truncated": truncated}
 
 
 @router.get("")
-async def stats(days: int = Query(7, ge=1, le=365), _: str = Depends(require_admin)):
-    """Usage over the last `days`.
+async def stats(_: str = Depends(require_admin)):
+    """Return registered users and all-time handled turns by agent.
 
     `users.registered` is null when Supabase's admin API is unreachable or
-    SUPABASE_SERVICE_ROLE_KEY is unset - the local activity numbers are still
-    returned rather than failing the whole response. dau/wau/mau keep their
-    conventional 1/7/30-day windows and ignore `days`.
+    SUPABASE_SERVICE_ROLE_KEY is unset.
     """
     try:
-        registered = await run_in_threadpool(_count_registered, days)
+        registered = await run_in_threadpool(_count_registered)
     except Exception:
         logger.exception("Supabase admin user listing failed")
         registered = None
 
+    try:
+        agent_counts = await agent_runs.agent_call_counts()
+    except Exception:
+        logger.exception("Agent call count query failed")
+        agent_counts = None
+
     return {
-        "window_days": days,
-        "users": {"registered": registered, **await agent_runs.active_users()},
-        "agent": await agent_runs.agent_stats(days),
-        "hitl": await agent_runs.hitl_stats(days),
+        "users": {"registered": registered},
+        "agents": {"by_agent": agent_counts},
     }
