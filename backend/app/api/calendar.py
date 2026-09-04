@@ -18,6 +18,7 @@ class EventCreate(BaseModel):
     start: str  # ISO 8601, no offset - interpreted in _BEIJING_TZ
     end: str
     location: str = ""
+    categories: list[str] = []
 
 
 @router.get("/events")
@@ -48,6 +49,8 @@ async def create_event(body: EventCreate, user_id: str = Depends(get_user_id)):
     }
     if body.location:
         graph_body["location"] = {"displayName": body.location}
+    if body.categories:
+        graph_body["categories"] = body.categories
     return await graph_post(user_id, "/me/events", graph_body)
 
 
@@ -59,6 +62,7 @@ class EventUpdate(BaseModel):
     start: str | None = None
     end: str | None = None
     location: str | None = None
+    categories: list[str] | None = None
 
 
 @router.patch("/events/{event_id}")
@@ -72,6 +76,8 @@ async def update_event(event_id: str, body: EventUpdate, user_id: str = Depends(
         graph_body["end"] = {"dateTime": body.end, "timeZone": _BEIJING_TZ}
     if body.location is not None:
         graph_body["location"] = {"displayName": body.location}
+    if body.categories is not None:
+        graph_body["categories"] = body.categories
     if not graph_body:
         return await graph_get(user_id, f"/me/events/{quote(event_id)}")
     return await graph_patch(user_id, f"/me/events/{quote(event_id)}", graph_body)

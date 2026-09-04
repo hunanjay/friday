@@ -181,6 +181,7 @@ export default function CalendarPage() {
     }
 
     try {
+      const categories = [eventCategory.charAt(0).toUpperCase() + eventCategory.slice(1)];
       if (editingEventId) {
         await updateCalendarEvent({
           id: editingEventId,
@@ -188,15 +189,16 @@ export default function CalendarPage() {
           start: `${selectedDateStr}T${eventStart}:00`,
           end: `${selectedDateStr}T${eventEnd}:00`,
           location: eventLocation,
+          categories,
         });
       } else {
         await addCalendarEvent({
           subject: eventTitle,
           start: `${selectedDateStr}T${eventStart}:00`,
           end: `${selectedDateStr}T${eventEnd}:00`,
-          location: eventLocation || 'Microsoft Teams Meeting',
+          location: eventLocation,
           body: { content: eventDesc, contentType: 'text' },
-          categories: [eventCategory.charAt(0).toUpperCase() + eventCategory.slice(1)],
+          categories,
         });
       }
       const wasEditing = Boolean(editingEventId);
@@ -348,7 +350,8 @@ export default function CalendarPage() {
                         }}
                         title={`${sTime} - ${event.subject}`}
                       >
-                        {event.subject}
+                        <span className="cell-event-title">{event.subject}</span>
+                        <span className="cell-event-time">{sTime}</span>
                       </div>
                     );
                   })}
@@ -473,7 +476,7 @@ export default function CalendarPage() {
             </span>
           )}
         >
-          <div className="details-body">
+          <div className="details-body event-details-body">
             <h2 className="details-title">{selectedEvent.subject}</h2>
             <div className="details-columns">
               <div className="details-info-col">
@@ -494,11 +497,13 @@ export default function CalendarPage() {
               </div>
               <div className="details-desc">
                 <h4>{t('calendar.agenda')}</h4>
-                {hasVisibleEventBody(selectedEvent.body) ? (
-                  <EmailContentRenderer body={selectedEvent.body} />
-                ) : (
-                  <p className="details-empty-desc">{t('calendar.noAgenda')}</p>
-                )}
+                <div className="details-agenda-content">
+                  {hasVisibleEventBody(selectedEvent.body) ? (
+                    <EmailContentRenderer body={selectedEvent.body} />
+                  ) : (
+                    <p className="details-empty-desc">{t('calendar.noAgenda')}</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>

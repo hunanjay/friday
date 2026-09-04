@@ -223,6 +223,7 @@ def _agent_prompts(
     return {
         "mail_agent": _format_rules([
             "You handle the user's email, including listing, searching, reading, sending, marking read or unread, and deleting messages.",
+            "For a date-scoped question like today's/yesterday's/this week's email, pass the user's exact phrase for a single day to list_inbox_on_day rather than list_inbox - list_inbox only returns the most recent N messages with no date filtering, so it can miss or over-include days.",
             "Resolve the parts of a send before calling send_email: look up a named recipient with search_contacts, and fetch content the user already wrote down, such as a report or note, with search_memos.",
             "When asked to review or catch up on unanswered emails, call find_unanswered_questions, judge which results are a genuine question or request needing a reply (skip FYI/notification/marketing text even if it has a question mark), and call create_followup_todo once for each one that qualifies - this workflow only tracks follow-ups, it never drafts or sends a reply itself.",
             *([_SIGNATURE_RULE] if has_signature else []),
@@ -234,9 +235,9 @@ def _agent_prompts(
         ]),
         "contact_agent": _format_rules([
             "You manage the user's Personal Contact Relationship Brain.",
-            "Call search_contacts before answering anything about a person or a relationship, and never claim you do not know or cannot access personal information without searching first.",
+            "Call search_contacts before answering anything about a person or a relationship and before every contact write. Use the stable contact id it returns; never guess an id or select a same-name contact by list position. If several contacts match, ask the user which one they mean. If none match and a new contact is needed, call create_contact once and wait for its result before making another tool call.",
             "Use create_contact for the identity fields of a new person, which is name, company, phone, email, location, and job title.",
-            "Anything else the user tells you about a person, such as where they live, what they pay in rent, a habit, or a plan, is a fact: record each one with record_contact_fact rather than stopping at create_contact or repeating it back unsaved.",
+            "Anything else the user tells you about a person, such as where they live, what they pay in rent, a habit, or a plan, is a fact: record each one with record_contact_fact using the contact id from a completed search_contacts or create_contact call, rather than stopping at create_contact or repeating it back unsaved. Never call create_contact and record_contact_fact in the same model response because tool calls in one response may run concurrently.",
             "A nickname or alias for a contact (what people call them, a short form of their name) is a fact too - record it with record_contact_fact (dimension='basic', category='nickname'). search_contacts only matches text that has actually been saved, so an alias mentioned but never recorded stays unfindable by that name later.",
             "Say which contact the information was filed under, so the user knows where to find it later.",
             "Cite the source marker returned with each contact fact.",
@@ -322,6 +323,7 @@ def _supervisor_prompt(assistant_name: str, today: str, memory_block: str = "") 
         "Route with the delegation tool descriptions, and relay the result concisely.",
         "Pass each delegated agent a self-contained task in which pronouns, people, and relative dates are already resolved from the conversation.",
         "Relay delegated lists, links, and other formatted content verbatim without rewriting or dropping items.",
+        _MEMORY_TOOLS_RULE,
         *([memory_block] if memory_block else []),
         *_BASE_RULES,
     ])
@@ -377,9 +379,10 @@ def build_supervisor(
     delegation_tools = [
         _delegation_tool(name, subagents[name]) for name in AGENT_NAMES
     ]
+    tools = delegation_tools + make_user_memory_tools(user_id, session_id)
     parent = create_agent(
         model,
-        tools=delegation_tools,
+        tools=tools,
         middleware=[_trim_history_middleware],
         name="parent",
         system_prompt=_supervisor_prompt(assistant_name, today, memory_block),
@@ -438,6 +441,16 @@ def describe_team(
         "assistant_name": assistant_name,
         "supervisor": {
             "system_prompt": _supervisor_prompt(assistant_name, today, memory_block),
+            "tools": [
+                *[
+                    {"name": f"delegate_to_{name}", "description": _ROUTING_HINTS[name]}
+                    for name in AGENT_NAMES
+                ],
+                *[
+                    {"name": tool.name, "description": tool.description}
+                    for tool in make_user_memory_tools(user_id, session_id)
+                ],
+            ],
         },
         "agents": [
             {

@@ -1014,7 +1014,12 @@ for _var, _stub in (
 ):
     os.environ[_var] = os.environ.get(_var) or _stub
 
-from app.agents.supervisor import _ROUTING_HINTS, _agent_prompts, _supervisor_prompt  # noqa: E402
+from app.agents.supervisor import (  # noqa: E402
+    _MEMORY_TOOLS_RULE,
+    _ROUTING_HINTS,
+    _agent_prompts,
+    _supervisor_prompt,
+)
 
 _identity_guard = "Never reply with your name by itself"
 _sample_prompts = _agent_prompts("Friday", "2026-01-01")
@@ -1039,10 +1044,20 @@ check(
     "supervisor prompt does not duplicate domain routing policy",
     all(hint not in _supervisor_prompt("Friday", "2026-01-01") for hint in _ROUTING_HINTS.values()),
 )
+check(
+    "supervisor prompt tells the parent when to persist user memory",
+    _MEMORY_TOOLS_RULE in _supervisor_prompt("Friday", "2026-01-01"),
+)
 
 from app.agents.supervisor import describe_team  # noqa: E402
 
 _team = describe_team("smoke-test-user", assistant_name="Friday")
+_supervisor_tool_names = {tool["name"] for tool in _team["supervisor"]["tools"]}
+check(
+    "the supervisor exposes user memory tools for non-domain conversations",
+    {"remember_user_fact", "search_user_memory", "forget_user_fact"}
+    <= _supervisor_tool_names,
+)
 check(
     "describe_team covers every registered agent",
     {agent["name"] for agent in _team["agents"]} == set(AGENT_NAMES),

@@ -2,8 +2,9 @@ import hashlib
 import logging
 import os
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from langchain_core.tools import tool
@@ -88,13 +89,22 @@ async def _graph(coro):
 
 
 async def _graph_mutation(coro):
-    """Run a Graph write and preserve failures as error ToolMessages.
+    """Run a Graph write and turn a failure into an error string instead of
+    letting it propagate.
 
-    LangGraph's ToolNode converts raised exceptions into ToolMessages with
-    ``status='error'``.  Keeping writes on that path lets the approval API
-    distinguish a successful execution from an approved call that failed.
-    """
-    return await coro
+    HITL approvals can bundle several mutations (e.g. a bulk delete) that run
+    concurrently via asyncio.gather; ToolNode's default error handler only
+    catches its own ToolInvocationError and re-raises everything else
+    (including a plain HTTPException), which would abort the whole gather and
+    mark every sibling call "failed" even though most of them already
+    succeeded against Graph. Returns (result, error_message); error_message
+    is None on success."""
+    try:
+        return await coro, None
+    except HTTPException as e:
+        if e.status_code in (401, 404):
+            return None, _NOT_CONNECTED
+        return None, f"Graph request failed: {e.detail}"
 
 
 def _format_email_row(m: dict, folder: str = "inbox") -> str:
@@ -208,8 +218,11 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
 
     @tool
     async def list_inbox(top: int = 10, folder: str = "inbox") -> str:
-        """List the most recent messages in a mail folder (subject, sender, preview).
-        `folder` is one of: inbox, drafts, sent, deleted, junk, archive."""
+        """List the most recent messages in a mail folder (subject, sender, preview),
+        newest first, with no date filtering - the `top` most recent messages may or
+        may not all be from today. For "what came in today/yesterday/this week"
+        questions, use list_inbox_on_day instead so the results are actually scoped
+        to that day. `folder` is one of: inbox, drafts, sent, deleted, junk, archive."""
         graph_folder = MAIL_FOLDERS.get(folder, "inbox")
         path = f"/me/mailFolders/{graph_folder}/messages?$top={min(top, 50)}&$orderby=receivedDateTime desc"
         data, err = await _graph(graph_get_paginated(user_id, path, top))
@@ -219,6 +232,37 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         if not messages:
             return f"No messages in {folder}."
         return "\n".join(_format_email_row(m, folder=folder) for m in messages)
+
+    @tool
+    async def list_inbox_on_day(day: str, folder: str = "inbox") -> str:
+        """List messages in a mail folder received on one natural-language or ISO
+        calendar day, filtered server-side by Graph so results are actually scoped
+        to that day (not just "the most recent N"). Pass the user's exact phrase,
+        such as `今天`, `本周三`, `tomorrow`, or `2026-08-12`; do not calculate the
+        date range yourself. `folder` is one of: inbox, drafts, sent, deleted, junk,
+        archive."""
+        resolved = resolve_calendar_day(day)
+        if not resolved:
+            return f"Could not resolve day: {day!r}. Ask the user for an exact date."
+        tz = ZoneInfo(os.environ.get("TIMEZONE", "Asia/Shanghai"))
+        start = datetime.combine(resolved, time.min, tzinfo=tz).astimezone(timezone.utc)
+        end = start + timedelta(days=1)
+        graph_folder = MAIL_FOLDERS.get(folder, "inbox")
+        path = (
+            f"/me/mailFolders/{graph_folder}/messages"
+            f"?$filter=receivedDateTime ge {start.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            f" and receivedDateTime le {end.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            "&$orderby=receivedDateTime desc"
+        )
+        data, err = await _graph(graph_get_paginated(user_id, path, 50))
+        if err:
+            return err
+        messages = data.get("value", [])
+        if not messages:
+            return f"Resolved date: {resolved.isoformat()}. No messages in {folder} on that day."
+        return f"Resolved date: {resolved.isoformat()}.\n" + "\n".join(
+            _format_email_row(m, folder=folder) for m in messages
+        )
 
     @tool
     async def search_emails(
@@ -273,7 +317,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         if not to_addrs:
             return "No valid recipient address was given, so nothing was sent."
         html_body = await render_body(user_id, body)
-        await _graph_mutation(
+        _, err = await _graph_mutation(
             graph_post(
                 user_id,
                 "/me/sendMail",
@@ -288,6 +332,8 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
                 },
             )
         )
+        if err:
+            return err
         return f"Email sent to {', '.join(to_addrs + cc_addrs)}."
 
     @tool
@@ -297,7 +343,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         that recipient list itself. Guarded by HITL: it runs only after
         approval."""
         action = "replyAll" if reply_all else "reply"
-        await _graph_mutation(
+        _, err = await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/messages/{quote(email_id)}/{action}",
@@ -315,6 +361,8 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
                 },
             )
         )
+        if err:
+            return err
         return f"Replied to email {email_id}."
 
     @tool
@@ -326,7 +374,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
         to_addrs = parse_recipients(to)
         if not to_addrs:
             return "No valid recipient address was given, so nothing was forwarded."
-        await _graph_mutation(
+        _, err = await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/messages/{quote(email_id)}/forward",
@@ -345,6 +393,8 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
                 },
             )
         )
+        if err:
+            return err
         return f"Email forwarded to {', '.join(to_addrs)}."
 
     @tool
@@ -359,13 +409,15 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
     async def delete_email(email_id: str, subject: str = "", sender: str = "") -> str:
         """Move an email to Deleted Items. Include subject/sender when known so
         the HITL card is informative. Execution is blocked until approval."""
-        await _graph_mutation(
+        _, err = await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/messages/{quote(email_id)}/move",
                 {"destinationId": "deleteditems"},
             )
         )
+        if err:
+            return err
         return f"Email moved to Deleted Items: {subject or email_id}."
 
     @tool
@@ -449,6 +501,7 @@ def make_mail_tools(user_id: str, session_id: str | None = None) -> list:
 
     return [
         list_inbox,
+        list_inbox_on_day,
         search_contacts,
         _make_search_memos_tool(user_id),
         search_emails,
@@ -481,9 +534,10 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         WHEN TO USE:
         Use when the user explicitly asks to add/create/save a new contact and
         gives structured details (name plus any of company, phone, email,
-        location, job title). Do NOT use this for a single casual fact about
-        an existing contact (e.g. "note that Zhang Ming likes tea") — use
-        `record_contact_fact` for that instead.
+        location, job title), or after `search_contacts` found no match and a
+        new contact is needed before recording a fact. Do NOT call this in the
+        same model response as `record_contact_fact`: wait for this tool to
+        return the new contact id, then record the fact in the next step.
 
         PARAMETERS:
         - `name` (str, REQUIRED): The contact's full name.
@@ -498,10 +552,21 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
             return "Error: name is required to create a contact."
 
         existing = await ContactService.get_contacts(user_id=user_id, query=clean_name)
-        match = next(
-            (c for c in existing if c["name"].strip().lower() == clean_name.lower()), None
-        )
-        if match:
+        exact_matches = [
+            c for c in existing if c["name"].strip().casefold() == clean_name.casefold()
+        ]
+        if len(exact_matches) > 1:
+            choices = ", ".join(
+                f"id={contact['id']} email={contact.get('email') or 'N/A'} "
+                f"company={contact.get('company') or 'N/A'}"
+                for contact in exact_matches
+            )
+            return (
+                f"Multiple contacts are named '{clean_name}': {choices}. "
+                "Nothing was created or updated; ask the user which contact they mean."
+            )
+        if exact_matches:
+            match = exact_matches[0]
             updated = await ContactService.update_contact(
                 user_id=user_id,
                 contact_id=match["id"],
@@ -526,7 +591,7 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
 
     @tool
     async def record_contact_fact(
-        contact_name: str,
+        contact_id: str,
         dimension: str,
         category: str,
         fact_key: str,
@@ -538,7 +603,10 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         "he just bought a new car"). For long chat logs or raw multi-sentence
         text, use `extract_contact_memory` instead.
 
-        - `contact_name`: full name or the name used in conversation. Auto-created if unknown.
+        - `contact_id`: REQUIRED stable id returned by `search_contacts` or
+          `create_contact`. Never guess an id. This tool does not create contacts;
+          if no contact was found, call `create_contact`, wait for its result,
+          then call this tool with the returned id.
         - `dimension`: which drawer of the profile this belongs in. Prefer an existing
           one - basic = static personal info (hometown, school, birthday);
           business = professional context (company size, investment focus, budget);
@@ -557,14 +625,19 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         from app.infrastructure.db.repositories import contacts as contacts_repo
         from app.services.contact_service import ContactService
 
-        contacts = await ContactService.get_contacts(user_id=user_id, query=contact_name)
-        if contacts:
-            contact_id = contacts[0]["id"]
-            cname = contacts[0]["name"]
-        else:
-            new_c = await ContactService.create_contact(user_id=user_id, name=contact_name)
-            contact_id = new_c["id"]
-            cname = new_c["name"]
+        clean_contact_id = (contact_id or "").strip()
+        if not clean_contact_id:
+            return "Error: contact_id is required. Nothing was recorded; call search_contacts first."
+        contact = await ContactService.get_contact_by_id(
+            user_id=user_id, contact_id=clean_contact_id
+        )
+        if not contact:
+            return (
+                f"Error: contact id {contact_id!r} was not found. Nothing was recorded. "
+                "Call search_contacts first; if there is no match, create the contact "
+                "and retry with the id returned by create_contact."
+            )
+        cname = contact["name"]
 
         # The vocabulary is open, so the old Literal typing is gone. What kept the
         # original bug (a bad value silently coerced to private/other) from coming
@@ -572,7 +645,7 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         # was given, instead of this layer guessing.
         fact = await contacts_repo.add_contact_profile(
             user_id=user_id,
-            contact_id=contact_id,
+            contact_id=clean_contact_id,
             dimension=dimension,
             category=category,
             fact_key=fact_key.strip(),
@@ -725,7 +798,9 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
         }
         if location:
             body["location"] = {"displayName": location}
-        await _graph_mutation(graph_post(user_id, "/me/events", body))
+        _, err = await _graph_mutation(graph_post(user_id, "/me/events", body))
+        if err:
+            return err
         return f"Event created: {subject}."
 
     @tool
@@ -754,7 +829,9 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
             body["location"] = {"displayName": location}
         if not body:
             return "Nothing to update: pass at least one of subject, start, end or location."
-        await _graph_mutation(graph_patch(user_id, f"/me/events/{quote(event_id)}", body))
+        _, err = await _graph_mutation(graph_patch(user_id, f"/me/events/{quote(event_id)}", body))
+        if err:
+            return err
         return f"Event updated: {subject or event_id}."
 
     @tool
@@ -767,31 +844,37 @@ def make_calendar_tools(user_id: str, session_id: str | None = None) -> list:
     ) -> str:
         """Delete a calendar event by id after HITL approval. Include the
         display fields when known so the approval card can show them."""
-        await _graph_mutation(graph_delete(user_id, f"/me/events/{quote(event_id)}"))
+        _, err = await _graph_mutation(graph_delete(user_id, f"/me/events/{quote(event_id)}"))
+        if err:
+            return err
         return f"Event deleted: {subject or event_id}."
 
     @tool
     async def accept_event(event_id: str, comment: str = "") -> str:
         """Accept a calendar invitation after HITL approval."""
-        await _graph_mutation(
+        _, err = await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/events/{quote(event_id)}/accept",
                 {"comment": comment},
             )
         )
+        if err:
+            return err
         return "Event invitation accepted."
 
     @tool
     async def decline_event(event_id: str, comment: str = "") -> str:
         """Decline a calendar invitation after HITL approval."""
-        await _graph_mutation(
+        _, err = await _graph_mutation(
             graph_post(
                 user_id,
                 f"/me/events/{quote(event_id)}/decline",
                 {"comment": comment},
             )
         )
+        if err:
+            return err
         return "Event invitation declined."
 
     return [
