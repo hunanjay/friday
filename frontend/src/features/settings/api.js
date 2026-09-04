@@ -77,8 +77,8 @@ export function getTeamInfo(token) {
   return apiRequest('/api/agent/team_info', { token });
 }
 
-// Aggregate usage across all users. 403 for anyone not in the backend's
+// Total registered users. 403 for anyone not in the backend's
 // ADMIN_USER_IDS allowlist, which is how the UI decides to hide the section.
-export async function getUsageStats(token, days) {
-  return apiRequest('/api/stats', { token, query: { days } });
+export async function getUsageStats(token) {
+  return apiRequest('/api/stats', { token });
 }

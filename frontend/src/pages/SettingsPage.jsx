@@ -3,9 +3,9 @@ import { Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-ro
 import {
   Bot20Regular,
   Code20Regular,
-  DataUsage20Regular,
   Mail20Regular,
   Person20Regular,
+  PeopleCommunity20Regular,
   PlugConnected20Regular,
 } from '@fluentui/react-icons';
 import { useAuth } from '../features/auth/useAuth';
@@ -33,9 +33,8 @@ export default function SettingsPage() {
   });
   const { mailAccounts, unbindMailAccount, verifyMailAccount } = useMailAccounts();
   const { teamInfo, isLoadingTeamInfo: isLoadingTeam, teamInfoError: teamError, loadTeamInfo } = useTeamInfo();
-  const [usageDays, setUsageDays] = useState(7);
   // 403 for non-admins, so the whole section simply does not exist for them.
-  const { usageStats, usageStatsError, isUsageStatsForbidden } = useUsageStats(usageDays);
+  const { usageStats, usageStatsError, isUsageStatsForbidden } = useUsageStats();
   const {
     user,
     handleLogout,
@@ -219,8 +218,8 @@ export default function SettingsPage() {
       description: isZh ? '检查智能体团队配置和实际运行提示。' : 'Inspect the agent team configuration and runtime prompts.',
     },
     usage: {
-      title: isZh ? '使用统计' : 'Usage',
-      description: isZh ? '查看工作区采用率、智能体调用和审批情况。' : 'Review workspace adoption, agent activity, and approvals.',
+      title: isZh ? '用户量' : 'Users',
+      description: isZh ? '查看注册用户总数和每个 Agent 的累计调用次数。' : 'See total registered users and all-time calls by agent.',
     },
   };
   const closeCommitDetails = () => navigate('/settings/github', { replace: true, state: null });
@@ -279,8 +278,8 @@ export default function SettingsPage() {
             <div className="settings-nav-label">{isZh ? '系统' : 'System'}</div>
             {(usageStats || usageStatsError || activeSection === 'usage') && (
               <NavLink to="/settings/usage" className={({ isActive }) => isActive ? 'current' : ''}>
-                <DataUsage20Regular />
-                <span>{isZh ? '使用统计' : 'Usage'}</span>
+                <PeopleCommunity20Regular />
+                <span>{isZh ? '用户量' : 'Users'}</span>
               </NavLink>
             )}
             <NavLink to="/settings/advanced" className={({ isActive }) => isActive ? 'current' : ''}>
@@ -773,23 +772,22 @@ export default function SettingsPage() {
           {activeSection === 'usage' && (
             <section className="settings-pane" id="usage">
               <div className="settings-pane-head">
-                <h2>{isZh ? '使用统计' : 'Usage'}</h2>
+                <h2>{isZh ? '用户与 Agent' : 'Users and agents'}</h2>
               </div>
-              <div className="settings-panel">
+              <div className="usage-overview">
                 {usageStats ? (
                   <UsageStatsPanel
                     stats={usageStats}
-                    days={usageDays}
-                    onDaysChange={setUsageDays}
                     isZh={isZh}
                   />
                 ) : usageStatsError ? (
-                  <div className="usage-empty">
-                    {isZh ? '统计数据加载失败。' : 'Could not load usage stats.'}
+                  <div className="usage-state" role="status">
+                    {isZh ? '用户总数加载失败。' : 'Could not load the user count.'}
                   </div>
                 ) : (
-                  <div className="usage-empty">
-                    {isZh ? '正在加载统计数据...' : 'Loading usage statistics...'}
+                  <div className="usage-state usage-state-loading" role="status">
+                    <span className="usage-state-skeleton" aria-hidden="true" />
+                    {isZh ? '正在加载用户总数...' : 'Loading user count...'}
                   </div>
                 )}
               </div>

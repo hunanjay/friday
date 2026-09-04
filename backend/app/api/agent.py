@@ -453,6 +453,7 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
         # Which agent actually handled the turn: the slash command names it up
         # front, otherwise it is whoever the supervisor delegated to first.
         handled_by = routed_agent
+        agent_call_counts: dict[str, int] = {}
         ok = True
         config = {"configurable": {"thread_id": session_id}, **trace_config(session_id, user_id)}
         graph = build_supervisor(user_id, session_id, assistant_name, has_signature, memory_block)
@@ -496,8 +497,10 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
                 elif event_type == "on_tool_start":
                     tool_name = event.get("name") or metadata.get("langgraph_node") or "tool"
                     if tool_name.startswith("delegate_to_"):
+                        delegated_agent = tool_name.removeprefix("delegate_to_")
+                        agent_call_counts[delegated_agent] = agent_call_counts.get(delegated_agent, 0) + 1
                         if handled_by is None:
-                            handled_by = tool_name.removeprefix("delegate_to_")
+                            handled_by = delegated_agent
                         continue
                     tool_input = event.get("data", {}).get("input") or {}
                     yield f"data: {json.dumps({'tool_call': {'name': tool_name, 'input': tool_input, 'status': 'running'}})}\n\n"
@@ -560,11 +563,19 @@ async def chat(body: dict, user_id: str = Depends(get_user_id)):
             except Exception:
                 logger.exception("session title generation failed")
 
+        # A direct supervisor answer has no delegate tool call. The fallback
+        # also covers provider event streams that omit the synthetic delegate
+        # event used by an explicit slash command.
+        if not agent_call_counts:
+            fallback_agent = handled_by or "supervisor"
+            agent_call_counts[fallback_agent] = 1
+
         await agent_runs.record_run(
             user_id,
             session_id,
             route=route.source,
             agent=handled_by,
+            agent_calls=agent_call_counts,
             tool_calls=tool_calls,
             paused=bool(state.interrupts),
             ok=ok,

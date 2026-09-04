@@ -150,11 +150,11 @@ export function useTeamInfo() {
   };
 }
 
-export function useUsageStats(days) {
+export function useUsageStats() {
   const { authToken, scope } = useSettingsAccess();
   const query = useQuery({
-    queryKey: settingsKeys.usageStats(scope, days),
-    queryFn: () => getUsageStats(authToken, days),
+    queryKey: settingsKeys.usageStats(scope),
+    queryFn: () => getUsageStats(authToken),
     enabled: Boolean(authToken),
     // A 403 means "not an admin" - an answer, not a failure worth retrying.
     retry: false,

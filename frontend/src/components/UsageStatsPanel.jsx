@@ -1,142 +1,90 @@
 import React from 'react';
+import { Bot24Regular, PeopleCommunity24Regular } from '@fluentui/react-icons';
 
-// Numbers only - no charts. These are current values, not trends, so stat
-// tiles read faster than any plot would (and the backend keeps no history
-// per day). The two breakdowns get bars because comparing magnitude across a
-// handful of categories is exactly what a bar is for; one accent hue for all
-// of them, since the bars carry magnitude, not identity.
+const AGENTS = [
+  ['supervisor', 'Supervisor', 'Supervisor'],
+  ['mail_agent', '邮件', 'Mail'],
+  ['calendar_agent', '日历', 'Calendar'],
+  ['contact_agent', '联系人', 'Contacts'],
+  ['memos_agent', '备忘录', 'Memos'],
+  ['github_agent', 'GitHub', 'GitHub'],
+];
 
-function Kpi({ label, value }) {
+const formatUserCount = (value, isZh) => (
+  typeof value === 'number'
+    ? new Intl.NumberFormat(isZh ? 'zh-CN' : 'en-US').format(value)
+    : 'N/A'
+);
+
+export default function UsageStatsPanel({ stats, isZh }) {
+  const registered = stats?.users?.registered;
+  const agentCounts = stats?.agents?.by_agent;
+  const knownAgentKeys = new Set(AGENTS.map(([key]) => key));
+  const agentRows = agentCounts
+    ? [
+        ...AGENTS,
+        ...Object.keys(agentCounts)
+          .filter(key => !knownAgentKeys.has(key))
+          .map(key => [key, key, key]),
+      ]
+    : [];
+
   return (
-    <div className="usage-kpi">
-      <div className="usage-kpi-value">{value}</div>
-      <div className="usage-kpi-label">{label}</div>
-    </div>
-  );
-}
+    <div className="usage-overview-stack">
+      <div className="user-volume-card">
+        <div className="user-volume-card-header">
+          <span className="user-volume-icon" aria-hidden="true">
+            <PeopleCommunity24Regular />
+          </span>
+          <div>
+            <h3>{isZh ? '注册用户总数' : 'Total registered users'}</h3>
+            <p>
+              {isZh
+                ? '已在此工作区完成注册的账户数量'
+                : 'Accounts that have registered for this workspace'}
+            </p>
+          </div>
+        </div>
 
-function BarList({ title, entries, empty }) {
-  const max = Math.max(...entries.map(([, count]) => count), 1);
-  return (
-    <div className="usage-breakdown">
-      <div className="usage-breakdown-title">{title}</div>
-      {entries.length === 0 ? (
-        <div className="usage-empty">{empty}</div>
-      ) : (
-        <div className="usage-bars">
-          {entries.map(([label, count]) => (
-            <div className="usage-bar-row" key={label}>
-              <div className="usage-bar-label" title={label}>{label}</div>
-              <div className="usage-bar-track">
-                <div className="usage-bar-fill" style={{ width: `${(count / max) * 100}%` }} />
+        <div className="user-volume-value" aria-label={isZh ? '注册用户总数' : 'Total registered users'}>
+          {formatUserCount(registered?.total, isZh)}
+        </div>
+
+        <div className="user-volume-card-footer">
+          {registered
+            ? (isZh ? '数据来源：Supabase Auth' : 'Source: Supabase Auth')
+            : (isZh ? '暂时无法获取用户总数' : 'User count is currently unavailable')}
+        </div>
+      </div>
+
+      <section className="agent-call-card" aria-labelledby="agent-call-title">
+        <div className="agent-call-header">
+          <span className="agent-call-icon" aria-hidden="true"><Bot24Regular /></span>
+          <div>
+            <h3 id="agent-call-title">{isZh ? 'Agent 累计调用' : 'Agent calls'}</h3>
+            <p>
+              {isZh
+                ? '每次 Agent 被委派处理任务记为一次调用'
+                : 'Each task delegated to an agent counts as one call'}
+            </p>
+          </div>
+        </div>
+
+        {agentCounts ? (
+          <div className={`agent-call-list ${agentRows.length % 2 ? 'has-odd-count' : ''}`}>
+            {agentRows.map(([key, zhLabel, enLabel]) => (
+              <div className="agent-call-row" key={key}>
+                <span className="agent-call-name">{isZh ? zhLabel : enLabel}</span>
+                <strong className="agent-call-value">{formatUserCount(agentCounts[key] || 0, isZh)}</strong>
               </div>
-              <div className="usage-bar-value">{count}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const percent = value => (value == null ? 'N/A' : `${(value * 100).toFixed(1)}%`);
-
-const duration = ms => {
-  if (ms == null) return 'N/A';
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-};
-
-// Biggest first: a breakdown is read for "what dominates", not alphabetically.
-const ranked = counts => Object.entries(counts || {}).sort((a, b) => b[1] - a[1]);
-
-export default function UsageStatsPanel({ stats, days, onDaysChange, isZh }) {
-  const { users, agent, hitl } = stats;
-  const registered = users.registered;
-
-  return (
-    <>
-      <div className="usage-toolbar">
-        <div className="settings-field-hint">
-          {isZh
-            ? '所有用户的汇总数据。日活/周活/月活固定为 1/7/30 天，不受下方窗口影响。'
-            : 'Aggregated across all users. DAU/WAU/MAU keep their 1/7/30-day windows regardless of the range below.'}
-        </div>
-        <div className="settings-segmented">
-          {[7, 30].map(option => (
-            <button
-              key={option}
-              type="button"
-              className={days === option ? 'on' : ''}
-              onClick={() => onDaysChange(option)}
-            >
-              {isZh ? `${option} 天` : `${option}d`}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="usage-group-title">{isZh ? '用户' : 'Users'}</div>
-      <div className="usage-kpis">
-        <Kpi label={isZh ? '注册用户' : 'Registered'} value={registered ? registered.total : 'N/A'} />
-        <Kpi
-          label={isZh ? `${days} 天新增` : `New in ${days}d`}
-          value={registered ? registered.new_in_window : 'N/A'}
-        />
-        <Kpi label={isZh ? '日活' : 'DAU'} value={users.dau} />
-        <Kpi label={isZh ? '周活' : 'WAU'} value={users.wau} />
-        <Kpi label={isZh ? '月活' : 'MAU'} value={users.mau} />
-        <Kpi label={isZh ? '周活 / 月活' : 'WAU / MAU'} value={users.wau_over_mau} />
-      </div>
-      {!registered && (
-        <div className="usage-note">
-          {isZh
-            ? '注册数暂不可用：Supabase 管理接口没有响应。'
-            : 'Registration counts unavailable: the Supabase admin API did not respond.'}
-        </div>
-      )}
-
-      <div className="usage-group-title">{isZh ? '智能体调用' : 'Agent usage'}</div>
-      <div className="usage-kpis">
-        <Kpi label={isZh ? '对话轮次' : 'Turns'} value={agent.turns} />
-        <Kpi label={isZh ? '活跃用户' : 'Active users'} value={agent.active_users} />
-        <Kpi label={isZh ? '人均轮次' : 'Turns / user'} value={agent.turns_per_user} />
-        <Kpi label={isZh ? '工具调用' : 'Tool calls'} value={agent.tool_calls} />
-        <Kpi label={isZh ? '出错率' : 'Error rate'} value={percent(agent.error_rate)} />
-        <Kpi label={isZh ? '耗时中位数' : 'Median latency'} value={duration(agent.median_duration_ms)} />
-      </div>
-
-      <div className="usage-breakdowns">
-        <BarList
-          title={isZh ? '入口分布' : 'By entry path'}
-          entries={ranked(agent.by_route)}
-          empty={isZh ? '暂无数据' : 'No data yet'}
-        />
-        <BarList
-          title={isZh ? '智能体分布' : 'By agent'}
-          entries={ranked(agent.by_agent)}
-          empty={isZh ? '暂无数据' : 'No data yet'}
-        />
-      </div>
-
-      <div className="usage-group-title">{isZh ? '审批' : 'Approvals'}</div>
-      <div className="usage-kpis">
-        <Kpi label={isZh ? '通过率' : 'Approval rate'} value={percent(hitl.approval_rate)} />
-        <Kpi label={isZh ? '已通过' : 'Approved'} value={hitl.by_status.succeeded || 0} />
-        <Kpi label={isZh ? '已取消' : 'Cancelled'} value={hitl.by_status.cancelled || 0} />
-        <Kpi label={isZh ? '待处理' : 'Pending'} value={hitl.by_status.pending || 0} />
-      </div>
-      <BarList
-        title={isZh ? '按工具' : 'By tool'}
-        entries={ranked(
-          Object.fromEntries(
-            Object.entries(hitl.by_tool).map(([tool, statuses]) => [
-              tool,
-              Object.values(statuses).reduce((sum, count) => sum + count, 0),
-            ]),
-          ),
+            ))}
+          </div>
+        ) : (
+          <div className="agent-call-unavailable">
+            {isZh ? '暂时无法获取 Agent 调用次数' : 'Agent call counts are currently unavailable'}
+          </div>
         )}
-        empty={isZh ? '暂无数据' : 'No data yet'}
-      />
-    </>
+      </section>
+    </div>
   );
 }
