@@ -281,7 +281,12 @@ export default function DashboardPage() {
 
           <form
             className="dashboard-hero-actions"
-            onSubmit={(e) => { e.preventDefault(); navigate('/chat'); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const text = composerText.trim();
+              setComposerText('');
+              navigate('/chat', text ? { state: { pendingMessage: text } } : undefined);
+            }}
           >
             <input
               type="text"

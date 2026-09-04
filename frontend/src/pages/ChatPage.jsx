@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { isApiError } from '../api/errors';
 import { useAuth } from '../features/auth/useAuth';
 import {
@@ -32,6 +32,7 @@ export default function ChatPage() {
     updateChatSessionTitle: handleUpdateSessionTitle,
     updateChatSessionPreview: handleUpdateSessionPreview,
     deleteChatSession: handleDeleteSession,
+    isLoadingChatSessions,
   } = useChatSessions();
   const {
     isStreaming: isTyping,
@@ -39,6 +40,7 @@ export default function ChatPage() {
     stopAgentStream,
   } = useAgentChatStream();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { t, i18n } = useTranslation();
   const [activeThreadId, setActiveThreadId] = useState(null);
@@ -62,6 +64,7 @@ export default function ChatPage() {
   // State updates are asynchronous; this ref closes the small window where a
   // double click can invoke handleSend twice before the button re-renders.
   const isSendingRef = useRef(false);
+  const skipNextFetchSessionIdRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -151,6 +154,20 @@ export default function ChatPage() {
       clearApprovals();
       return;
     }
+    if (skipNextFetchSessionIdRef.current === activeThreadId) {
+      // A session we just created for an immediate send (dashboard handoff) -
+      // it has no checkpoint history yet, and fetching would race the
+      // optimistic messages dispatchMessage is about to add.
+      skipNextFetchSessionIdRef.current = null;
+      // A stale fetch for a session we've since navigated away from (e.g.
+      // the auto-pick-most-recent effect below briefly selecting an old
+      // session while this one was still being created) may have left this
+      // stuck true - its own cleanup deliberately skips resetting it to
+      // avoid clobbering newer state, so this is the one to do it.
+      setIsLoadingMessages(false);
+      clearApprovals();
+      return;
+    }
     let ignore = false;
     setIsLoadingMessages(true);
     Promise.all([
@@ -203,6 +220,29 @@ export default function ChatPage() {
     setActiveThreadId(session.id);
   };
 
+  // Dashboard composer hands off a typed message via route state: start a
+  // fresh session and send it immediately, instead of requiring a second
+  // "+" click on this page.
+  const pendingMessageHandledRef = useRef(false);
+  useEffect(() => {
+    const pendingMessage = location.state?.pendingMessage;
+    if (!pendingMessage || pendingMessageHandledRef.current) return;
+    // The dashboard navigates here cold, so the session-list GET is usually
+    // still in flight. If we create the session before it resolves, its
+    // (stale) response replaces the whole list in the query cache and wipes
+    // the session we just created out from under us. Wait for it to settle.
+    if (isLoadingChatSessions) return;
+    pendingMessageHandledRef.current = true;
+    navigate(location.pathname, { replace: true, state: {} });
+    (async () => {
+      const session = await handleCreateSession(t('chat.newSessionTitle'));
+      skipNextFetchSessionIdRef.current = session.id;
+      setActiveThreadId(session.id);
+      await dispatchMessage(pendingMessage, session.id);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, isLoadingChatSessions]);
+
   const handleDelete = (e, sessionId) => {
     e.stopPropagation();
     handleDeleteSession(sessionId);
@@ -212,10 +252,10 @@ export default function ChatPage() {
   // card, which pass a fully-formed message rather than going through
   // inputText/selectedAgent. Callers are responsible for their own guard
   // (empty input, no active thread, already sending) before calling this.
-  const dispatchMessage = async (sentText) => {
+  const dispatchMessage = async (sentText, sessionIdOverride) => {
     isSendingRef.current = true;
 
-    const sessionId = activeThreadId;
+    const sessionId = sessionIdOverride ?? activeThreadId;
     const explicitAgent = parseAgentCommand(sentText);
     handleUpdateSessionPreview(sessionId, explicitAgent?.message || sentText);
 
