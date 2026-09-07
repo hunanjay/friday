@@ -156,6 +156,9 @@ export default function ContactsPage() {
     isUpdatingContact: isSavingEdit,
     deleteContact,
     deleteContactFact,
+    uploadContactAvatar,
+    isUploadingAvatar,
+    deleteContactAvatar,
     refetchContacts,
   } = useContacts({ query: searchQuery, tag: selectedTag });
   const { selfMemory, deleteSelfMemoryFact } = useSelfMemory();
@@ -427,7 +430,9 @@ export default function ContactsPage() {
                   className={`contact-card-item ${isSelected ? 'selected' : ''}`}
                   onClick={() => setSelectedContact(c)}
                 >
-                  <div className="contact-card-avatar">{(c.name?.[0] || 'C').toUpperCase()}</div>
+                  <div className="contact-card-avatar">
+                    {c.avatar_url ? <img src={c.avatar_url} alt="" /> : (c.name?.[0] || 'C').toUpperCase()}
+                  </div>
                   <div className="contact-card-info">
                     <div className="contact-card-name-row">
                       <span className="contact-card-name">{c.name}</span>
@@ -491,7 +496,56 @@ export default function ContactsPage() {
                 <ChevronLeft size={18} />
                 <span>{isZh ? '返回' : 'Back'}</span>
               </button>
-              <div className="contact-detail-avatar-large">{isSelf ? (isZh ? '我' : 'Me') : (selectedContact.name?.[0] || 'C').toUpperCase()}</div>
+              {isSelf ? (
+                <div className="contact-detail-avatar-large">{isZh ? '我' : 'Me'}</div>
+              ) : (
+                <label
+                  className="contact-detail-avatar-large contact-detail-avatar-upload"
+                  title={isZh ? '点击更换头像' : 'Click to change avatar'}
+                >
+                  {isUploadingAvatar ? (
+                    <span className="spinner" style={{ width: 20, height: 20 }} />
+                  ) : selectedContact.avatar_url ? (
+                    <img src={selectedContact.avatar_url} alt="" />
+                  ) : (
+                    (selectedContact.name?.[0] || 'C').toUpperCase()
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    disabled={isUploadingAvatar}
+                    onChange={async (e) => {
+                      const file = e.target.files[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      try {
+                        await uploadContactAvatar(selectedContact.id, file);
+                      } catch {
+                        showToast(isZh ? '头像上传失败' : 'Avatar upload failed');
+                      }
+                    }}
+                  />
+                  {selectedContact.avatar_url && !isUploadingAvatar && (
+                    <button
+                      type="button"
+                      className="contact-detail-avatar-remove"
+                      title={isZh ? '移除头像' : 'Remove avatar'}
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        try {
+                          await deleteContactAvatar(selectedContact.id);
+                        } catch {
+                          showToast(isZh ? '移除头像失败' : 'Failed to remove avatar');
+                        }
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </label>
+              )}
               <div className="contact-detail-meta">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <h2>{isSelf ? (isZh ? '我的长期记忆' : 'My Memory') : selectedContact.name}</h2>

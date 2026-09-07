@@ -16,6 +16,7 @@ import {
   DashboardSecondaryPanels,
 } from '../features/dashboard/components/DashboardSecondaryPanels';
 import { DashboardTodoPanel } from '../features/dashboard/components/DashboardTodoPanel';
+import { useContactReminders } from '../features/contacts/hooks';
 import { useGitHubCommits, useGitHubConnection } from '../features/github/hooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
 import { useAssistantName } from '../features/settings/hooks';
@@ -182,6 +183,12 @@ export default function DashboardPage() {
     refetchCommits,
   } = useGitHubCommits(currentWeekInfo);
 
+  const {
+    reminders: pendingReminders,
+    isLoadingReminders,
+    updateReminder,
+  } = useContactReminders({ status: 'pending' });
+
   // A commits fetch error is expected (a 404) when GitHub simply isn't
   // connected - the GitHub panel already shows its own "not connected"
   // state for that, so it shouldn't also trip the page-level error banner.
@@ -229,8 +236,9 @@ export default function DashboardPage() {
     allDay: '全天',
     connect: '连接',
     radarTitle: '关系雷达',
-    radarPreviewTag: '概念预览',
-    radarPreviewCopy: '即将推出：在合适的时机，主动提醒你该联系哪些人。',
+    radarEmpty: '暂无待处理的关系提醒。',
+    radarDone: '完成',
+    radarDismiss: '忽略',
     bubbleFieldLabel: '邮件 · 日程速览',
   } : {
     greeting: `Good morning, ${displayName(user) || 'there'}`,
@@ -257,8 +265,9 @@ export default function DashboardPage() {
     allDay: 'All day',
     connect: 'Connect',
     radarTitle: 'Relationship Radar',
-    radarPreviewTag: 'Concept preview',
-    radarPreviewCopy: 'Coming soon: proactive nudges for who to reach out to, at the right time.',
+    radarEmpty: 'No relationship reminders pending.',
+    radarDone: 'Done',
+    radarDismiss: 'Dismiss',
     bubbleFieldLabel: 'Mail · Calendar at a glance',
   };
 
@@ -334,6 +343,12 @@ export default function DashboardPage() {
             }}
             locale={i18n.language}
             navigate={navigate}
+            reminders={{
+              items: pendingReminders,
+              total: pendingReminders.length,
+              isLoading: isLoadingReminders,
+              onUpdate: updateReminder,
+            }}
           />
         </main>
       </div>

@@ -35,6 +35,20 @@ export async function deleteContact(token, contactId) {
   return contactId;
 }
 
+export function uploadContactAvatar(token, contactId, file) {
+  const body = new FormData();
+  body.append('file', file);
+  return apiRequest(`/api/contacts/${encodeURIComponent(contactId)}/avatar`, {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function deleteContactAvatar(token, contactId) {
+  return apiRequest(`/api/contacts/${encodeURIComponent(contactId)}/avatar`, { method: 'DELETE', token });
+}
+
 export async function getSelfMemory(token) {
   return apiRequest('/api/contacts/me', { token });
 }
@@ -45,4 +59,21 @@ export async function deleteContactFact(token, contactId, factId) {
     token,
   });
   return factId;
+}
+
+export async function getContactReminders(token, { status = null, signal } = {}) {
+  const data = await apiRequest('/api/contacts/reminders', {
+    token,
+    signal,
+    query: { status: status || undefined },
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+export function updateContactReminder(token, reminderId, { status, snoozeUntil = null }) {
+  return apiRequest(`/api/contacts/reminders/${encodeURIComponent(reminderId)}`, {
+    method: 'PATCH',
+    token,
+    body: { status, snooze_until: snoozeUntil },
+  });
 }
