@@ -4,13 +4,15 @@ import os
 logger = logging.getLogger(__name__)
 
 
-def save_attachment_file(file_bytes: bytes, safe_filename: str, mime_type: str) -> tuple[str, str]:
+def save_attachment_file(
+    file_bytes: bytes, safe_filename: str, mime_type: str, subfolder: str = "memos"
+) -> tuple[str, str]:
     """Save attachment file to Aliyun OSS (if configured) or local disk.
 
     Returns:
         tuple[file_url, file_path_for_parsing]
     """
-    upload_dir = os.path.join(os.getcwd(), "uploads", "memos")
+    upload_dir = os.path.join(os.getcwd(), "uploads", subfolder)
     os.makedirs(upload_dir, exist_ok=True)
     local_path = os.path.join(upload_dir, safe_filename)
 
@@ -32,7 +34,7 @@ def save_attachment_file(file_bytes: bytes, safe_filename: str, mime_type: str) 
             auth = oss2.Auth(access_key_id, access_key_secret)
             bucket = oss2.Bucket(auth, f"https://{clean_endpoint}", bucket_name)
 
-            oss_key = f"memos/{safe_filename}"
+            oss_key = f"{subfolder}/{safe_filename}"
             headers = {"Content-Type": mime_type} if mime_type else None
             bucket.put_object(oss_key, file_bytes, headers=headers)
 
@@ -44,4 +46,4 @@ def save_attachment_file(file_bytes: bytes, safe_filename: str, mime_type: str) 
             logger.warning("Aliyun OSS upload failed for %s, fallback to local URL: %s", safe_filename, exc)
 
     # Fallback to local static route
-    return f"/uploads/memos/{safe_filename}", local_path
+    return f"/uploads/{subfolder}/{safe_filename}", local_path

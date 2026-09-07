@@ -1,12 +1,32 @@
-import React from 'react';
-import { Button, Text } from '@fluentui/react-components';
+import React, { useEffect, useState } from 'react';
+import { Avatar, Button, Text } from '@fluentui/react-components';
 import {
   CalendarLtr24Regular,
+  Checkmark20Regular,
+  Dismiss20Regular,
   Mail24Regular,
   NoteAdd24Regular,
   Open24Regular,
   Radar20Regular,
 } from '@fluentui/react-icons';
+
+const TICKER_SLOT_MS = 3000;
+
+// One shared clock for every rotating side-panel ticker (Radar, GitHub) so
+// they change slots on the same beat instead of drifting apart - each panel
+// mounts (and starts loading) at a different time, so two independent
+// `animation: ... infinite` loops would each start their own clock and fall
+// out of phase with each other. `tick % items.length` per panel also means
+// there's no dead slot to special-case when a panel has fewer than 3 items:
+// 1 item just always resolves to index 0, 2 items alternate, etc.
+function useSharedTicker() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), TICKER_SLOT_MS);
+    return () => clearInterval(id);
+  }, []);
+  return tick;
+}
 
 export function EmptyState({ action, icon, message, onAction }) {
   return (
@@ -45,11 +65,15 @@ export function PanelSkeleton({
   );
 }
 
-// A contact worth reaching out to isn't something this app can compute yet -
-// there's no interaction-recency or reminder feature behind it. Ship the
-// panel now so the layout and intent are visible, but never fabricate
-// per-contact rows here; that's real backend work for another day.
-function RelationshipRadar({ copy }) {
+// Explicit time-based reminders (issue #17 part A) that the contact agent
+// created via create_contact_reminder. An upcoming-reminders preview sorted
+// soonest-first, not a due-today inbox. Relationship-decay ("gone quiet")
+// reminders aren't computed yet - that's still a real backend job for
+// another day - so this only ever shows reminders someone actually asked for.
+function RelationshipRadar({ copy, navigate, reminders = {}, tick }) {
+  const items = (reminders.items || []).slice(0, 3);
+  const index = items.length ? tick % items.length : 0;
+  const current = items[index];
   return (
     <div className="dashboard-panel dashboard-radar-panel">
       <div className="dashboard-panel-header">
@@ -57,38 +81,83 @@ function RelationshipRadar({ copy }) {
           <Radar20Regular className="panel-title-icon" />
           <h2 className="panel-title-text">{copy.radarTitle}</h2>
         </div>
-        <span className="dashboard-panel-tag preview">{copy.radarPreviewTag}</span>
+        {reminders.total > 0 && <span className="dashboard-panel-tag">{reminders.total}</span>}
       </div>
-      <p className="dashboard-radar-preview-copy">{copy.radarPreviewCopy}</p>
+
+      {reminders.isLoading ? (
+        <PanelSkeleton rows={2} />
+      ) : !current ? (
+        <p className="dashboard-radar-preview-copy">{copy.radarEmpty}</p>
+      ) : (
+        <>
+          <div className="dashboard-radar-ticker">
+            <div className="dashboard-radar-ticker-item" key={current.id}>
+              <Avatar
+                name={current.contact_name}
+                image={current.contact_avatar_url ? { src: current.contact_avatar_url } : undefined}
+                size={28}
+              />
+              <button
+                type="button"
+                className="dashboard-radar-item-main"
+                onClick={() => navigate('/contacts', { state: { contactId: current.contact_id } })}
+              >
+                <span className="dashboard-radar-item-name">{current.contact_name}</span>
+                <span className="dashboard-radar-item-reason">{current.reason}</span>
+              </button>
+              <div className="dashboard-radar-item-actions">
+                <Button
+                  appearance="subtle"
+                  size="small"
+                  icon={<Checkmark20Regular />}
+                  title={copy.radarDone}
+                  onClick={() => reminders.onUpdate(current.id, 'done')}
+                />
+                <Button
+                  appearance="subtle"
+                  size="small"
+                  icon={<Dismiss20Regular />}
+                  title={copy.radarDismiss}
+                  onClick={() => reminders.onUpdate(current.id, 'dismissed')}
+                />
+              </div>
+            </div>
+          </div>
+          {items.length > 1 && (
+            <div className="dashboard-ticker-dots">
+              {items.map((item, i) => (
+                <span key={item.id} className={i === index ? 'active' : ''} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-function GitHubTicker({ commits, formatCommitDate, locale }) {
+function GitHubTicker({ commits, formatCommitDate, locale, tick }) {
   const items = commits.slice(0, 3);
+  const index = items.length ? tick % items.length : 0;
+  const current = items[index];
+  if (!current) return null;
   return (
     <>
       <div className="dashboard-commit-ticker">
-        {items.map((commit, index) => (
-          <div
-            className="dashboard-commit-ticker-item"
-            style={{ animationDelay: `${index * 3}s` }}
-            key={`${commit.repo}-${commit.sha}`}
-          >
-            <span className="ticker-repo">{commit.repo}</span>
-            <div className="ticker-text">
-              <div className="ticker-msg">{commit.message?.split('\n')[0]}</div>
-              <div className="ticker-when">
-                {commit.date ? formatCommitDate(commit.date, locale) : ''} · {commit.author}
-              </div>
+        <div className="dashboard-commit-ticker-item" key={`${current.repo}-${current.sha}`}>
+          <span className="ticker-repo">{current.repo}</span>
+          <div className="ticker-text">
+            <div className="ticker-msg">{current.message?.split('\n')[0]}</div>
+            <div className="ticker-when">
+              {current.date ? formatCommitDate(current.date, locale) : ''} · {current.author}
             </div>
           </div>
-        ))}
+        </div>
       </div>
       {items.length > 1 && (
         <div className="dashboard-ticker-dots">
-          {items.map((commit, index) => (
-            <span key={`${commit.repo}-${commit.sha}-dot`} style={{ animationDelay: `${index * 3}s` }} />
+          {items.map((commit, i) => (
+            <span key={`${commit.repo}-${commit.sha}-dot`} className={i === index ? 'active' : ''} />
           ))}
         </div>
       )}
@@ -96,7 +165,7 @@ function GitHubTicker({ commits, formatCommitDate, locale }) {
   );
 }
 
-function GitHubPanel({ copy, formatCommitDate, github, locale, navigate }) {
+function GitHubPanel({ copy, formatCommitDate, github, locale, navigate, tick }) {
   return (
     <div className="dashboard-panel dashboard-github-panel">
       <div className="dashboard-panel-header">
@@ -117,7 +186,7 @@ function GitHubPanel({ copy, formatCommitDate, github, locale, navigate }) {
 
       {github.isLoading ? <PanelSkeleton rows={3} badges /> : github.isConnected ? (
         github.commits.length ? (
-          <GitHubTicker commits={github.commits} formatCommitDate={formatCommitDate} locale={locale} />
+          <GitHubTicker commits={github.commits} formatCommitDate={formatCommitDate} locale={locale} tick={tick} />
         ) : (
           <EmptyState
             icon={<NoteAdd24Regular />}
@@ -138,16 +207,18 @@ function GitHubPanel({ copy, formatCommitDate, github, locale, navigate }) {
   );
 }
 
-export function DashboardSecondaryPanels({ copy, formatCommitDate, github, locale, navigate }) {
+export function DashboardSecondaryPanels({ copy, formatCommitDate, github, locale, navigate, reminders }) {
+  const tick = useSharedTicker();
   return (
     <div className="dashboard-column-stack">
-      <RelationshipRadar copy={copy} />
+      <RelationshipRadar copy={copy} navigate={navigate} reminders={reminders} tick={tick} />
       <GitHubPanel
         copy={copy}
         formatCommitDate={formatCommitDate}
         github={github}
         locale={locale}
         navigate={navigate}
+        tick={tick}
       />
     </div>
   );

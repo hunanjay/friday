@@ -1524,7 +1524,13 @@
 .memo-gray  { background: var(--memo-gray);  }
 
 /* --------------------------------------------------------------------------
-   Relationship Radar (placeholder panel, no real data yet)
+   Relationship Radar — one shared JS clock (useSharedTicker in
+   DashboardSecondaryPanels.jsx) drives both this and the GitHub ticker
+   below, so they change slots on the same beat instead of each running its
+   own independent loop. Only the current slot is ever in the DOM, so there's
+   no stacked, invisible item competing for clicks and no dead slot to
+   special-case when there are fewer than 3 reminders - `tick % length`
+   just revisits the same item(s) sooner.
    -------------------------------------------------------------------------- */
 
 .dashboard-panel-tag.preview {
@@ -1538,6 +1544,55 @@
   font-size: .82rem;
   line-height: 1.5;
   color: var(--dash-ink-muted);
+}
+
+.dashboard-radar-ticker {
+  flex-shrink: 0;
+  margin: 0 20px 10px;
+}
+
+.dashboard-radar-ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  animation: dashboard-ticker-slot-in .35s ease;
+}
+
+.dashboard-radar-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.dashboard-radar-item-name {
+  font-size: .84rem;
+  font-weight: 600;
+  color: var(--dash-ink);
+}
+
+.dashboard-radar-item-reason {
+  font-size: .76rem;
+  color: var(--dash-ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.dashboard-radar-item-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -1564,21 +1619,16 @@
 }
 
 .dashboard-commit-ticker {
-  position: relative;
-  height: 40px;
   flex-shrink: 0;
   margin: 0 20px 10px;
 }
 
 .dashboard-commit-ticker-item {
-  position: absolute;
-  inset: 0;
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  opacity: 0;
-  animation: dashboard-ticker-fade 9s ease-in-out infinite;
+  animation: dashboard-ticker-slot-in .35s ease;
 }
 
 .ticker-repo {
@@ -1622,19 +1672,16 @@
   height: 4px;
   border-radius: 50%;
   background: var(--dash-line);
-  animation: dashboard-ticker-dot 9s ease-in-out infinite;
+  transition: background .25s ease;
 }
 
-@keyframes dashboard-ticker-fade {
-  0%, 100% { opacity: 0; transform: translateY(6px); }
-  5%, 28% { opacity: 1; transform: translateY(0); }
-  33% { opacity: 0; transform: translateY(-6px); }
+.dashboard-ticker-dots span.active {
+  background: var(--dash-accent);
 }
 
-@keyframes dashboard-ticker-dot {
-  0%, 100% { background: var(--dash-line); }
-  5%, 28% { background: var(--dash-accent); }
-  33% { background: var(--dash-line); }
+@keyframes dashboard-ticker-slot-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes dashboard-pulse-ring {
@@ -1730,14 +1777,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dashboard-commit-ticker-item,
-  .dashboard-ticker-dots span,
+  .dashboard-radar-ticker-item,
   .dashboard-bubble,
   .dashboard-pulse-dot::after {
     animation: none;
   }
-  .dashboard-commit-ticker-item { opacity: 0; }
-  .dashboard-commit-ticker-item:first-child { opacity: 1; }
-  .dashboard-ticker-dots span:first-child { background: var(--dash-accent); }
+  .dashboard-ticker-dots span {
+    transition: none;
+  }
 }
 
 /* Responsive Fallbacks */

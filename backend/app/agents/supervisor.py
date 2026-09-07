@@ -74,11 +74,17 @@ _ROUTING_HINTS = {
         "before meeting Sarah') — route these here too, even when phrased as "
         "a pronoun reference or a casual story rather than an explicit question. Do not route small "
         "talk here: a greeting, or the user expressing a feeling about you rather than telling you "
-        "something about a person, carries no fact to record and belongs in your own reply."
+        "something about a person, carries no fact to record and belongs in your own reply. A fact "
+        "with a future date that this agent records may passively become a dashboard reminder card "
+        "on its own — that is never what the user is asking FOR, so an explicit 'remind me to do X' "
+        "belongs to calendar_agent (or is ambiguous, see below), not here."
     ),
     "calendar_agent": (
         "Route here for anything about scheduling: listing, creating, rescheduling, "
-        "editing or deleting calendar events, or accepting/declining event invitations."
+        "editing or deleting calendar events, or accepting/declining event invitations. Also route "
+        "here when the user explicitly asks to be reminded/scheduled to do something specific — a "
+        "task, a call, a commitment with a 'this needs doing' feel — even when it involves a named "
+        "person, since that is a thing to schedule, not a passive note about the relationship."
     ),
     "memos_agent": (
         "Route here only when the user explicitly asks to save an idea/note, or to find "
@@ -234,11 +240,12 @@ def _agent_prompts(
             *_BASE_RULES,
         ]),
         "contact_agent": _format_rules([
-            "You manage the user's Personal Contact Relationship Brain.",
+            f"Today is {today}. You manage the user's Personal Contact Relationship Brain.",
             "Call search_contacts before answering anything about a person or a relationship and before every contact write. Use the stable contact id it returns; never guess an id or select a same-name contact by list position. If several contacts match, ask the user which one they mean. If none match and a new contact is needed, call create_contact once and wait for its result before making another tool call.",
             "Use create_contact for the identity fields of a new person, which is name, company, phone, email, location, and job title.",
             "Anything else the user tells you about a person, such as where they live, what they pay in rent, a habit, or a plan, is a fact: record each one with record_contact_fact using the contact id from a completed search_contacts or create_contact call, rather than stopping at create_contact or repeating it back unsaved. Never call create_contact and record_contact_fact in the same model response because tool calls in one response may run concurrently.",
             "A nickname or alias for a contact (what people call them, a short form of their name) is a fact too - record it with record_contact_fact (dimension='basic', category='nickname'). search_contacts only matches text that has actually been saved, so an alias mentioned but never recorded stays unfindable by that name later.",
+            "If a fact you just recorded names a real future date (a deadline, a birthday, a starting school in September, a promise to follow up), call create_contact_reminder with that date resolved to an absolute YYYY-MM-DD. Skip this for facts with no date attached - do not invent one. Also skip it when the user explicitly asked to be reminded or to have this scheduled - that request should have gone to calendar_agent, not become a passive note here; say so rather than silently creating one.",
             "Say which contact the information was filed under, so the user knows where to find it later.",
             "Cite the source marker returned with each contact fact.",
             *memory_rules,
@@ -321,6 +328,11 @@ def _supervisor_prompt(assistant_name: str, today: str, memory_block: str = "") 
         f"Today is {today}, and you coordinate {len(AGENT_NAMES)} specialized agents.",
         "Delegate only when the request needs an agent's tools, and answer greetings, small talk, and anything the conversation already contains yourself.",
         "Route with the delegation tool descriptions, and relay the result concisely.",
+        "A request to be reminded/scheduled about something involving a named person can mean either "
+        "a calendar event (a commitment the user wants scheduled) or a passive relationship note "
+        "(contact_agent quietly flags it, with no calendar entry). When the delegation descriptions "
+        "don't make it clear which one the user means, ask them to clarify before delegating rather "
+        "than guessing — the two produce very different outcomes.",
         "Pass each delegated agent a self-contained task in which pronouns, people, and relative dates are already resolved from the conversation.",
         "Relay delegated lists, links, and other formatted content verbatim without rewriting or dropping items.",
         _MEMORY_TOOLS_RULE,

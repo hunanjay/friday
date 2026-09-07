@@ -823,7 +823,10 @@ storage_source = (backend_dir / "app/services/storage.py").read_text()
 
 check("sign_url is called", "sign_url(" in storage_source)
 check("x-oss-object-acl is NOT present", "x-oss-object-acl" not in storage_source)
-check("fallback /uploads/memos/ path still exists", "/uploads/memos/" in storage_source)
+check(
+    "fallback /uploads/<subfolder>/ path still exists, memos still its default",
+    '"/uploads/{subfolder}/{safe_filename}"' in storage_source and 'subfolder: str = "memos"' in storage_source,
+)
 check("OSS upload branch guarded by credentials",
       "bucket_name and access_key_id and access_key_secret" in storage_source)
 

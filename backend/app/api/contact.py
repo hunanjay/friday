@@ -1,10 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app.core.security import get_user_id
-from app.infrastructure.db.repositories import contacts as contacts_repo, user_memory as user_memory_repo
+from app.infrastructure.db.repositories import (
+    contact_reminders as reminders_repo,
+    contacts as contacts_repo,
+    user_memory as user_memory_repo,
+)
 from app.services.contact_brain_service import ContactBrainService
 from app.services.contact_service import ContactService
+from app.services.storage import save_attachment_file
+
+_AVATAR_MAX_BYTES = 5 * 1024 * 1024
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
@@ -38,6 +48,11 @@ class AddFactRequest(BaseModel):
     category: str
     fact_key: str
     fact_value: str
+
+
+class UpdateReminderRequest(BaseModel):
+    status: str  # 'done' | 'dismissed' | 'snoozed'
+    snooze_until: datetime | None = None
 
 
 @router.get("")
@@ -84,6 +99,34 @@ async def delete_self_fact(fact_id: str, user_id: str = Depends(get_user_id)):
     if not ok:
         raise HTTPException(status_code=404, detail="Fact not found")
     return {"status": "ok", "fact_id": fact_id}
+
+
+@router.get("/reminders")
+async def list_reminders(
+    status: str | None = Query(default=None),
+    user_id: str = Depends(get_user_id),
+):
+    """Relationship-maintenance reminders (issue #17), soonest due_at first.
+    The dashboard Radar panel passes status=pending."""
+    return await reminders_repo.list_reminders(user_id, status=status)
+
+
+@router.patch("/reminders/{reminder_id}")
+async def update_reminder(
+    reminder_id: str,
+    payload: UpdateReminderRequest,
+    user_id: str = Depends(get_user_id),
+):
+    if payload.status not in ("done", "dismissed", "snoozed"):
+        raise HTTPException(status_code=422, detail="status must be done, dismissed, or snoozed")
+    if payload.status == "snoozed" and not payload.snooze_until:
+        raise HTTPException(status_code=422, detail="snooze_until is required when snoozing")
+    updated = await reminders_repo.update_status(
+        user_id, reminder_id, payload.status, snooze_until=payload.snooze_until
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    return updated
 
 
 @router.get("/{contact_id}")
@@ -166,6 +209,39 @@ async def delete_contact(
     user_id: str = Depends(get_user_id),
 ):
     return await ContactService.delete_contact(user_id=user_id, contact_id=contact_id)
+
+
+@router.post("/{contact_id}/avatar")
+async def upload_avatar(
+    contact_id: str,
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_user_id),
+):
+    """Upload/replace a contact's avatar photo. Stored via the same Aliyun
+    OSS-or-local path memo attachments use (app/services/storage.py)."""
+    if not await ContactService.get_contact_by_id(user_id=user_id, contact_id=contact_id):
+        raise HTTPException(status_code=404, detail="Contact not found")
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=422, detail="Avatar must be an image file")
+
+    content_bytes = await file.read()
+    if len(content_bytes) > _AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=422, detail="Avatar image must be 5MB or smaller")
+
+    safe_filename = f"{contact_id}_{uuid.uuid4().hex}_{file.filename}"
+    avatar_url, _ = save_attachment_file(content_bytes, safe_filename, file.content_type, subfolder="contacts")
+    return await contacts_repo.update_contact(user_id=user_id, contact_id=contact_id, avatar_url=avatar_url)
+
+
+@router.delete("/{contact_id}/avatar")
+async def delete_avatar(
+    contact_id: str,
+    user_id: str = Depends(get_user_id),
+):
+    updated = await contacts_repo.update_contact(user_id=user_id, contact_id=contact_id, avatar_url="")
+    if not updated:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return updated
 
 
 @router.post("/reindex")

@@ -73,6 +73,9 @@ ALTER TABLE contact_interactions ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ
 -- 不设 DEFAULT: 迁移前写入的事实来源不可考, NULL 表示未知, 好过谎称 'manual'。
 ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS source_type TEXT;
 ALTER TABLE contact_profiles ADD COLUMN IF NOT EXISTS source_id TEXT;
+
+-- 7. 头像: 存 storage.py 返回的 URL (OSS 签名链接或本地 /uploads/contacts/ 路径)。
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 """
 
 def _db_pool():
@@ -141,10 +144,11 @@ def _row_to_contact_dict(row) -> dict:
         "last_synced_at": row[10].isoformat() if row[10] else None,
         "created_at": row[11].isoformat() if row[11] else None,
         "updated_at": row[12].isoformat() if row[12] else None,
+        "avatar_url": row[13] or "",
     }
 
 
-_CONTACT_COLS = "id, user_id, outlook_contact_id, name, email, phone, company, job_title, location, ai_summary, last_synced_at, created_at, updated_at"
+_CONTACT_COLS = "id, user_id, outlook_contact_id, name, email, phone, company, job_title, location, ai_summary, last_synced_at, created_at, updated_at, avatar_url"
 
 
 async def list_contacts(user_id: str, query: str | None = None, tag: str | None = None) -> list[dict]:
@@ -266,6 +270,7 @@ async def update_contact(
     job_title: str | None = None,
     location: str | None = None,
     ai_summary: str | None = None,
+    avatar_url: str | None = None,
 ) -> dict | None:
     async with _db_pool().connection() as conn:
         updates = []
@@ -291,6 +296,9 @@ async def update_contact(
         if ai_summary is not None:
             updates.append("ai_summary = %s")
             params.append(ai_summary)
+        if avatar_url is not None:
+            updates.append("avatar_url = %s")
+            params.append(avatar_url)
 
         if not updates:
             return await get_contact_by_id(user_id, contact_id)

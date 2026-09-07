@@ -4,12 +4,16 @@ import { useAuth } from '../auth/useAuth';
 import {
   createContact,
   deleteContact,
+  deleteContactAvatar,
   deleteContactFact,
+  getContactReminders,
   getContactTags,
   getContacts,
   getSelfMemory,
   syncMicrosoftContacts,
   updateContact,
+  updateContactReminder,
+  uploadContactAvatar,
 } from './api';
 import { contactKeys } from './queryKeys';
 
@@ -76,6 +80,14 @@ export function useContacts({ query = '', tag = null, debounceMs = 250 } = {}) {
   const deleteFactMutation = useMutation({
     mutationFn: ({ contactId, factId }) => deleteContactFact(authToken, contactId, factId),
   });
+  const uploadAvatarMutation = useMutation({
+    mutationFn: ({ contactId, file }) => uploadContactAvatar(authToken, contactId, file),
+    onSuccess: invalidate,
+  });
+  const deleteAvatarMutation = useMutation({
+    mutationFn: contactId => deleteContactAvatar(authToken, contactId),
+    onSuccess: invalidate,
+  });
 
   return {
     contacts: listQuery.data ?? EMPTY_LIST,
@@ -88,7 +100,37 @@ export function useContacts({ query = '', tag = null, debounceMs = 250 } = {}) {
     isUpdatingContact: updateMutation.isPending,
     deleteContact: deleteMutation.mutateAsync,
     deleteContactFact: (contactId, factId) => deleteFactMutation.mutateAsync({ contactId, factId }),
+    uploadContactAvatar: (contactId, file) => uploadAvatarMutation.mutateAsync({ contactId, file }),
+    isUploadingAvatar: uploadAvatarMutation.isPending,
+    deleteContactAvatar: deleteAvatarMutation.mutateAsync,
     refetchContacts: () => invalidate(),
+  };
+}
+
+// Relationship-maintenance reminders (issue #17) for the dashboard Radar
+// panel - an upcoming-reminders preview, soonest first, not a due-today
+// inbox. No push channel; polling is what keeps it current.
+export function useContactReminders({ status = 'pending' } = {}) {
+  const { authToken, scope } = useContactsAccess();
+  const queryClient = useQueryClient();
+  const queryKey = contactKeys.reminders(scope, status);
+  const query = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => getContactReminders(authToken, { status, signal }),
+    enabled: Boolean(authToken),
+    refetchInterval: 3 * 60 * 1000,
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ reminderId, status: newStatus, snoozeUntil }) =>
+      updateContactReminder(authToken, reminderId, { status: newStatus, snoozeUntil }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: contactKeys.all(scope) }),
+  });
+
+  return {
+    reminders: query.data ?? EMPTY_LIST,
+    isLoadingReminders: Boolean(authToken) && query.isPending,
+    updateReminder: (reminderId, newStatus, snoozeUntil = null) =>
+      updateMutation.mutateAsync({ reminderId, status: newStatus, snoozeUntil }),
   };
 }
 

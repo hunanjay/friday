@@ -662,6 +662,73 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         )
 
     @tool
+    async def create_contact_reminder(
+        contact_id: str,
+        due_at: str,
+        reason: str,
+        suggested_action: str,
+        profile_id: str = "",
+    ) -> str:
+        """Create a relationship-maintenance reminder for a contact. It shows
+        up on the dashboard's Relationship Radar panel once `due_at` arrives.
+
+        WHEN TO USE:
+        A fact just recorded (via `record_contact_fact` or `extract_contact_memory`)
+        names a future point worth checking in on — a deadline, an event, a
+        birthday, "will do X next week". Call this AFTER the fact is recorded,
+        with `due_at` already resolved to an absolute date (never a relative
+        phrase like "next week" — resolve it against today's date first).
+        Skip vague or past-tense facts; only create a reminder for something
+        with a real future date attached.
+
+        PARAMETERS:
+        - `contact_id` (str, REQUIRED): stable id from `search_contacts` or
+          `create_contact`.
+        - `due_at` (str, REQUIRED): ISO date or datetime (`YYYY-MM-DD` or
+          `YYYY-MM-DDTHH:MM:SS`) for when to surface this reminder. For a
+          birthday/anniversary, use a date a few days before the actual date.
+        - `reason` (str, REQUIRED): the reminder line itself, in your own voice,
+          like you're actually saying it to the user - not a database label.
+          The contact's name is already shown right above it on the dashboard
+          card, so refer to them by pronoun/relationship instead of repeating
+          the name. Match the user's language (zh stays zh, en stays en).
+          Bad: "周子丰生日提醒". Good: "他下周三就要过生日啦".
+          Bad: "Child school reminder — Sept". Good: "Their kid starts school
+          next week — worth checking in on how it's going."
+        - `suggested_action` (str, REQUIRED): what the user should actually do,
+          e.g. "问一下孩子上学适应得怎么样".
+        - `profile_id` (str, optional): the fact_id this reminder came from, if any.
+        """
+        from datetime import datetime as _dt
+
+        from app.infrastructure.db.repositories import contact_reminders as reminders_repo
+        from app.services.contact_service import ContactService
+
+        clean_contact_id = (contact_id or "").strip()
+        contact = await ContactService.get_contact_by_id(user_id=user_id, contact_id=clean_contact_id)
+        if not contact:
+            return f"Error: contact id {contact_id!r} was not found. Nothing was created."
+
+        try:
+            due = _dt.fromisoformat(due_at.strip())
+        except ValueError:
+            return f"Error: due_at {due_at!r} is not a valid ISO date/datetime."
+
+        dedupe_key = f"{clean_contact_id}:{reason.strip().lower()}:{due.date().isoformat()}"
+        created = await reminders_repo.create_reminder(
+            user_id=user_id,
+            contact_id=clean_contact_id,
+            due_at=due,
+            reason=reason.strip(),
+            suggested_action=suggested_action.strip(),
+            profile_id=profile_id.strip() or None,
+            dedupe_key=dedupe_key,
+        )
+        if not created:
+            return f"A reminder for {contact['name']} with this reason around this date already exists; nothing duplicated."
+        return f"Created reminder for {contact['name']} due {created['due_at']}: {reason.strip()} (reminder_id: {created['id']})."
+
+    @tool
     async def extract_contact_memory(text: str) -> str:
         """Deeply analyze and extract structured profiles, 4-dimension facts, tags, and timeline events from raw text into the Relationship Brain.
 
@@ -688,6 +755,7 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         search_contacts,
         create_contact,
         record_contact_fact,
+        create_contact_reminder,
         extract_contact_memory,
     ]
 
