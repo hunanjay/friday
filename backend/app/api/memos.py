@@ -61,8 +61,21 @@ async def upload_attachment(
 
 
 @router.get("")
-async def list_memos(user_id: str = Depends(get_user_id)):
-    return {"memos": await memos_db.list_memos(user_id)}
+async def list_memos(
+    category: str | None = None,
+    search: str | None = None,
+    limit: int = 24,
+    offset: int = 0,
+    user_id: str = Depends(get_user_id),
+):
+    memos, has_more = await memos_db.list_memos_page(
+        user_id,
+        category=category,
+        search=search,
+        limit=max(1, min(limit, 100)),
+        offset=max(0, offset),
+    )
+    return {"memos": memos, "has_more": has_more}
 
 
 @router.post("")

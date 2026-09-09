@@ -28,13 +28,29 @@ describe('memos API', () => {
     }));
   });
 
-  it('loads and normalizes the memo list', async () => {
-    apiRequest.mockResolvedValueOnce({ memos: [rawMemo] });
+  it('loads and normalizes a page of the memo list', async () => {
+    apiRequest.mockResolvedValueOnce({ memos: [rawMemo], has_more: true });
 
-    await expect(getMemos('token')).resolves.toEqual([
-      expect.objectContaining({ id: 'memo-1', updatedAt: Date.parse(rawMemo.updated_at) }),
-    ]);
-    expect(apiRequest).toHaveBeenCalledWith('/api/memos', { token: 'token' });
+    await expect(getMemos('token', { category: 'work', search: 'q', limit: 24, offset: 24 })).resolves.toEqual({
+      memos: [expect.objectContaining({ id: 'memo-1', updatedAt: Date.parse(rawMemo.updated_at) })],
+      hasMore: true,
+    });
+    expect(apiRequest).toHaveBeenCalledWith('/api/memos', {
+      token: 'token',
+      signal: undefined,
+      query: { category: 'work', search: 'q', limit: 24, offset: 24 },
+    });
+  });
+
+  it('omits the category filter when browsing "all"', async () => {
+    apiRequest.mockResolvedValueOnce({ memos: [] });
+
+    await getMemos('token', { category: 'all' });
+    expect(apiRequest).toHaveBeenCalledWith('/api/memos', {
+      token: 'token',
+      signal: undefined,
+      query: { category: undefined, search: undefined, limit: 24, offset: 0 },
+    });
   });
 
   it.each([

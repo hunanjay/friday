@@ -60,6 +60,9 @@ def _row_to_dict(row) -> dict:
 
 
 async def list_memos(user_id: str) -> list[dict]:
+    """Full unpaginated list - used by agent tools that need to scan every
+    memo (search fallback, dedup lookups, pending-sync routing). The API's
+    browse view uses list_memos_page instead."""
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
             f"select {_COLUMNS} from memos where user_id = %s order by pinned desc, updated_at desc",
@@ -67,6 +70,34 @@ async def list_memos(user_id: str) -> list[dict]:
         )
         rows = await cur.fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+async def list_memos_page(
+    user_id: str,
+    category: str | None = None,
+    search: str | None = None,
+    limit: int = 24,
+    offset: int = 0,
+) -> tuple[list[dict], bool]:
+    where = ["user_id = %s"]
+    params: list = [user_id]
+    if category:
+        where.append("category = %s")
+        params.append(category)
+    if search:
+        needle = f"%{search}%"
+        where.append("(title ilike %s or content ilike %s or attachments::text ilike %s)")
+        params.extend([needle, needle, needle])
+
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            f"select {_COLUMNS} from memos where {' and '.join(where)} "
+            "order by pinned desc, updated_at desc limit %s offset %s",
+            (*params, limit + 1, offset),
+        )
+        rows = await cur.fetchall()
+    has_more = len(rows) > limit
+    return [_row_to_dict(r) for r in rows[:limit]], has_more
 
 
 async def get_memo(user_id: str, memo_id: str) -> dict | None:

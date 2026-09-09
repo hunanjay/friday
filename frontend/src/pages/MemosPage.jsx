@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useMemos } from '../features/memos/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
-import { Edit3, Plus, Search, Trash, Pin, X, Paperclip, FileText, Image as ImageIcon } from '../components/common/Icons';
+import { ChevronLeft, ChevronRight, Edit3, Plus, Search, Trash, Pin, X, Paperclip, FileText, Image as ImageIcon } from '../components/common/Icons';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -16,19 +16,25 @@ const getAttachmentUrl = (url) => {
 export default function MemosPage() {
   const location = useLocation();
   const navigate = useNavigate();
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('all');
+
   const {
     memos,
+    hasMore,
+    page,
+    goToNextPage,
+    goToPrevPage,
     addMemo,
     updateMemo,
     deleteMemo,
     uploadMemoAttachment,
-  } = useMemos();
+  } = useMemos({ category: activeCategory, search: searchQuery });
   const { showToast } = useUi();
 
   const { t, i18n } = useTranslation();
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
   const [editingMemo, setEditingMemo] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
@@ -47,6 +53,10 @@ export default function MemosPage() {
   // Lightbox Preview State
   const [previewImage, setPreviewImage] = useState(null);
 
+  // ponytail: only finds the target memo if it's on the current (first)
+  // page - fine today since nothing links here with a memoId yet, but a
+  // future caller landing deep in someone's memo list would need a
+  // dedicated get-by-id lookup instead of scanning the loaded page.
   const targetMemoId = location.state?.memoId;
   useEffect(() => {
     if (!targetMemoId) return;
@@ -57,27 +67,6 @@ export default function MemosPage() {
     setEditingMemo({ ...memo });
     navigate('/memos', { replace: true, state: null });
   }, [memos, navigate, targetMemoId]);
-
-  // Filter memos
-  const filteredMemos = memos.filter(memo => {
-    const titleMatch = memo.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const contentMatch = memo.content.toLowerCase().includes(searchQuery.toLowerCase());
-    const attachmentMatch = (memo.attachments || []).some(att =>
-      (att.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (att.extracted_text || '').toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    const matchesSearch = titleMatch || contentMatch || attachmentMatch;
-    const matchesCategory = activeCategory === 'all' || memo.category === activeCategory;
-
-    return matchesSearch && matchesCategory;
-  });
-
-  // Sort memos: pinned first, then by date descending
-  const sortedMemos = [...filteredMemos].sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return b.updatedAt - a.updatedAt;
-  });
 
   const handleFileUpload = async (file, isEditing = false) => {
     if (!file) return;
@@ -258,7 +247,7 @@ export default function MemosPage() {
       </div>
 
       {/* Grid of notes */}
-      {sortedMemos.length === 0 ? (
+      {memos.length === 0 ? (
         <div className="memos-empty-state">
           <Edit3 size={48} className="empty-state-icon" />
           <h3>{isZh ? '未找到便签' : 'No notes found'}</h3>
@@ -266,14 +255,14 @@ export default function MemosPage() {
         </div>
       ) : (
         <div className="memos-grid">
-          {sortedMemos.map(memo => (
+          {memos.map(memo => (
             <div
               key={memo.id}
               className={`memo-card ${colorClasses[memo.color] || 'memo-color-beige'} ${memo.pinned ? 'pinned' : ''}`}
               onClick={() => setEditingMemo({ ...memo })}
             >
               <div className="memo-card-header">
-                <span className="memo-category-badge">{getCategoryLabel(memo.category)}</span>
+                <span className={`memo-category-badge category-${memo.category}`}>{getCategoryLabel(memo.category)}</span>
                 <div className="memo-card-actions">
                   <button
                     className={`pin-btn ${memo.pinned ? 'active' : ''}`}
@@ -323,6 +312,20 @@ export default function MemosPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {(page > 0 || hasMore) && (
+        <div className="memos-pagination">
+          <button className="memos-page-btn" onClick={goToPrevPage} disabled={page === 0}>
+            <ChevronLeft size={16} />
+            {isZh ? '上一页' : 'Prev'}
+          </button>
+          <span className="memos-page-indicator">{isZh ? `第 ${page + 1} 页` : `Page ${page + 1}`}</span>
+          <button className="memos-page-btn" onClick={goToNextPage} disabled={!hasMore}>
+            {isZh ? '下一页' : 'Next'}
+            <ChevronRight size={16} />
+          </button>
         </div>
       )}
 

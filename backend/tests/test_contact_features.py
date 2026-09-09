@@ -201,6 +201,69 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(interaction_kwargs["source_type"], "chat_paste")
             self.assertEqual(interaction_kwargs["contact_id"], "cid-zhangming-100")
 
+    async def test_2b_ai_extraction_merges_existing_profiles(self):
+        """When target_contact_id is given, existing profiles go into the prompt
+        and the LLM's action (new/update/skip) decides insert vs. update vs. drop."""
+        mock_llm_json_response = {
+            "name": "张明",
+            "email": "", "phone": "", "company": "", "job_title": "", "location": "",
+            "ai_summary": "",
+            "tags": [],
+            "profiles": [
+                {"action": "update", "existing_fact_id": "fact-tea", "dimension": "private",
+                 "category": "preference", "fact_key": "tea_preference", "fact_value": "改喝正山小种了"},
+                {"action": "skip", "existing_fact_id": "", "dimension": "private",
+                 "category": "preference", "fact_key": "tea_preference", "fact_value": "喜欢喝普洱茶"},
+                {"action": "new", "existing_fact_id": "", "dimension": "business",
+                 "category": "demand", "fact_key": "new_deal", "fact_value": "在看一笔新交易"},
+                {"action": "delete", "existing_fact_id": "fact-old-car", "dimension": "private",
+                 "category": "other", "fact_key": "vehicle", "fact_value": ""},
+            ],
+            "interaction_summary": "更新了偏好",
+        }
+        mock_ai_message = MagicMock()
+        mock_ai_message.content = f"```json\n{import_json_str(mock_llm_json_response)}\n```"
+
+        with patch("app.services.contact_brain_service.make_chat_model") as mock_chat_cls, \
+             patch("app.infrastructure.db.repositories.contacts.get_contact_by_id", new_callable=AsyncMock) as mock_get_contact, \
+             patch("app.infrastructure.db.repositories.contacts.update_contact", new_callable=AsyncMock), \
+             patch("app.infrastructure.db.repositories.contacts.add_contact_profile", new_callable=AsyncMock) as mock_add_profile, \
+             patch("app.infrastructure.db.repositories.contacts.update_contact_profile", new_callable=AsyncMock) as mock_update_profile, \
+             patch("app.infrastructure.db.repositories.contacts.delete_contact_profile", new_callable=AsyncMock) as mock_delete_profile, \
+             patch("app.infrastructure.db.repositories.contacts.add_contact_interaction", new_callable=AsyncMock) as mock_add_interaction:
+
+            mock_llm_instance = MagicMock()
+            mock_llm_instance.ainvoke = AsyncMock(return_value=mock_ai_message)
+            mock_chat_cls.return_value = mock_llm_instance
+
+            existing_contact = {
+                "id": "cid-zhangming-100", "name": "张明", "email": "", "company": "",
+                "profiles": [{"id": "fact-tea", "dimension": "private", "category": "preference",
+                              "fact_key": "tea_preference", "fact_value": "喜欢喝普洱茶"}],
+            }
+            mock_get_contact.return_value = existing_contact
+            mock_update_profile.return_value = {"id": "fact-tea", "fact_value": "改喝正山小种了"}
+            mock_add_profile.side_effect = lambda **kw: {"id": "fact-new", **kw}
+            mock_add_interaction.return_value = {"id": "interaction-2"}
+
+            result = await ContactBrainService.extract_and_save(
+                self.test_user_id, "张总现在改喝正山小种了，另外在看一笔新交易", target_contact_id="cid-zhangming-100"
+            )
+
+            # existing facts were handed to the LLM prompt
+            prompt_text = mock_llm_instance.ainvoke.call_args.args[0][1].content
+            self.assertIn("fact-tea", prompt_text)
+            self.assertIn("喜欢喝普洱茶", prompt_text)
+
+            # update -> update_contact_profile, skip -> nothing, new -> add_contact_profile,
+            # delete -> delete_contact_profile
+            mock_update_profile.assert_awaited_once()
+            self.assertEqual(mock_update_profile.call_args.kwargs["fact_id"], "fact-tea")
+            mock_add_profile.assert_awaited_once()
+            self.assertEqual(mock_add_profile.call_args.kwargs["fact_key"], "new_deal")
+            mock_delete_profile.assert_awaited_once_with(self.test_user_id, "cid-zhangming-100", "fact-old-car")
+            self.assertEqual(len(result["extracted_profiles"]), 2)
+
     # =========================================================================
     # 3. 4 大维度原子事实表 (CRUD & Whitelisting)
     # =========================================================================

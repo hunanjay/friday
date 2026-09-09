@@ -449,6 +449,55 @@ async def add_contact_profile(
     return fact
 
 
+async def update_contact_profile(
+    user_id: str,
+    contact_id: str,
+    fact_id: str,
+    dimension: str,
+    category: str,
+    fact_key: str,
+    fact_value: str,
+    confidence: float = 1.0,
+    source_type: str = "manual",
+    source_id: str | None = None,
+) -> dict | None:
+    dimension = normalize_facet(dimension, "basic")
+    category = normalize_facet(category, "other")
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            """
+            UPDATE contact_profiles
+            SET dimension = %s, category = %s, fact_key = %s, fact_value = %s,
+                confidence = %s, source_type = %s, source_id = %s, indexed_at = NULL
+            WHERE id = %s AND contact_id = %s AND user_id = %s
+            RETURNING id, dimension, category, fact_key, fact_value, confidence, created_at, source_type, source_id
+            """,
+            (dimension, category, fact_key, fact_value, confidence, source_type, source_id, fact_id, contact_id, user_id),
+        )
+        r = await cur.fetchone()
+
+    if not r:
+        return None
+
+    fact = {
+        "id": str(r[0]),
+        "dimension": r[1],
+        "category": r[2],
+        "fact_key": r[3],
+        "fact_value": r[4],
+        "confidence": r[5],
+        "created_at": r[6].isoformat() if r[6] else None,
+        "source_type": r[7],
+        "source_id": r[8] or "",
+    }
+    await _index_docs(
+        [vector_store.contact_fact_doc(user_id, contact_id, await _contact_name(user_id, contact_id), fact)],
+        "contact_profiles",
+        fact["id"],
+    )
+    return fact
+
+
 async def delete_contact_profile(user_id: str, contact_id: str, fact_id: str) -> bool:
     async with _db_pool().connection() as conn:
         cur = await conn.execute(
