@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/useAuth';
-import { useContactTags, useContacts, useSelfMemory } from '../features/contacts/hooks';
+import { useContactReminders, useContacts, useSelfMemory } from '../features/contacts/hooks';
 import { useUi } from '../hooks/useUi';
 import { useTranslation } from 'react-i18next';
 import {
@@ -23,6 +23,7 @@ import {
   Heart,
   UserIcon,
   Zap,
+  Plus,
 } from '../components/common/Icons';
 import ChatLogPasteModal from '../components/ChatLogPasteModal';
 import { DIMENSION_META, factDimensionOrder } from './contactDimensions';
@@ -47,6 +48,32 @@ const FACT_SOURCES = {
   email: { zh: '邮件', en: 'Email', color: '#c2410c', bg: '#ffedd5' },
   memo: { zh: '备忘录', en: 'Memo', color: '#15803d', bg: '#dcfce7' },
 };
+
+// Keep in sync with contact_reminders.status.
+const REMINDER_STATUS_META = {
+  pending: { zh: '待处理', en: 'Pending', color: '#c2410c', bg: '#ffedd5' },
+  done: { zh: '已完成', en: 'Done', color: '#15803d', bg: '#dcfce7' },
+  dismissed: { zh: '已忽略', en: 'Dismissed', color: '#64748b', bg: '#f1f5f9' },
+  snoozed: { zh: '已延后', en: 'Snoozed', color: '#7c3aed', bg: '#ede9fe' },
+};
+
+// 'snoozed' isn't a selectable target: sending it to the backend pushes
+// due_at forward and stores the result as 'pending', not 'snoozed' - there's
+// no snooze-until picker here for that flow.
+const REMINDER_STATUS_OPTIONS = ['pending', 'done', 'dismissed'];
+
+const EMPTY_REMINDER_DRAFT = { dueAt: '', reason: '', suggestedAction: '' };
+
+// `<input type="datetime-local">` reads/writes local wall-clock time, but
+// due_at from the server is a UTC ISO string - a naive .slice(0, 16) would
+// show UTC digits as if they were local ones, shifting the prefilled time
+// by the viewer's UTC offset.
+function toLocalDatetimeInputValue(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export function SourceBadge({ sourceType, origin, isZh }) {
   const meta = FACT_SOURCES[sourceType] || {
@@ -112,7 +139,6 @@ export default function ContactsPage() {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
 
-  const [selectedTag, setSelectedTag] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedContact, setSelectedContact] = useState(null);
 
@@ -144,7 +170,12 @@ export default function ContactsPage() {
   // Delete Confirmation
   const [deletingId, setDeletingId] = useState(null);
 
-  const { contactTags: allTags, refetchContactTags } = useContactTags();
+  // Reminders CRUD state
+  const [reminderFormOpen, setReminderFormOpen] = useState(false);
+  const [reminderDraft, setReminderDraft] = useState(EMPTY_REMINDER_DRAFT);
+  const [editingReminderId, setEditingReminderId] = useState(null);
+  const [editReminderDraft, setEditReminderDraft] = useState(EMPTY_REMINDER_DRAFT);
+
   const {
     contacts,
     isLoadingContacts: isLoading,
@@ -160,8 +191,20 @@ export default function ContactsPage() {
     isUploadingAvatar,
     deleteContactAvatar,
     refetchContacts,
-  } = useContacts({ query: searchQuery, tag: selectedTag });
+  } = useContacts({ query: searchQuery });
   const { selfMemory, deleteSelfMemoryFact } = useSelfMemory();
+  const isRealContactSelected = Boolean(selectedContact) && selectedContact.id !== 'me';
+  const {
+    reminders: contactReminders,
+    createReminder,
+    updateReminder,
+    editReminder,
+    deleteReminder,
+  } = useContactReminders({
+    status: null,
+    contactId: selectedContact?.id,
+    enabled: isRealContactSelected,
+  });
 
   useEffect(() => {
     setSelectedContact(current => {
@@ -173,6 +216,13 @@ export default function ContactsPage() {
       return updated || (isDesktop ? (contacts[0] || null) : null);
     });
   }, [contacts]);
+
+  useEffect(() => {
+    setReminderFormOpen(false);
+    setReminderDraft(EMPTY_REMINDER_DRAFT);
+    setEditingReminderId(null);
+    setEditReminderDraft(EMPTY_REMINDER_DRAFT);
+  }, [selectedContact?.id]);
 
   // Sync from Microsoft
   const handleSyncMicrosoft = async () => {
@@ -231,6 +281,63 @@ export default function ContactsPage() {
       setSelectedContact({ ...selectedContact, profiles: updatedProfiles });
     } catch (err) {
       console.error('Error deleting fact:', err);
+    }
+  };
+
+  const handleAddReminder = async (e) => {
+    e.preventDefault();
+    if (!selectedContact || !reminderDraft.dueAt || !reminderDraft.reason.trim()) return;
+    try {
+      await createReminder(selectedContact.id, {
+        dueAt: new Date(reminderDraft.dueAt).toISOString(),
+        reason: reminderDraft.reason.trim(),
+        suggestedAction: reminderDraft.suggestedAction.trim(),
+      });
+      setReminderDraft(EMPTY_REMINDER_DRAFT);
+      setReminderFormOpen(false);
+      showToast(i18n.language === 'zh' ? '提醒已创建' : 'Reminder created');
+    } catch (err) {
+      console.error('Error creating reminder:', err);
+    }
+  };
+
+  const handleStartEditReminder = (reminder) => {
+    setEditingReminderId(reminder.id);
+    setEditReminderDraft({
+      dueAt: toLocalDatetimeInputValue(reminder.due_at),
+      reason: reminder.reason || '',
+      suggestedAction: reminder.suggested_action || '',
+    });
+  };
+
+  const handleSaveReminderEdit = async (e) => {
+    e.preventDefault();
+    if (!editReminderDraft.reason.trim()) return;
+    try {
+      await editReminder(editingReminderId, {
+        dueAt: editReminderDraft.dueAt ? new Date(editReminderDraft.dueAt).toISOString() : undefined,
+        reason: editReminderDraft.reason.trim(),
+        suggestedAction: editReminderDraft.suggestedAction.trim(),
+      });
+      setEditingReminderId(null);
+    } catch (err) {
+      console.error('Error updating reminder:', err);
+    }
+  };
+
+  const handleChangeReminderStatus = async (reminderId, newStatus) => {
+    try {
+      await updateReminder(reminderId, newStatus);
+    } catch (err) {
+      console.error('Error updating reminder status:', err);
+    }
+  };
+
+  const handleDeleteReminder = async (reminderId) => {
+    try {
+      await deleteReminder(reminderId);
+    } catch (err) {
+      console.error('Error deleting reminder:', err);
     }
   };
 
@@ -315,30 +422,6 @@ export default function ContactsPage() {
           </div>
         </div>
 
-        {/* AI Chat Log Extract Banner */}
-        <div
-          onClick={() => setShowPasteModal(true)}
-          style={{
-            margin: '0 16px 12px 16px',
-            padding: '10px 12px',
-            borderRadius: '8px',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(168,85,247,0.08) 100%)',
-            border: '1px solid rgba(99,102,241,0.2)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Sparkles size={16} style={{ color: '#6366f1' }} />
-            <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {isZh ? '粘贴微信记录 AI 提炼' : 'Paste Chat Log AI Extract'}
-            </span>
-          </div>
-          <span style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: 600 }}>→</span>
-        </div>
-
         {/* Search Box */}
         <div className="contacts-search-box">
           <Search size={16} className="search-icon" />
@@ -349,47 +432,6 @@ export default function ContactsPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-
-        {/* Tag Filters */}
-        {allTags.length > 0 && (
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '0 16px 12px 16px', scrollbarWidth: 'none' }}>
-            <button
-              type="button"
-              style={{
-                padding: '3px 10px',
-                borderRadius: '12px',
-                fontSize: '0.75rem',
-                border: 'none',
-                cursor: 'pointer',
-                background: selectedTag === null ? 'var(--accent-primary, #6366f1)' : 'var(--bg-secondary, #f1f5f9)',
-                color: selectedTag === null ? '#fff' : 'var(--text-secondary)',
-                whiteSpace: 'nowrap',
-              }}
-              onClick={() => setSelectedTag(null)}
-            >
-              {isZh ? '全部' : 'All'}
-            </button>
-            {allTags.map((t, idx) => (
-              <button
-                key={idx}
-                type="button"
-                style={{
-                  padding: '3px 10px',
-                  borderRadius: '12px',
-                  fontSize: '0.75rem',
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: selectedTag === t ? 'var(--accent-primary, #6366f1)' : 'var(--bg-secondary, #f1f5f9)',
-                  color: selectedTag === t ? '#fff' : 'var(--text-secondary)',
-                  whiteSpace: 'nowrap',
-                }}
-                onClick={() => setSelectedTag(selectedTag === t ? null : t)}
-              >
-                #{t}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Contacts Scroll List */}
         <div className="contacts-scroll-list">
@@ -564,6 +606,12 @@ export default function ContactsPage() {
 
               <div className="contact-detail-top-actions">
                 {!isSelf && !isEditing && (
+                  <button type="button" className="action-icon-btn" onClick={() => setShowPasteModal(true)}>
+                    <Sparkles size={16} />
+                    <span>{isZh ? 'AI 提炼' : 'AI Extract'}</span>
+                  </button>
+                )}
+                {!isSelf && !isEditing && (
                   <button type="button" className="action-icon-btn" onClick={handleStartEdit}>
                     <Edit3 size={16} />
                     <span>{isZh ? '编辑' : 'Edit'}</span>
@@ -733,6 +781,173 @@ export default function ContactsPage() {
                     </div>
                   </section>
 
+                  {/* Reminders Section */}
+                  <section style={{ marginTop: 24 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Clock size={16} style={{ color: 'var(--text-secondary)' }} />
+                        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, margin: 0 }}>{isZh ? '关系提醒 (Reminders)' : 'Reminders'}</h4>
+                      </div>
+                      {!reminderFormOpen && (
+                        <button type="button" className="action-icon-btn" onClick={() => setReminderFormOpen(true)}>
+                          <Plus size={14} />
+                          <span>{isZh ? '新建提醒' : 'Add'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {reminderFormOpen && (
+                      <form
+                        onSubmit={handleAddReminder}
+                        style={{
+                          background: 'var(--bg-secondary, #f8fafc)',
+                          padding: 12,
+                          borderRadius: 8,
+                          border: '1px solid var(--border-light, #e2e8f0)',
+                          marginBottom: 12,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8,
+                        }}
+                      >
+                        <input
+                          type="datetime-local"
+                          required
+                          value={reminderDraft.dueAt}
+                          onChange={(e) => setReminderDraft({ ...reminderDraft, dueAt: e.target.value })}
+                          style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-light, #e2e8f0)', background: 'var(--bg-input, #fff)', fontSize: '0.85rem' }}
+                        />
+                        <input
+                          type="text"
+                          required
+                          placeholder={isZh ? '提醒内容（例如：他生日快到了）' : 'Reason (e.g. Their birthday is coming up)'}
+                          value={reminderDraft.reason}
+                          onChange={(e) => setReminderDraft({ ...reminderDraft, reason: e.target.value })}
+                          style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-light, #e2e8f0)', background: 'var(--bg-input, #fff)', fontSize: '0.85rem' }}
+                        />
+                        <input
+                          type="text"
+                          placeholder={isZh ? '建议行动（可选）' : 'Suggested action (optional)'}
+                          value={reminderDraft.suggestedAction}
+                          onChange={(e) => setReminderDraft({ ...reminderDraft, suggestedAction: e.target.value })}
+                          style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-light, #e2e8f0)', background: 'var(--bg-input, #fff)', fontSize: '0.85rem' }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                          <button
+                            type="button"
+                            className="modal-cancel-btn"
+                            onClick={() => { setReminderFormOpen(false); setReminderDraft(EMPTY_REMINDER_DRAFT); }}
+                          >
+                            {isZh ? '取消' : 'Cancel'}
+                          </button>
+                          <button type="submit" className="modal-submit-btn">
+                            {isZh ? '保存' : 'Save'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {contactReminders.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {contactReminders.map((r) => {
+                          const meta = REMINDER_STATUS_META[r.status] || REMINDER_STATUS_META.pending;
+                          const isEditingThis = editingReminderId === r.id;
+                          return (
+                            <div key={r.id} style={{ padding: '10px 12px', background: 'var(--bg-secondary, #f8fafc)', borderRadius: 6, border: '1px solid var(--border-light, #e2e8f0)' }}>
+                              {isEditingThis ? (
+                                <form onSubmit={handleSaveReminderEdit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                  <input
+                                    type="datetime-local"
+                                    value={editReminderDraft.dueAt}
+                                    onChange={(e) => setEditReminderDraft({ ...editReminderDraft, dueAt: e.target.value })}
+                                    style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-light, #e2e8f0)', fontSize: '0.82rem' }}
+                                  />
+                                  <input
+                                    type="text"
+                                    required
+                                    value={editReminderDraft.reason}
+                                    onChange={(e) => setEditReminderDraft({ ...editReminderDraft, reason: e.target.value })}
+                                    style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-light, #e2e8f0)', fontSize: '0.82rem' }}
+                                  />
+                                  <input
+                                    type="text"
+                                    value={editReminderDraft.suggestedAction}
+                                    onChange={(e) => setEditReminderDraft({ ...editReminderDraft, suggestedAction: e.target.value })}
+                                    style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-light, #e2e8f0)', fontSize: '0.82rem' }}
+                                  />
+                                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                    <button type="button" className="modal-cancel-btn" onClick={() => setEditingReminderId(null)}>
+                                      {isZh ? '取消' : 'Cancel'}
+                                    </button>
+                                    <button type="submit" className="modal-submit-btn">
+                                      {isZh ? '保存' : 'Save'}
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                      <select
+                                        value={r.status}
+                                        onChange={(e) => handleChangeReminderStatus(r.id, e.target.value)}
+                                        style={{
+                                          fontSize: '0.68rem',
+                                          fontWeight: 600,
+                                          color: meta.color,
+                                          background: meta.bg,
+                                          padding: '1px 4px',
+                                          borderRadius: 4,
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        {REMINDER_STATUS_OPTIONS.map((s) => (
+                                          <option key={s} value={s}>
+                                            {isZh ? REMINDER_STATUS_META[s].zh : REMINDER_STATUS_META[s].en}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                        {r.due_at ? new Date(r.due_at).toLocaleString() : '-'}
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                      <button
+                                        type="button"
+                                        title={isZh ? '编辑' : 'Edit'}
+                                        onClick={() => handleStartEditReminder(r)}
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}
+                                      >
+                                        <Edit3 size={13} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title={isZh ? '删除' : 'Delete'}
+                                        onClick={() => handleDeleteReminder(r.id)}
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}
+                                      >
+                                        <Trash size={13} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginTop: 6 }}>{r.reason}</div>
+                                  {r.suggested_action && (
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>→ {r.suggested_action}</div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      !reminderFormOpen && (
+                        <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>{isZh ? '暂无提醒' : 'No reminders yet'}</p>
+                      )
+                    )}
+                  </section>
+
                   {/* Interaction Timeline */}
                   <section style={{ marginTop: 24 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
@@ -861,7 +1076,6 @@ export default function ContactsPage() {
         isZh={isZh}
         onExtractSuccess={(c) => {
           refetchContacts();
-          refetchContactTags();
           setSelectedContact(c);
         }}
       />

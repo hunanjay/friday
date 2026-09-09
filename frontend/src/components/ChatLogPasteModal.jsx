@@ -53,38 +53,63 @@ export default function ChatLogPasteModal({ isOpen, onClose, authToken, API_URL,
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="create-contact-modal paste-extract-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
-        <div className="modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Sparkles size={20} style={{ color: 'var(--accent-primary, #6366f1)' }} />
-            <h4>{isZh ? '聊天记录 / 随手记 AI 提取' : 'Chat Log / Note AI Extract'}</h4>
+      <div
+        className="create-contact-modal paste-extract-modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(1100px, 92vw)',
+          height: 'min(88vh, 900px)',
+          padding: 32,
+          borderRadius: 20,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div className="modal-header" style={{ marginBottom: 24, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15))',
+                flexShrink: 0,
+              }}
+            >
+              <Sparkles size={22} style={{ color: 'var(--accent-primary, #6366f1)' }} />
+            </div>
+            <h4 style={{ fontSize: '1.3rem' }}>{isZh ? '聊天记录 / 随手记 AI 提取' : 'Chat Log / Note AI Extract'}</h4>
           </div>
           <button type="button" className="close-modal-btn" onClick={onClose}>
-            <X size={18} />
+            <X size={20} />
           </button>
         </div>
 
         {!result ? (
-          <form onSubmit={handleExtract} className="modal-form">
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+          <form onSubmit={handleExtract} className="modal-form" style={{ flex: 1, minHeight: 0 }}>
+            <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: 'var(--text-secondary)', marginBottom: 4, flexShrink: 0 }}>
               {isZh
                 ? '粘贴与联系人的微信聊天记录、会议记录或非结构化随手记，AI 将自动识别联系人信息、4 大维度事实偏好与标签，并归档至关系大脑。'
                 : 'Paste chat history or unstructured notes. AI will extract contact profile, 4-dimension facts & tags into your relationship brain.'}
             </p>
 
-            <div className="form-group">
+            <div className="form-group" style={{ flex: 1, minHeight: 0 }}>
               <textarea
-                rows={8}
                 required
                 style={{
                   width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
+                  height: '100%',
+                  padding: '16px',
+                  borderRadius: '12px',
                   border: '1px solid var(--border-light, #e2e8f0)',
                   backgroundColor: 'var(--bg-input, #f8fafc)',
                   fontFamily: 'inherit',
-                  fontSize: '0.9rem',
-                  resize: 'vertical',
+                  fontSize: '0.95rem',
+                  lineHeight: 1.6,
+                  resize: 'none',
                 }}
                 placeholder={
                   isZh
@@ -97,16 +122,27 @@ export default function ChatLogPasteModal({ isOpen, onClose, authToken, API_URL,
             </div>
 
             {error && (
-              <div style={{ color: 'var(--accent-danger, #ef4444)', fontSize: '0.85rem', marginBottom: 12 }}>
+              <div style={{ color: 'var(--accent-danger, #ef4444)', fontSize: '0.85rem', marginBottom: 12, flexShrink: 0 }}>
                 {error}
               </div>
             )}
 
-            <div className="modal-actions">
-              <button type="button" className="modal-cancel-btn" onClick={onClose} disabled={isExtracting}>
+            <div className="modal-actions" style={{ marginTop: 16, flexShrink: 0 }}>
+              <button type="button" className="modal-cancel-btn" style={{ padding: '11px 20px', borderRadius: 10 }} onClick={onClose} disabled={isExtracting}>
                 {isZh ? '取消' : 'Cancel'}
               </button>
-              <button type="submit" className="modal-submit-btn" disabled={isExtracting || !text.trim()}>
+              <button
+                type="submit"
+                className="modal-submit-btn"
+                disabled={isExtracting || !text.trim()}
+                style={{
+                  padding: '11px 24px',
+                  borderRadius: 10,
+                  fontSize: '0.92rem',
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
+                }}
+              >
                 {isExtracting ? (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span className="spinner" style={{ width: 14, height: 14 }} />
@@ -122,29 +158,31 @@ export default function ChatLogPasteModal({ isOpen, onClose, authToken, API_URL,
             </div>
           </form>
         ) : (
-          <div className="extract-result-container" style={{ padding: '16px 0' }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                color: '#10b981',
-                fontWeight: 600,
-                marginBottom: 16,
-              }}
-            >
-              <CheckCircle size={20} />
-              <span>{isZh ? '成功提炼并归档至关系大脑！' : 'Successfully Extracted & Archived!'}</span>
-            </div>
+          <div className="extract-result-container" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '8px 0' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  color: '#10b981',
+                  fontWeight: 600,
+                  fontSize: '1.02rem',
+                  marginBottom: 20,
+                }}
+              >
+                <CheckCircle size={22} />
+                <span>{isZh ? '成功提炼并归档至关系大脑！' : 'Successfully Extracted & Archived!'}</span>
+              </div>
 
-            <div
-              style={{
-                background: 'var(--bg-secondary, #f8fafc)',
-                padding: '16px',
-                borderRadius: '8px',
-                marginBottom: 16,
-              }}
-            >
+              <div
+                style={{
+                  background: 'var(--bg-secondary, #f8fafc)',
+                  padding: '20px',
+                  borderRadius: '14px',
+                  marginBottom: 20,
+                }}
+              >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                 <UserCheck size={18} />
                 <strong style={{ fontSize: '1rem' }}>{result.contact?.name}</strong>
@@ -169,13 +207,25 @@ export default function ChatLogPasteModal({ isOpen, onClose, authToken, API_URL,
                   </li>
                 ))}
               </ul>
+              </div>
             </div>
 
-            <div className="modal-actions">
-              <button type="button" className="modal-cancel-btn" onClick={handleReset}>
+            <div className="modal-actions" style={{ flexShrink: 0 }}>
+              <button type="button" className="modal-cancel-btn" style={{ padding: '11px 20px', borderRadius: 10 }} onClick={handleReset}>
                 {isZh ? '继续粘贴提取' : 'Extract Another'}
               </button>
-              <button type="button" className="modal-submit-btn" onClick={onClose}>
+              <button
+                type="button"
+                className="modal-submit-btn"
+                style={{
+                  padding: '11px 24px',
+                  borderRadius: 10,
+                  fontSize: '0.92rem',
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
+                }}
+                onClick={onClose}
+              >
                 {isZh ? '查看联系人卡片' : 'View Contact Card'}
               </button>
             </div>

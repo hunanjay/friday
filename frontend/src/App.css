@@ -3218,6 +3218,11 @@
   background-color: rgba(255, 255, 255, 0.05);
 }
 
+.memo-category-badge.category-work { color: var(--color-work); background-color: var(--color-work-bg); }
+.memo-category-badge.category-ideas { color: var(--memo-cat-ideas); background-color: var(--memo-cat-ideas-bg); }
+.memo-category-badge.category-notes { color: var(--memo-cat-notes); background-color: var(--memo-cat-notes-bg); }
+.memo-category-badge.category-snippets { color: var(--memo-cat-snippets); background-color: var(--memo-cat-snippets-bg); }
+
 .memo-card-actions {
   display: flex;
   gap: 4px;
@@ -3296,6 +3301,45 @@
 .memo-color-teal { background-color: var(--memo-teal); }
 .memo-color-purple { background-color: var(--memo-purple); }
 .memo-color-gray { background-color: var(--memo-gray); }
+
+.memos-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 0 8px;
+}
+
+.memos-page-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+
+.memos-page-btn:hover:not(:disabled) {
+  color: var(--accent-primary);
+  border-color: var(--accent-border);
+  background-color: var(--accent-light);
+}
+
+.memos-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.memos-page-indicator {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* --------------------------------------------------------------------------
    7. COMMON MODALS & TOASTS
@@ -4469,7 +4513,7 @@
   }
 
   .app-main-content {
-    flex: 1;
+    flex: 0 0 auto;
     height: calc(100dvh - var(--mobile-header-height, 56px) - var(--mobile-nav-height, 60px) - var(--sab, 0px));
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -6986,47 +7030,6 @@
   flex-shrink: 0;
 }
 
-/* Truncation & Flex Fixes for Email Detail Top Header */
-.email-detail-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 0;
-}
-
-.email-detail-meta {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.email-detail-subject {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.email-detail-subject-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  flex: 1;
-}
-
-.email-detail-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 /* Floating Email List Item Delete Button */
 .delete-email-item-btn {
   display: none;
@@ -7112,19 +7115,24 @@
   background: var(--bg-hover);
 }
 
-/* Full Multi-Line Subject Title & Fixed Actions Layout */
+/* Full Subject Title, Own Row Layout - the subject always gets the header's
+   full width on its own line (like Outlook's reading pane: title row, then
+   an actions row below), so opening the assistant sidebar narrows the whole
+   column without the subject having to compete with the action buttons for
+   space on the same line. */
 .email-detail-header {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--border-light);
   margin-bottom: 24px;
 }
 
 .email-detail-meta {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
 }
 
@@ -7133,18 +7141,17 @@
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.4;
+  margin: 0;
   word-break: break-word;
   overflow-wrap: break-word;
-  white-space: normal;
-  margin: 0;
 }
 
 .email-detail-actions {
   flex-shrink: 0;
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-top: 2px;
 }
 
 /* Contacts Page Layout */
