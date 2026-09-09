@@ -70,7 +70,7 @@ export function PanelSkeleton({
 // soonest-first, not a due-today inbox. Relationship-decay ("gone quiet")
 // reminders aren't computed yet - that's still a real backend job for
 // another day - so this only ever shows reminders someone actually asked for.
-function RelationshipRadar({ copy, navigate, reminders = {}, tick }) {
+function RelationshipRadar({ copy, formatReminderDate, locale, navigate, reminders = {}, tick }) {
   const items = (reminders.items || []).slice(0, 3);
   const index = items.length ? tick % items.length : 0;
   const current = items[index];
@@ -102,7 +102,10 @@ function RelationshipRadar({ copy, navigate, reminders = {}, tick }) {
                 className="dashboard-radar-item-main"
                 onClick={() => navigate('/contacts', { state: { contactId: current.contact_id } })}
               >
-                <span className="dashboard-radar-item-name">{current.contact_name}</span>
+                <span className="dashboard-radar-item-name-row">
+                  <span className="dashboard-radar-item-name">{current.contact_name}</span>
+                  <span className="dashboard-radar-item-date">{formatReminderDate(current.due_at, locale)}</span>
+                </span>
                 <span className="dashboard-radar-item-reason">{current.reason}</span>
               </button>
               <div className="dashboard-radar-item-actions">
@@ -207,11 +210,11 @@ function GitHubPanel({ copy, formatCommitDate, github, locale, navigate, tick })
   );
 }
 
-export function DashboardSecondaryPanels({ copy, formatCommitDate, github, locale, navigate, reminders }) {
+export function DashboardSecondaryPanels({ copy, formatCommitDate, formatReminderDate, github, locale, navigate, reminders }) {
   const tick = useSharedTicker();
   return (
     <div className="dashboard-column-stack">
-      <RelationshipRadar copy={copy} navigate={navigate} reminders={reminders} tick={tick} />
+      <RelationshipRadar copy={copy} formatReminderDate={formatReminderDate} locale={locale} navigate={navigate} reminders={reminders} tick={tick} />
       <GitHubPanel
         copy={copy}
         formatCommitDate={formatCommitDate}

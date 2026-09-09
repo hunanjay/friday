@@ -20,30 +20,6 @@ const getAttachmentUrl = (url) => {
   return `${API_URL}${url}`
 }
 
-// Memo filter logic (mirrors filteredMemos in MemosPage)
-const filterMemos = (memos, searchQuery, activeCategory) =>
-  memos.filter((memo) => {
-    const q = searchQuery.toLowerCase()
-    const titleMatch = memo.title.toLowerCase().includes(q)
-    const contentMatch = memo.content.toLowerCase().includes(q)
-    const attachmentMatch = (memo.attachments || []).some(
-      (att) =>
-        (att.name || '').toLowerCase().includes(q) ||
-        (att.extracted_text || '').toLowerCase().includes(q)
-    )
-    const matchesSearch = !q || titleMatch || contentMatch || attachmentMatch
-    const matchesCategory = activeCategory === 'all' || memo.category === activeCategory
-    return matchesSearch && matchesCategory
-  })
-
-// Sort logic (mirrors sortedMemos in MemosPage)
-const sortMemos = (memos) =>
-  [...memos].sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1
-    if (!a.pinned && b.pinned) return 1
-    return b.updatedAt - a.updatedAt
-  })
-
 // Attachment badge icon logic (mirrors getAttachmentIcon in MemosPage)
 const getAttachmentIcon = (mime) => {
   if (!mime) return 'file'
@@ -87,116 +63,14 @@ describe('getAttachmentUrl', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// 2. filterMemos — search across title, content, and attachment extracted_text
-// ---------------------------------------------------------------------------
-
-const SAMPLE_MEMOS = [
-  {
-    id: '1',
-    title: 'ACP考试大纲',
-    content: '考试大纲在文件中',
-    category: 'work',
-    pinned: true,
-    updatedAt: 3000,
-    attachments: [
-      {
-        name: '阿里云大模型ACP考试大纲.pdf',
-        type: 'application/pdf',
-        extracted_text: '技能要求 大模型提示词技巧 检索增强RAG 微调FineTuning LangChain',
-      },
-    ],
-  },
-  {
-    id: '2',
-    title: 'Caddy 部署笔记',
-    content: '调通了 Caddy 反代，HTTPS 证书自动续期',
-    category: 'notes',
-    pinned: false,
-    updatedAt: 2000,
-    attachments: [],
-  },
-  {
-    id: '3',
-    title: 'Pop Mart 盲盒',
-    content: '抽中了怦然心动粉色款',
-    category: 'ideas',
-    pinned: false,
-    updatedAt: 1000,
-    attachments: [],
-  },
-]
-
-describe('filterMemos', () => {
-  it('returns all memos when query is empty and category is all', () => {
-    expect(filterMemos(SAMPLE_MEMOS, '', 'all')).toHaveLength(3)
-  })
-
-  it('filters by title (case-insensitive)', () => {
-    const results = filterMemos(SAMPLE_MEMOS, 'acp', 'all')
-    expect(results).toHaveLength(1)
-    expect(results[0].id).toBe('1')
-  })
-
-  it('filters by content', () => {
-    const results = filterMemos(SAMPLE_MEMOS, 'caddy', 'all')
-    expect(results).toHaveLength(1)
-    expect(results[0].id).toBe('2')
-  })
-
-  it('filters by attachment extracted_text (RAG content)', () => {
-    const results = filterMemos(SAMPLE_MEMOS, 'LangChain', 'all')
-    expect(results).toHaveLength(1)
-    expect(results[0].id).toBe('1')
-  })
-
-  it('filters by attachment name', () => {
-    const results = filterMemos(SAMPLE_MEMOS, '考试大纲.pdf', 'all')
-    expect(results).toHaveLength(1)
-    expect(results[0].id).toBe('1')
-  })
-
-  it('filters by category', () => {
-    const results = filterMemos(SAMPLE_MEMOS, '', 'notes')
-    expect(results).toHaveLength(1)
-    expect(results[0].id).toBe('2')
-  })
-
-  it('returns empty array when no match', () => {
-    expect(filterMemos(SAMPLE_MEMOS, 'xyzzy', 'all')).toHaveLength(0)
-  })
-
-  it('combines category and search filters (AND semantics)', () => {
-    // 'ideas' category has only Pop Mart; searching 'ACP' in ideas should return 0
-    expect(filterMemos(SAMPLE_MEMOS, 'ACP', 'ideas')).toHaveLength(0)
-  })
-})
+// filterMemos/sortMemos used to be inline in MemosPage and were tested here
+// as local mirrors. That filtering, search, and pinned-first ordering now
+// happens server-side in list_memos_page (see
+// backend/tests/test_memos_pagination_live.py) since paginating client-side
+// data defeats the point of pagination.
 
 // ---------------------------------------------------------------------------
-// 3. sortMemos — pinned first, then by updatedAt descending
-// ---------------------------------------------------------------------------
-
-describe('sortMemos', () => {
-  it('places pinned memo first', () => {
-    const sorted = sortMemos(SAMPLE_MEMOS)
-    expect(sorted[0].id).toBe('1') // pinned
-  })
-
-  it('sorts non-pinned memos by updatedAt desc', () => {
-    const sorted = sortMemos(SAMPLE_MEMOS)
-    const nonPinned = sorted.filter((m) => !m.pinned)
-    expect(nonPinned[0].updatedAt).toBeGreaterThan(nonPinned[1].updatedAt)
-  })
-
-  it('does not mutate the original array', () => {
-    const original = [...SAMPLE_MEMOS]
-    sortMemos(SAMPLE_MEMOS)
-    expect(SAMPLE_MEMOS).toEqual(original)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// 4. getAttachmentIcon — MIME type to icon label
+// 2. getAttachmentIcon — MIME type to icon label
 // ---------------------------------------------------------------------------
 
 describe('getAttachmentIcon', () => {
@@ -224,7 +98,7 @@ describe('getAttachmentIcon', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 5. Attachment pill rendering — snapshot-style structural checks
+// 3. Attachment pill rendering — snapshot-style structural checks
 // ---------------------------------------------------------------------------
 
 describe('attachment pill data shape', () => {
@@ -257,7 +131,7 @@ describe('attachment pill data shape', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 6. Memo form validation — basic guard rails
+// 4. Memo form validation — basic guard rails
 // ---------------------------------------------------------------------------
 
 describe('memo form guard rails', () => {

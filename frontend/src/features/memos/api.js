@@ -12,9 +12,18 @@ export function normalizeMemo(memo) {
   };
 }
 
-export async function getMemos(token) {
-  const data = await apiRequest('/api/memos', { token });
-  return (data?.memos || []).map(normalizeMemo);
+export async function getMemos(token, { category = '', search = '', limit = 24, offset = 0, signal } = {}) {
+  const data = await apiRequest('/api/memos', {
+    token,
+    signal,
+    query: {
+      category: category && category !== 'all' ? category : undefined,
+      search: search || undefined,
+      limit,
+      offset,
+    },
+  });
+  return { memos: (data?.memos || []).map(normalizeMemo), hasMore: Boolean(data?.has_more) };
 }
 
 export async function createMemo(token, memo) {

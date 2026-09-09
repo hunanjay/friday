@@ -12,7 +12,7 @@ import LanguageSwitcher from '../common/LanguageSwitcher';
 import { Grid24Regular } from '@fluentui/react-icons';
 
 export default function MainLayout() {
-  const { user, handleLogout } = useAuth();
+  const { user, isAuthReady, handleLogout } = useAuth();
   const { isSidebarCollapsed, setIsSidebarCollapsed, toast } = useUi();
   const { assistantName } = useAssistantName();
   const { avatarUrl } = useAvatar();
@@ -30,12 +30,14 @@ export default function MainLayout() {
   const settingsRef = useRef(null);
   const mobileSheetRef = useRef(null);
 
-  // Redirect to login if not logged in
+  // Redirect to login once the real auth check has resolved. Gating on
+  // isAuthReady avoids bouncing to /login off the optimistic cached `user`
+  // before AuthProvider's actual Supabase session check has run.
   useEffect(() => {
-    if (!user) {
+    if (isAuthReady && !user) {
       navigate('/login');
     }
-  }, [user, navigate]);
+  }, [isAuthReady, user, navigate]);
 
   // Close desktop settings popover on outside click
   useEffect(() => {
@@ -63,7 +65,7 @@ export default function MainLayout() {
     return () => window.removeEventListener('keydown', onEsc);
   }, [isMobileMenuOpen]);
 
-  if (!user) return null;
+  if (!isAuthReady || !user) return null;
 
   const unreadEmailsCount = inboxUnread ?? emails.filter(e => e.parentFolderId === 'inbox' && !e.isRead).length;
   const activeTab = location.pathname.split('/')[1] || 'dashboard';

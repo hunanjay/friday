@@ -24,6 +24,8 @@ EXTRACTION_SYSTEM_PROMPT = """你是一个高水平的 AI 关系大脑提取专�
   "tags": ["标签1", "标签2", "标签3"],
   "profiles": [
     {
+      "action": "new|update|delete|skip —— 对照消息末尾的“已有事实记录”判断：全新事实填 new；同一件事但内容有变化(数值/状态更新)填 update 并带上 existing_fact_id；文本表明某条已有事实已不再成立/被推翻则填 delete 并带上 existing_fact_id(fact_value 可留空)；与已有事实完全重复、没有新增信息则填 skip。没有已有事实记录时一律填 new",
+      "existing_fact_id": "action=update 或 delete 时填对应已有事实的 id，否则留空字符串",
       "dimension": "优先复用 basic|business|private|dynamic，都不合适时才自拟一个 snake_case 维度名",
       "category": "优先复用 preference|pain_point|demand|family|anniversary|event|other，都不合适时才自拟",
       "fact_key": "事实键描述，如 diet_preference, business_scale",
@@ -44,10 +46,25 @@ class ContactBrainService:
         """
         llm = make_chat_model(model=settings.DRAFT_MODEL, temperature=0.1)
 
+        # Look up the target contact *before* extraction (not after, like the
+        # rest of this method does) so its existing profiles can be handed to
+        # the LLM for merge-aware extraction instead of blind append.
+        existing_contact = None
+        if target_contact_id:
+            existing_contact = await contacts_repo.get_contact_by_id(user_id, target_contact_id)
+
+        existing_facts_block = ""
+        if existing_contact and existing_contact.get("profiles"):
+            lines = "\n".join(
+                f'- id={p["id"]} [{p["dimension"]}/{p["category"]}] {p["fact_key"]}: {p["fact_value"]}'
+                for p in existing_contact["profiles"]
+            )
+            existing_facts_block = f"\n\n该联系人已有以下事实记录，提取时请对照去重/更新：\n{lines}"
+
         try:
             res = await llm.ainvoke([
                 SystemMessage(content=EXTRACTION_SYSTEM_PROMPT),
-                HumanMessage(content=f"待提取的文本内容：\n{raw_text}"),
+                HumanMessage(content=f"待提取的文本内容：\n{raw_text}{existing_facts_block}"),
             ])
             cleaned = res.content.strip()
             if cleaned.startswith("```json"):
@@ -74,10 +91,7 @@ class ContactBrainService:
         interaction_summary = data.get("interaction_summary") or f"从文本资料中提取了 {len(profiles)} 条画像事实"
 
         # Find or create contact
-        contact = None
-        if target_contact_id:
-            contact = await contacts_repo.get_contact_by_id(user_id, target_contact_id)
-
+        contact = existing_contact
         if not contact:
             # Search by name or email
             existing = await contacts_repo.list_contacts(user_id, query=name)
@@ -120,14 +134,42 @@ class ContactBrainService:
             raw_snippet=raw_text[:500],
         )
 
-        # Insert profiles (facts)
+        # Insert profiles (facts): merge into an existing fact when the LLM
+        # matched one, skip pure duplicates, otherwise append as before.
         added_profiles = []
         for p in profiles:
+            action = (p.get("action") or "new").strip().lower()
+            existing_fact_id = p.get("existing_fact_id") or ""
+
+            if action == "skip":
+                continue
+            if action == "delete":
+                if existing_fact_id:
+                    await contacts_repo.delete_contact_profile(user_id, contact_id, existing_fact_id)
+                continue
+
             dim = p.get("dimension") or "basic"
             cat = p.get("category") or "other"
             key = p.get("fact_key") or "note"
             val = p.get("fact_value") or ""
-            if val:
+            if not val:
+                continue
+
+            prof = None
+            if action == "update" and existing_fact_id:
+                prof = await contacts_repo.update_contact_profile(
+                    user_id=user_id,
+                    contact_id=contact_id,
+                    fact_id=existing_fact_id,
+                    dimension=dim,
+                    category=cat,
+                    fact_key=key,
+                    fact_value=val,
+                    source_type="chat_paste",
+                    source_id=interaction["id"],
+                )
+            if prof is None:
+                # New fact, or a stale/hallucinated existing_fact_id — append.
                 prof = await contacts_repo.add_contact_profile(
                     user_id=user_id,
                     contact_id=contact_id,
@@ -138,7 +180,7 @@ class ContactBrainService:
                     source_type="chat_paste",
                     source_id=interaction["id"],
                 )
-                added_profiles.append(prof)
+            added_profiles.append(prof)
 
         # Insert tags
         for t in tags:

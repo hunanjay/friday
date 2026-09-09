@@ -66,11 +66,12 @@ describe('DashboardSecondaryPanels', () => {
       <DashboardSecondaryPanels
         copy={copy}
         formatCommitDate={() => ''}
+        formatReminderDate={() => '9/9'}
         github={{ commits: [], isConnected: false, isLoading: false }}
         locale="en"
         navigate={navigate}
         reminders={{
-          items: [{ id: 'r1', contact_id: 'c1', contact_name: 'Ada', reason: '9月开学', suggested_action: '问问情况' }],
+          items: [{ id: 'r1', contact_id: 'c1', contact_name: 'Ada', reason: '9月开学', due_at: '2026-09-09T00:00:00+00:00', suggested_action: '问问情况' }],
           total: 1,
           isLoading: false,
           onUpdate,
@@ -80,6 +81,7 @@ describe('DashboardSecondaryPanels', () => {
 
     expect(screen.getByText('Ada')).toBeInTheDocument();
     expect(screen.getByText('9月开学')).toBeInTheDocument();
+    expect(screen.getByText('9/9')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Ada').closest('button'));
@@ -113,6 +115,7 @@ describe('DashboardSecondaryPanels', () => {
       <DashboardSecondaryPanels
         copy={copy}
         formatCommitDate={() => ''}
+        formatReminderDate={() => ''}
         github={{ commits, isConnected: true, isLoading: false }}
         locale="en"
         navigate={vi.fn()}

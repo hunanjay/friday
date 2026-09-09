@@ -36,6 +36,15 @@
   --color-study: #7C3AED;     /* Violet */
   --color-study-bg: #EDE9FE;
 
+  /* Memo category badges (distinct from the calendar categories above -
+     memo types are work/ideas/notes/snippets, not work/personal/urgent/study) */
+  --memo-cat-ideas: #7C3AED;     /* Violet */
+  --memo-cat-ideas-bg: #EDE9FE;
+  --memo-cat-notes: #2563EB;     /* Blue */
+  --memo-cat-notes-bg: #DBEAFE;
+  --memo-cat-snippets: #0D9488;  /* Teal */
+  --memo-cat-snippets-bg: #CCFBF1;
+
   /* Memo pastel cards */
   --memo-beige: #FDFBF7;
   --memo-amber: #FEF8E7;
@@ -92,6 +101,14 @@
   --color-urgent-bg: #450A0A;
   --color-study: #8B5CF6;
   --color-study-bg: #2E1065;
+
+  /* Memo category badges Dark Mode */
+  --memo-cat-ideas: #A78BFA;
+  --memo-cat-ideas-bg: #2E1065;
+  --memo-cat-notes: #60A5FA;
+  --memo-cat-notes-bg: #1E2F4D;
+  --memo-cat-snippets: #2DD4BF;
+  --memo-cat-snippets-bg: #0F2E2B;
 
   /* Memo pastel cards Dark Mode */
   --memo-beige: #262422;

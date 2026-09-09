@@ -61,19 +61,38 @@ export async function deleteContactFact(token, contactId, factId) {
   return factId;
 }
 
-export async function getContactReminders(token, { status = null, signal } = {}) {
+export async function getContactReminders(token, { status = null, contactId = null, signal } = {}) {
   const data = await apiRequest('/api/contacts/reminders', {
     token,
     signal,
-    query: { status: status || undefined },
+    query: { status: status || undefined, contact_id: contactId || undefined },
   });
   return Array.isArray(data) ? data : [];
 }
 
-export function updateContactReminder(token, reminderId, { status, snoozeUntil = null }) {
+export function createContactReminder(token, contactId, { dueAt, reason, suggestedAction = '' }) {
+  return apiRequest(`/api/contacts/${encodeURIComponent(contactId)}/reminders`, {
+    method: 'POST',
+    token,
+    body: { due_at: dueAt, reason, suggested_action: suggestedAction },
+  });
+}
+
+export function updateContactReminder(token, reminderId, { status, snoozeUntil = null, reason, dueAt, suggestedAction } = {}) {
   return apiRequest(`/api/contacts/reminders/${encodeURIComponent(reminderId)}`, {
     method: 'PATCH',
     token,
-    body: { status, snooze_until: snoozeUntil },
+    body: {
+      status: status || undefined,
+      snooze_until: snoozeUntil,
+      reason,
+      due_at: dueAt,
+      suggested_action: suggestedAction,
+    },
   });
+}
+
+export async function deleteContactReminder(token, reminderId) {
+  await apiRequest(`/api/contacts/reminders/${encodeURIComponent(reminderId)}`, { method: 'DELETE', token });
+  return reminderId;
 }

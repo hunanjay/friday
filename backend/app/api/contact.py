@@ -50,9 +50,18 @@ class AddFactRequest(BaseModel):
     fact_value: str
 
 
+class CreateReminderRequest(BaseModel):
+    due_at: datetime
+    reason: str
+    suggested_action: str | None = ""
+
+
 class UpdateReminderRequest(BaseModel):
-    status: str  # 'done' | 'dismissed' | 'snoozed'
+    status: str | None = None  # 'done' | 'dismissed' | 'snoozed'
     snooze_until: datetime | None = None
+    reason: str | None = None
+    due_at: datetime | None = None
+    suggested_action: str | None = None
 
 
 @router.get("")
@@ -104,11 +113,13 @@ async def delete_self_fact(fact_id: str, user_id: str = Depends(get_user_id)):
 @router.get("/reminders")
 async def list_reminders(
     status: str | None = Query(default=None),
+    contact_id: str | None = Query(default=None),
     user_id: str = Depends(get_user_id),
 ):
     """Relationship-maintenance reminders (issue #17), soonest due_at first.
-    The dashboard Radar panel passes status=pending."""
-    return await reminders_repo.list_reminders(user_id, status=status)
+    The dashboard Radar panel passes status=pending; the contact detail
+    panel passes contact_id to scope the list to one contact."""
+    return await reminders_repo.list_reminders(user_id, status=status, contact_id=contact_id)
 
 
 @router.patch("/reminders/{reminder_id}")
@@ -117,16 +128,39 @@ async def update_reminder(
     payload: UpdateReminderRequest,
     user_id: str = Depends(get_user_id),
 ):
-    if payload.status not in ("done", "dismissed", "snoozed"):
-        raise HTTPException(status_code=422, detail="status must be done, dismissed, or snoozed")
-    if payload.status == "snoozed" and not payload.snooze_until:
-        raise HTTPException(status_code=422, detail="snooze_until is required when snoozing")
-    updated = await reminders_repo.update_status(
-        user_id, reminder_id, payload.status, snooze_until=payload.snooze_until
-    )
+    """Either a status transition (`status`, the dashboard Radar path) or a
+    content edit (`reason`/`due_at`/`suggested_action`, the contact detail
+    panel's manual edit) - never both in one request."""
+    if payload.status is not None:
+        if payload.status not in ("pending", "done", "dismissed", "snoozed"):
+            raise HTTPException(status_code=422, detail="status must be pending, done, dismissed, or snoozed")
+        if payload.status == "snoozed" and not payload.snooze_until:
+            raise HTTPException(status_code=422, detail="snooze_until is required when snoozing")
+        updated = await reminders_repo.update_status(
+            user_id, reminder_id, payload.status, snooze_until=payload.snooze_until
+        )
+    else:
+        updated = await reminders_repo.update_fields(
+            user_id,
+            reminder_id,
+            reason=payload.reason,
+            due_at=payload.due_at,
+            suggested_action=payload.suggested_action,
+        )
     if not updated:
         raise HTTPException(status_code=404, detail="Reminder not found")
     return updated
+
+
+@router.delete("/reminders/{reminder_id}")
+async def delete_reminder(
+    reminder_id: str,
+    user_id: str = Depends(get_user_id),
+):
+    ok = await reminders_repo.delete_reminder(user_id, reminder_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    return {"status": "ok", "reminder_id": reminder_id}
 
 
 @router.get("/{contact_id}")
@@ -277,6 +311,28 @@ async def add_fact(
         fact_value=payload.fact_value,
         source_type="manual",
     )
+
+
+@router.post("/{contact_id}/reminders")
+async def create_reminder(
+    contact_id: str,
+    payload: CreateReminderRequest,
+    user_id: str = Depends(get_user_id),
+):
+    """Manually create a relationship-maintenance reminder for a contact."""
+    if not payload.reason or not payload.reason.strip():
+        raise HTTPException(status_code=400, detail="Reason is required")
+    created = await reminders_repo.create_reminder(
+        user_id,
+        contact_id,
+        payload.due_at,
+        payload.reason.strip(),
+        (payload.suggested_action or "").strip(),
+        type="explicit",
+    )
+    if not created:
+        raise HTTPException(status_code=400, detail="An identical reminder already exists")
+    return created
 
 
 @router.delete("/{contact_id}/facts/{fact_id}")

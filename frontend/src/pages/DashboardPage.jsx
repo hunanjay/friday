@@ -118,6 +118,22 @@ function formatCommitDate(dateStr, locale) {
   }).format(parsed);
 }
 
+// Reminders (birthdays, holidays) are about a calendar date, not a relative
+// "how long ago" - always show month/day, plus the year when it isn't this
+// year, instead of formatCommitDate's today-vs-not-today split.
+function formatReminderDate(dateStr, locale) {
+  if (!dateStr) return '';
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.valueOf())) return '';
+  const sameYear = parsed.getFullYear() === new Date().getFullYear();
+  return new Intl.DateTimeFormat(locale, {
+    year: sameYear ? undefined : 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    timeZone: DASHBOARD_TIME_ZONE,
+  }).format(parsed);
+}
+
 function getWeekWindow(offsetWeeks = 0) {
   const todayKey = dayKey();
   const [year, month, day] = todayKey.split('-').map(Number);
@@ -336,6 +352,7 @@ export default function DashboardPage() {
           <DashboardSecondaryPanels
             copy={copy}
             formatCommitDate={formatCommitDate}
+            formatReminderDate={formatReminderDate}
             github={{
               commits,
               isConnected: Boolean(githubStatus?.connected),

@@ -90,16 +90,18 @@
    -------------------------------------------------------------------------- */
 
 .dashboard-hero-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 32px;
+  /* Same grid-template-columns/gap as .dashboard-workspace-grid below, so
+     the chat composer's left edge lines up with the side panels' left edge
+     instead of just coincidentally sharing a right edge. */
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 16px;
   max-width: 1400px;
   width: 100%;
   margin: 0 auto 26px;
   flex-shrink: 0;
   box-sizing: border-box;
-  flex-wrap: wrap;
 }
 
 .dashboard-hero-left {
@@ -139,8 +141,7 @@
 }
 
 .dashboard-hero-actions {
-  flex: 1 1 420px;
-  max-width: 560px;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -232,6 +233,14 @@
   min-width: 0;
   box-sizing: border-box;
   overflow: hidden;
+}
+
+/* Radar's empty state ("No relationship reminders pending.") is a single
+   short line, so without a floor it renders visibly shorter than the
+   GitHub panel next to it. Match GitHub's natural height instead of
+   letting each panel hug its own content. */
+.dashboard-radar-panel {
+  min-height: 136px;
 }
 
 .dashboard-panel-header {
@@ -1574,10 +1583,27 @@
   font-family: inherit;
 }
 
+.dashboard-radar-item-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
 .dashboard-radar-item-name {
   font-size: .84rem;
   font-weight: 600;
   color: var(--dash-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-radar-item-date {
+  font-size: .72rem;
+  font-weight: 500;
+  color: var(--dash-ink-muted);
+  flex-shrink: 0;
 }
 
 .dashboard-radar-item-reason {
@@ -1790,7 +1816,8 @@
 /* Responsive Fallbacks */
 @media (max-width: 1200px) {
   .dashboard-page { overflow-y: auto; }
-  .dashboard-workspace-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .dashboard-workspace-grid,
+  .dashboard-hero-header { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .dashboard-column-stack .dashboard-panel { height: auto; min-height: 220px; }
   .dashboard-hero-metrics { display: none; }
 }
@@ -1807,6 +1834,7 @@
     margin-bottom: 16px;
   }
   .dashboard-hero-header {
+    display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;

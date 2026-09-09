@@ -98,7 +98,7 @@ async def create_reminder(
     return _row(row, *(contact_row or (None, None)))
 
 
-async def list_reminders(user_id: str, status: str | None = None) -> list[dict]:
+async def list_reminders(user_id: str, status: str | None = None, contact_id: str | None = None) -> list[dict]:
     """Sorted soonest-first. No due-date gating - the dashboard Radar panel
     is an upcoming-reminders preview, not a due-today inbox, so a September
     reminder is fine to show in August."""
@@ -112,17 +112,71 @@ async def list_reminders(user_id: str, status: str | None = None) -> list[dict]:
         if status:
             sql += " and r.status = %s"
             params.append(status)
+        if contact_id:
+            sql += " and r.contact_id = %s"
+            params.append(contact_id)
         sql += " order by r.due_at asc"
         cur = await conn.execute(sql, tuple(params))
         rows = await cur.fetchall()
     return [_row(row[:-2], row[-2], row[-1]) for row in rows]
 
 
+async def update_fields(
+    user_id: str,
+    reminder_id: str,
+    reason: str | None = None,
+    due_at=None,
+    suggested_action: str | None = None,
+) -> dict | None:
+    """Edit a reminder's content (reason/due date/action), not its status."""
+    sets = []
+    params: list = []
+    if reason is not None:
+        sets.append("reason = %s")
+        params.append(reason)
+    if due_at is not None:
+        sets.append("due_at = %s")
+        params.append(due_at)
+    if suggested_action is not None:
+        sets.append("suggested_action = %s")
+        params.append(suggested_action)
+    if not sets:
+        return None
+    sets.append("updated_at = now()")
+    params.extend([reminder_id, user_id])
+
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            f"""
+            update contact_reminders set {', '.join(sets)}
+            where id = %s and user_id = %s
+            returning {_COLUMNS}
+            """,
+            tuple(params),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        cur = await conn.execute("select name, avatar_url from contacts where id = %s", (row[1],))
+        contact_row = await cur.fetchone()
+    return _row(row, *(contact_row or (None, None)))
+
+
+async def delete_reminder(user_id: str, reminder_id: str) -> bool:
+    async with _db_pool().connection() as conn:
+        cur = await conn.execute(
+            "delete from contact_reminders where id = %s and user_id = %s returning id",
+            (reminder_id, user_id),
+        )
+        return await cur.fetchone() is not None
+
+
 async def update_status(
     user_id: str, reminder_id: str, status: str, snooze_until=None
 ) -> dict | None:
-    """status in {'done', 'dismissed', 'snoozed'}. Snoozing moves due_at
-    forward and resets status to 'pending' so it reappears once due again."""
+    """status in {'pending', 'done', 'dismissed', 'snoozed'}. Snoozing moves
+    due_at forward and resets status to 'pending' so it reappears once due
+    again."""
     async with _db_pool().connection() as conn:
         if status == "snoozed":
             cur = await conn.execute(

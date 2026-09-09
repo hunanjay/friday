@@ -34,19 +34,22 @@ function EmailDetailSkeleton({ showAssistant }) {
       style={{ position: 'absolute', inset: 0, zIndex: 2, backgroundColor: 'var(--bg-card)' }}
     >
       <div className="email-detail-column" style={{ padding: '32px 40px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', paddingBottom: '24px', borderBottom: '1px solid var(--border-light)' }}>
-          <div className="skeleton-box" style={{ width: '48px', height: '48px', borderRadius: '50%', flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div className="skeleton-box" style={{ width: '55%', height: '22px', marginBottom: '10px', borderRadius: '4px' }} />
-            <div className="skeleton-box" style={{ width: '28%', height: '13px', borderRadius: '4px' }} />
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 16px', paddingBottom: '20px', borderBottom: '1px solid var(--border-light)' }}>
+          <div style={{ flex: '1 1 100%' }}>
+            <div className="skeleton-box" style={{ width: '55%', height: '22px', borderRadius: '4px' }} />
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <div className="skeleton-box" style={{ width: '82px', height: '32px', borderRadius: '6px' }} />
-            <div className="skeleton-box" style={{ width: '32px', height: '32px', borderRadius: '6px' }} />
+          <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+            <div className="skeleton-box" style={{ width: '76px', height: '32px', borderRadius: '6px' }} />
+            <div className="skeleton-box" style={{ width: '76px', height: '32px', borderRadius: '6px' }} />
+            <div className="skeleton-box" style={{ width: '76px', height: '32px', borderRadius: '6px' }} />
+            <div className="skeleton-box" style={{ width: '110px', height: '32px', borderRadius: '6px' }} />
           </div>
         </div>
         <div style={{ padding: '28px 0 8px' }}>
-          <div className="skeleton-box" style={{ width: '38%', height: '16px', marginBottom: '18px', borderRadius: '4px' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+            <div className="skeleton-box" style={{ width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0 }} />
+            <div className="skeleton-box" style={{ width: '38%', height: '16px', borderRadius: '4px' }} />
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div className="skeleton-box" style={{ width: '100%', height: '14px', borderRadius: '4px' }} />
             <div className="skeleton-box" style={{ width: '96%', height: '14px', borderRadius: '4px' }} />

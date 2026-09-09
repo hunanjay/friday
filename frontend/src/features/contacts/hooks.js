@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth/useAuth';
 import {
   createContact,
+  createContactReminder,
   deleteContact,
   deleteContactAvatar,
   deleteContactFact,
+  deleteContactReminder,
   getContactReminders,
   getContactTags,
   getContacts,
@@ -110,27 +112,42 @@ export function useContacts({ query = '', tag = null, debounceMs = 250 } = {}) {
 // Relationship-maintenance reminders (issue #17) for the dashboard Radar
 // panel - an upcoming-reminders preview, soonest first, not a due-today
 // inbox. No push channel; polling is what keeps it current.
-export function useContactReminders({ status = 'pending' } = {}) {
+export function useContactReminders({ status = 'pending', contactId = null, enabled = true } = {}) {
   const { authToken, scope } = useContactsAccess();
   const queryClient = useQueryClient();
-  const queryKey = contactKeys.reminders(scope, status);
+  const queryKey = contactKeys.reminders(scope, status, contactId);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getContactReminders(authToken, { status, signal }),
-    enabled: Boolean(authToken),
+    queryFn: ({ signal }) => getContactReminders(authToken, { status, contactId, signal }),
+    enabled: enabled && Boolean(authToken),
     refetchInterval: 3 * 60 * 1000,
   });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: contactKeys.all(scope) });
+  const createMutation = useMutation({
+    mutationFn: ({ contactId: cid, dueAt, reason, suggestedAction }) =>
+      createContactReminder(authToken, cid, { dueAt, reason, suggestedAction }),
+    onSuccess: invalidate,
+  });
   const updateMutation = useMutation({
-    mutationFn: ({ reminderId, status: newStatus, snoozeUntil }) =>
-      updateContactReminder(authToken, reminderId, { status: newStatus, snoozeUntil }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: contactKeys.all(scope) }),
+    mutationFn: ({ reminderId, status: newStatus, snoozeUntil, reason, dueAt, suggestedAction }) =>
+      updateContactReminder(authToken, reminderId, { status: newStatus, snoozeUntil, reason, dueAt, suggestedAction }),
+    onSuccess: invalidate,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: reminderId => deleteContactReminder(authToken, reminderId),
+    onSuccess: invalidate,
   });
 
   return {
     reminders: query.data ?? EMPTY_LIST,
     isLoadingReminders: Boolean(authToken) && query.isPending,
+    createReminder: (cid, { dueAt, reason, suggestedAction }) =>
+      createMutation.mutateAsync({ contactId: cid, dueAt, reason, suggestedAction }),
     updateReminder: (reminderId, newStatus, snoozeUntil = null) =>
       updateMutation.mutateAsync({ reminderId, status: newStatus, snoozeUntil }),
+    editReminder: (reminderId, { reason, dueAt, suggestedAction }) =>
+      updateMutation.mutateAsync({ reminderId, reason, dueAt, suggestedAction }),
+    deleteReminder: reminderId => deleteMutation.mutateAsync(reminderId),
   };
 }
 
