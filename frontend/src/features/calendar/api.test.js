@@ -17,6 +17,7 @@ const rawEvent = {
   end: { dateTime: '2026-08-25T10:00:00' },
   body: { content: '' },
   location: { displayName: 'Room 1' },
+  isAllDay: true,
 };
 
 describe('calendar API', () => {
@@ -26,6 +27,7 @@ describe('calendar API', () => {
     expect(normalizeCalendarEvent(rawEvent)).toEqual(expect.objectContaining({
       id: 'event-1',
       categories: [],
+      isAllDay: true,
     }));
   });
 

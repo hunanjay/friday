@@ -2,6 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { Mail, Search, Trash } from '../../../components/common/Icons';
 import { formatMailListDate, groupMailThreads } from '../mailListModel';
 
+function displayName(threadRow, activeFolder) {
+  if (activeFolder === 'sent') {
+    const to = threadRow.toRecipients?.[0]?.emailAddress;
+    if (to?.name || to?.address) return to.name || to.address;
+  }
+  return threadRow.sender?.emailAddress?.name || 'Unknown';
+}
+
 export function EmailList({
   activeFolder,
   canLoadMoreFolder,
@@ -59,7 +67,7 @@ export function EmailList({
           </div>
         ) : rows.map(threadRow => {
           const isUnread = threadRow._hasUnread ?? !threadRow.isRead;
-          const senderName = threadRow.sender?.emailAddress?.name || 'Unknown';
+          const senderName = displayName(threadRow, activeFolder);
           const threadKey = threadRow._threadKey || threadRow.conversationId || threadRow.id;
           const isSelected = threadKey === selectedConversationKey;
           const count = threadRow._count || 1;
@@ -86,7 +94,9 @@ export function EmailList({
                   <div className="email-item-avatar">
                     {(senderName[0] || 'U').toUpperCase()}
                   </div>
-                  <span className="email-item-sender">{senderName}</span>
+                  <span className="email-item-sender">
+                    {activeFolder === 'sent' ? `${isZh ? '收件人：' : 'To: '}${senderName}` : senderName}
+                  </span>
                 </div>
                 <span className="email-item-date">
                   {formatMailListDate(threadRow.receivedDateTime, isZh)}

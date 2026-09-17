@@ -642,7 +642,8 @@ check(
 )
 check(
     "memos agent still exposes its own read and write tools",
-    {"list_memos", "search_memos", "create_memo"} <= _returned_tool_names("make_memos_tools"),
+    {"list_memos", "search_memos", "create_memo", "update_memo"}
+    <= _returned_tool_names("make_memos_tools"),
 )
 check(
     "contact agent exposes its own read and write tools",

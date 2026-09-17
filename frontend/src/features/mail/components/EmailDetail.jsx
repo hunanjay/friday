@@ -25,6 +25,14 @@ function formatEmailDateFull(isoString) {
   );
 }
 
+function formatRecipients(recipients) {
+  if (!Array.isArray(recipients) || recipients.length === 0) return '';
+  return recipients
+    .map(r => r?.emailAddress?.address || r?.emailAddress?.name)
+    .filter(Boolean)
+    .join(', ');
+}
+
 function EmailDetailSkeleton({ showAssistant }) {
   return (
     <div
@@ -226,6 +234,7 @@ export function EmailDetail({ assistant, authToken, isZh, signature, t, thread }
                 const isExpanded = thread.expandedMessageIds.has(message.id);
                 const senderName = message.sender?.emailAddress?.name || 'Unknown';
                 const senderAddress = message.sender?.emailAddress?.address || '';
+                const toAddresses = formatRecipients(message.toRecipients);
                 return (
                   <div key={message.id} className={`thread-msg-entry ${isExpanded ? 'thread-msg-expanded' : 'thread-msg-collapsed'}`}>
                     <div
@@ -249,6 +258,11 @@ export function EmailDetail({ assistant, authToken, isZh, signature, t, thread }
                             <span className="stub-preview">{message.bodyPreview}</span>
                           )}
                         </div>
+                        {isExpanded && toAddresses && (
+                          <div className="recipient-row">
+                            {isZh ? '收件人：' : 'To: '}{toAddresses}
+                          </div>
+                        )}
                       </div>
                       <div className="thread-msg-header-right">
                         <span className="email-detail-date">

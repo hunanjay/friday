@@ -107,16 +107,34 @@
 .dashboard-hero-left {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 5px;
   min-width: 160px;
 }
 
 .dashboard-date {
   display: block;
+  margin: 0;
   font-family: var(--dash-font-mono);
   font-size: .75rem;
   letter-spacing: 0.06em;
   color: var(--dash-ink-muted);
+}
+
+.dashboard-date-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.dashboard-clock {
+  color: var(--dash-ink);
+  font-family: var(--dash-font-mono);
+  font-size: 1.65rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.035em;
+  line-height: 1;
 }
 
 .dashboard-hero-left h1 {
@@ -129,6 +147,9 @@
 }
 
 .dashboard-glance-line {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   margin: 0;
   font-size: .82rem;
   color: var(--dash-ink-muted);
@@ -1747,8 +1768,8 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px 8px 8px;
-  max-width: 280px;
-  border-radius: 999px;
+  max-width: min(380px, 100%);
+  border-radius: 16px;
   background: var(--dash-surface);
   border: 1px solid var(--dash-line);
   box-shadow: var(--dash-shadow-card);
@@ -1781,19 +1802,28 @@
 .bubble-cal .dashboard-bubble-icon { background: var(--dash-info-soft); color: var(--dash-info); }
 
 .dashboard-bubble-text {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
   font-size: .8rem;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--dash-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.dashboard-bubble-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-bubble-text em {
   font-style: normal;
   font-weight: 500;
   color: var(--dash-ink-muted);
-  margin-left: 7px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 @keyframes dashboard-bubble-float {
@@ -1838,6 +1868,12 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+  .dashboard-hero-left {
+    width: 100%;
+  }
+  .dashboard-clock {
+    font-size: 1.35rem;
   }
   .dashboard-hero-actions {
     width: 100%;

@@ -988,6 +988,61 @@ def _make_create_memo_tool(user_id: str):
     return create_memo
 
 
+def _make_update_memo_tool(user_id: str):
+    @tool
+    async def update_memo(
+        memo_id: str,
+        title: str | None = None,
+        content: str | None = None,
+        category: str | None = None,
+        color: str | None = None,
+        pinned: bool | None = None,
+    ) -> str:
+        """Update an existing memo after obtaining its exact `memo_id` from
+        list_memos or search_memos. Only supplied fields are changed; omitted
+        fields and existing attachments are preserved. Never guess a memo ID.
+
+        `category`, when supplied, is one of: work, ideas, notes, snippets.
+        """
+        if all(value is None for value in (title, content, category, color, pinned)):
+            return "Error: provide at least one memo field to update."
+        if title is not None and not title.strip():
+            return "Error: memo title cannot be empty."
+
+        existing = await memos_db.get_memo(user_id, memo_id)
+        if not existing:
+            return f"Error: memo id={memo_id} was not found."
+
+        memo = await memos_db.update_memo(
+            user_id,
+            memo_id,
+            title=title if title is not None else existing["title"],
+            content=content if content is not None else existing["content"],
+            category=category if category is not None else existing["category"],
+            color=color if color is not None else existing["color"],
+            pinned=pinned if pinned is not None else existing["pinned"],
+            attachments=existing["attachments"],
+            agent_maintained=existing["agent_maintained"],
+        )
+        if not memo:
+            return f"Error: memo id={memo_id} was not found."
+
+        try:
+            await vector_store.upsert_memo(
+                user_id,
+                memo["id"],
+                memo["title"],
+                memo["content"],
+                memo["category"],
+                memo["attachments"],
+            )
+        except Exception:
+            logging.exception("failed to reindex updated memo %s in Qdrant", memo_id)
+        return f"Memo updated: id={memo['id']} title={memo['title']!r}"
+
+    return update_memo
+
+
 import re as _re
 
 # Pronouns and question words that typically signal an ambiguous/follow-up query
@@ -1234,6 +1289,7 @@ def make_memos_tools(user_id: str) -> list:
     return [
         list_memos,
         _make_create_memo_tool(user_id),
+        _make_update_memo_tool(user_id),
         _make_search_memos_tool(user_id),
         _make_search_contacts_tool(user_id),
         track_area,

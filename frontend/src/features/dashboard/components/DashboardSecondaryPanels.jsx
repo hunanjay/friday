@@ -230,13 +230,13 @@ export function DashboardSecondaryPanels({ copy, formatCommitDate, formatReminde
 // Low-commitment "glance, don't process" surface for mail + calendar - each
 // item floats independently (desynced via inline --dur/--delay) rather than
 // sitting in a browsable list, since these aren't today's priorities.
-export function DashboardBubbleField({ copy, eventTime, events, emails, formatEmailDate, isZh, locale, navigate }) {
+export function DashboardBubbleField({ copy, events, emails, formatEmailDate, formatEventMeta, isZh, locale, navigate }) {
   const bubbles = [
     ...events.map(event => ({
       key: `event-${event.id}`,
       kind: 'calendar',
       title: event.subject || (isZh ? '未命名日程' : 'Untitled event'),
-      meta: event.isAllDay ? copy.allDay : eventTime(event, locale),
+      meta: formatEventMeta(event, locale, copy.allDay),
       onClick: () => navigate('/calendar', { state: { eventId: event.id } }),
     })),
     ...emails.map(email => ({
@@ -266,7 +266,7 @@ export function DashboardBubbleField({ copy, eventTime, events, emails, formatEm
               {bubble.kind === 'mail' ? <Mail24Regular /> : <CalendarLtr24Regular />}
             </span>
             <span className="dashboard-bubble-text">
-              {bubble.title}
+              <span className="dashboard-bubble-title">{bubble.title}</span>
               {bubble.meta && <em>{bubble.meta}</em>}
             </span>
           </button>

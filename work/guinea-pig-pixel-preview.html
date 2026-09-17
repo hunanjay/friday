@@ -1,0 +1,256 @@
+<section id="guinea-pig-preview" aria-labelledby="guinea-pig-title">
+  <div class="viz-row">
+    <h2 id="guinea-pig-title">像素豚鼠 · 48×48</h2>
+    <div class="viz-controls" role="group" aria-label="动画状态">
+      <button class="btn btn-primary" type="button" data-state="idle" aria-pressed="true">待机</button>
+      <button class="btn" type="button" data-state="thinking" aria-pressed="false">思考</button>
+      <button class="btn" type="button" data-state="working" aria-pressed="false">工作</button>
+      <button class="btn" type="button" data-state="success" aria-pressed="false">完成</button>
+      <button class="btn" type="button" data-state="sleeping" aria-pressed="false">睡觉</button>
+    </div>
+  </div>
+
+  <div class="guinea-pig-stage">
+    <div class="guinea-pig-status text-small text-muted" aria-live="polite">待机：轻微呼吸，偶尔眨眼</div>
+    <canvas width="48" height="48" role="img" aria-label="一只戴砖红色围巾的三花像素豚鼠正在待机"></canvas>
+  </div>
+</section>
+
+<style>
+  #guinea-pig-preview {
+    --guinea-stage: light-dark(#f7f2ea, #1c1712);
+    --guinea-grid: light-dark(rgb(89 72 60 / 0.045), rgb(242 235 223 / 0.04));
+    --guinea-outline: light-dark(#514238, #3d3028);
+    --guinea-fur: light-dark(#b98561, #c99670);
+    --guinea-fur-dark: light-dark(#946247, #a87354);
+    --guinea-cream: light-dark(#f1ddc8, #ead2b9);
+    --guinea-white: light-dark(#fff4e7, #f4e5d4);
+    --guinea-pink: light-dark(#d98e7a, #e09a86);
+    --guinea-eye: light-dark(#342a24, #2b221e);
+    --guinea-accent: light-dark(#b24a2e, #d26543);
+    --guinea-accent-dark: light-dark(#963d25, #ad4b31);
+    --guinea-shadow: light-dark(rgb(81 66 56 / 0.18), rgb(0 0 0 / 0.35));
+    --guinea-spark: light-dark(#a97423, #e0b36a);
+    color-scheme: light dark;
+    display: grid;
+    gap: 16px;
+    width: 100%;
+  }
+
+  #guinea-pig-preview > .viz-row {
+    justify-content: space-between;
+  }
+
+  #guinea-pig-preview h2 {
+    margin: 0;
+  }
+
+  #guinea-pig-preview .guinea-pig-stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 360px;
+    overflow: hidden;
+    background-color: var(--guinea-stage);
+    background-image:
+      linear-gradient(var(--guinea-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--guinea-grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  #guinea-pig-preview .guinea-pig-status {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+  }
+
+  #guinea-pig-preview canvas {
+    width: min(70vw, 288px);
+    height: auto;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  @media (max-width: 520px) {
+    #guinea-pig-preview > .viz-row {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    #guinea-pig-preview .guinea-pig-stage {
+      min-height: 300px;
+    }
+  }
+</style>
+
+<script>
+  (() => {
+    const root = document.getElementById('guinea-pig-preview');
+    const canvas = root.querySelector('canvas');
+    const context = canvas.getContext('2d');
+    const status = root.querySelector('.guinea-pig-status');
+    const buttons = [...root.querySelectorAll('[data-state]')];
+    const probe = document.createElement('span');
+    probe.hidden = true;
+    root.appendChild(probe);
+
+    const resolveColor = property => {
+      probe.style.color = `var(${property})`;
+      return getComputedStyle(probe).color;
+    };
+
+    const palette = () => ({
+      accent: resolveColor('--guinea-accent'),
+      accentDark: resolveColor('--guinea-accent-dark'),
+      cream: resolveColor('--guinea-cream'),
+      eye: resolveColor('--guinea-eye'),
+      fur: resolveColor('--guinea-fur'),
+      furDark: resolveColor('--guinea-fur-dark'),
+      outline: resolveColor('--guinea-outline'),
+      pink: resolveColor('--guinea-pink'),
+      shadow: resolveColor('--guinea-shadow'),
+      spark: resolveColor('--guinea-spark'),
+      white: resolveColor('--guinea-white'),
+    });
+
+    const labels = {
+      idle: ['待机：轻微呼吸，偶尔眨眼', '一只戴砖红色围巾的三花像素豚鼠正在待机'],
+      thinking: ['思考：观察四周，像素气泡逐格出现', '三花像素豚鼠正在思考'],
+      working: ['工作：小爪交替敲击', '三花像素豚鼠正在用小爪工作'],
+      success: ['完成：原地跳起并出现像素星星', '三花像素豚鼠正在庆祝任务完成'],
+      sleeping: ['睡觉：趴下，呼吸变慢', '三花像素豚鼠正在睡觉'],
+    };
+
+    let state = 'idle';
+    let frame = 0;
+
+    function pixelRect(x, y, width, height, color) {
+      context.fillStyle = color;
+      context.fillRect(Math.round(x), Math.round(y), Math.round(width), Math.round(height));
+    }
+
+    function pixelEllipse(cx, cy, rx, ry, color) {
+      context.fillStyle = color;
+      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y += 1) {
+        for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x += 1) {
+          const dx = (x + 0.5 - cx) / rx;
+          const dy = (y + 0.5 - cy) / ry;
+          if ((dx * dx) + (dy * dy) <= 1) context.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+
+    function drawBase(colors, offsetY, blink, pawStep) {
+      pixelEllipse(24, 40, 16, 2.5, colors.shadow);
+
+      pixelEllipse(15, 18 + offsetY, 4, 4, colors.outline);
+      pixelEllipse(15, 18 + offsetY, 2.5, 2.5, colors.pink);
+      pixelEllipse(34, 17 + offsetY, 4, 4, colors.outline);
+      pixelEllipse(34, 17 + offsetY, 2.5, 2.5, colors.pink);
+
+      pixelEllipse(22, 28 + offsetY, 17, 12, colors.outline);
+      pixelEllipse(22, 27 + offsetY, 15.5, 10.5, colors.fur);
+      pixelEllipse(12, 27 + offsetY, 7, 9, colors.furDark);
+
+      pixelEllipse(31, 25 + offsetY, 11.5, 11.5, colors.outline);
+      pixelEllipse(31, 24.5 + offsetY, 10, 10, colors.fur);
+      pixelEllipse(34.5, 23.5 + offsetY, 6.3, 9.2, colors.white);
+      pixelEllipse(28, 29 + offsetY, 5.5, 4, colors.cream);
+
+      if (blink) {
+        pixelRect(26, 22 + offsetY, 3, 1, colors.eye);
+        pixelRect(35, 22 + offsetY, 3, 1, colors.eye);
+      } else {
+        pixelRect(27, 21 + offsetY, 2, 3, colors.eye);
+        pixelRect(36, 21 + offsetY, 2, 3, colors.eye);
+        pixelRect(27, 21 + offsetY, 1, 1, colors.white);
+        pixelRect(36, 21 + offsetY, 1, 1, colors.white);
+      }
+
+      pixelRect(39, 27 + offsetY, 2, 2, colors.eye);
+      pixelRect(38, 29 + offsetY, 2, 1, colors.eye);
+      pixelRect(34, 27 + offsetY, 2, 1, colors.pink);
+      pixelRect(40, 29 + offsetY, 4, 1, colors.outline);
+      pixelRect(40, 31 + offsetY, 5, 1, colors.outline);
+
+      pixelRect(25, 33 + offsetY, 11, 2, colors.accent);
+      pixelRect(29, 35 + offsetY, 3, 3, colors.accentDark);
+
+      pixelEllipse(14, 36 + offsetY, 4, 2.5, colors.outline);
+      pixelEllipse(14, 35.5 + offsetY, 3, 1.5, colors.cream);
+      pixelEllipse(31 + pawStep, 36 + offsetY, 4, 2.5, colors.outline);
+      pixelEllipse(31 + pawStep, 35.5 + offsetY, 3, 1.5, colors.cream);
+    }
+
+    function draw() {
+      const colors = palette();
+      context.clearRect(0, 0, 48, 48);
+      context.imageSmoothingEnabled = false;
+
+      if (state === 'sleeping') {
+        const breathe = frame % 8 < 4 ? 0 : 1;
+        pixelEllipse(24, 40, 17, 2.5, colors.shadow);
+        pixelEllipse(22, 31 + breathe, 18, 9, colors.outline);
+        pixelEllipse(22, 30 + breathe, 16.5, 7.5, colors.fur);
+        pixelEllipse(12, 30 + breathe, 7, 6.5, colors.furDark);
+        pixelEllipse(34, 29 + breathe, 10, 8, colors.outline);
+        pixelEllipse(34, 28.5 + breathe, 8.5, 6.5, colors.white);
+        pixelRect(34, 28 + breathe, 4, 1, colors.eye);
+        pixelRect(41, 31 + breathe, 2, 2, colors.eye);
+        pixelRect(25, 35 + breathe, 11, 2, colors.accent);
+        const z = frame % 12;
+        if (z > 2) pixelRect(41, 20, 3, 1, colors.spark);
+        if (z > 5) pixelRect(43, 17, 3, 1, colors.spark);
+        if (z > 8) pixelRect(45, 14, 2, 1, colors.spark);
+        return;
+      }
+
+      const idleLift = state === 'success' && frame % 10 >= 2 && frame % 10 <= 5 ? -3 : 0;
+      const breathe = state === 'idle' && frame % 16 >= 6 && frame % 16 <= 11 ? 1 : 0;
+      const blink = state === 'idle' && frame % 16 === 14;
+      const pawStep = state === 'working' && frame % 2 === 0 ? 1 : 0;
+      drawBase(colors, idleLift + breathe, blink, pawStep);
+
+      if (state === 'thinking') {
+        const step = frame % 8;
+        if (step >= 1) pixelRect(37, 10, 2, 2, colors.accent);
+        if (step >= 3) pixelRect(41, 7, 2, 2, colors.accent);
+        if (step >= 5) pixelRect(45, 4, 2, 2, colors.accent);
+      }
+
+      if (state === 'working') {
+        pixelRect(33, 38, 9, 1, colors.outline);
+        pixelRect(35, 36, 6, 2, colors.cream);
+        pixelRect(37 + (frame % 2), 34, 1, 2, colors.accent);
+      }
+
+      if (state === 'success') {
+        const step = frame % 10;
+        if (step >= 2 && step <= 7) {
+          pixelRect(7, 17, 2, 2, colors.spark);
+          pixelRect(13, 10, 2, 2, colors.accent);
+          pixelRect(40, 12, 2, 2, colors.spark);
+          pixelRect(44, 20, 2, 2, colors.accent);
+        }
+      }
+    }
+
+    function selectState(nextState) {
+      state = nextState;
+      frame = 0;
+      buttons.forEach(button => {
+        const active = button.dataset.state === state;
+        button.classList.toggle('btn-primary', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+      status.textContent = labels[state][0];
+      canvas.setAttribute('aria-label', labels[state][1]);
+      draw();
+    }
+
+    buttons.forEach(button => button.addEventListener('click', () => selectState(button.dataset.state)));
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reducedMotion) window.setInterval(() => { frame += 1; draw(); }, 170);
+    draw();
+  })();
+</script>
