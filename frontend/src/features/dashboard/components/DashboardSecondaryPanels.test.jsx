@@ -148,7 +148,7 @@ describe('DashboardBubbleField', () => {
     render(
       <DashboardBubbleField
         copy={copy}
-        eventTime={() => '17:00'}
+        formatEventMeta={() => '17:00'}
         events={[{ id: 'event-1', subject: 'Team sync', start: { dateTime: '2026-08-26T09:00:00Z' } }]}
         emails={[{
           id: 'email-1',
@@ -179,7 +179,7 @@ describe('DashboardBubbleField', () => {
     const { container } = render(
       <DashboardBubbleField
         copy={copy}
-        eventTime={() => ''}
+        formatEventMeta={() => ''}
         events={[]}
         emails={[]}
         formatEmailDate={() => ''}

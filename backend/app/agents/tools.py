@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import logging
 import os
@@ -184,17 +185,47 @@ def _make_search_contacts_tool(user_id: str):
         Also handles vague descriptions ('the investor who likes pu-erh tea') via semantic search.
         Use this tool whenever asked about a person, contact, colleague, investor, their recent activities/plans ('他最近在干啥', '张明是谁'), or relationships."""
         from app.infrastructure.vector import qdrant
+        from app.services.contact_memory_policy_retriever import (
+            ContactMemoryPolicyRetriever,
+        )
         from app.services.contact_service import ContactService
 
         contacts = await ContactService.get_contacts(user_id=user_id, query=query)
         matches_by_contact: dict[str, list[dict]] = {}
 
-        # ponytail: SQL ILIKE already nails names, companies and literal fact text, so
-        # the embedding call is only spent when literal matching found nothing. Revisit
-        # blending both rankings once the offline eval set can measure the difference.
+        # SQL ILIKE handles literal identity/fact matches. For vague queries, run
+        # the Memora-style Primary+Cue retriever and the legacy identity/interaction
+        # index together: v2 supplies memory values, while v1 preserves non-memory
+        # contact recall during the representation transition.
         if not contacts and query.strip():
             ordered_ids: list[str] = []
-            for hit in await qdrant.search_contact_docs(user_id, query, limit=10):
+            memory_result, legacy_result = await asyncio.gather(
+                ContactMemoryPolicyRetriever.search(
+                    user_id=user_id,
+                    query=query,
+                    limit=10,
+                ),
+                qdrant.search_contact_docs(user_id, query, limit=10),
+                return_exceptions=True,
+            )
+            memory_hits = memory_result if isinstance(memory_result, list) else []
+            legacy_hits = legacy_result if isinstance(legacy_result, list) else []
+            combined_hits = []
+            for hit in memory_hits:
+                evidence = (hit.get("recent_evidence") or [{}])[0]
+                combined_hits.append(
+                    {
+                        "contact_id": hit.get("contact_id", ""),
+                        "doc_type": "memory_v2",
+                        "row_id": hit.get("memory_id", ""),
+                        "source_type": evidence.get("source_type") or "contact_memory",
+                        "source_id": evidence.get("source_id") or "",
+                        "snippet": hit.get("memory_value", ""),
+                        "score": hit.get("score", 0.0),
+                    }
+                )
+            combined_hits.extend(legacy_hits)
+            for hit in combined_hits:
                 cid = hit.get("contact_id")
                 if not cid:
                     continue
@@ -623,6 +654,11 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         if not (fact_value or "").strip():
             return "Error: fact_value cannot be empty."
         from app.infrastructure.db.repositories import contacts as contacts_repo
+        from app.services.contact_memory_service import (
+            ContactMemoryCandidate,
+            ContactMemoryService,
+            MemorySource,
+        )
         from app.services.contact_service import ContactService
 
         clean_contact_id = (contact_id or "").strip()
@@ -643,16 +679,23 @@ def make_contact_tools(user_id: str, session_id: str | None = None) -> list:
         # original bug (a bad value silently coerced to private/other) from coming
         # back is add_contact_profile normalizing the label and storing what it
         # was given, instead of this layer guessing.
-        fact = await contacts_repo.add_contact_profile(
+        write_result = await ContactMemoryService.write(
             user_id=user_id,
             contact_id=clean_contact_id,
-            dimension=dimension,
-            category=category,
-            fact_key=fact_key.strip(),
-            fact_value=fact_value.strip(),
-            source_type="chat",
-            source_id=session_id,
+            candidate=ContactMemoryCandidate(
+                dimension=dimension,
+                category=category,
+                fact_key=fact_key.strip(),
+                fact_value=fact_value.strip(),
+                primary_abstraction=(
+                    f"{cname} · {' '.join(fact_key.strip().replace('_', ' ').split())}"
+                ),
+            ),
+            source=MemorySource(source_type="chat", source_id=session_id),
         )
+        fact = write_result.fact
+        if fact is None:
+            return f"Error: memory fact was not recorded: {write_result.reason or 'unknown reason'}."
         vocab = await contacts_repo.get_fact_vocabulary(user_id)
         return (
             f"Successfully recorded memory fact for {cname}: "
@@ -988,6 +1031,61 @@ def _make_create_memo_tool(user_id: str):
     return create_memo
 
 
+def _make_update_memo_tool(user_id: str):
+    @tool
+    async def update_memo(
+        memo_id: str,
+        title: str | None = None,
+        content: str | None = None,
+        category: str | None = None,
+        color: str | None = None,
+        pinned: bool | None = None,
+    ) -> str:
+        """Update an existing memo after obtaining its exact `memo_id` from
+        list_memos or search_memos. Only supplied fields are changed; omitted
+        fields and existing attachments are preserved. Never guess a memo ID.
+
+        `category`, when supplied, is one of: work, ideas, notes, snippets.
+        """
+        if all(value is None for value in (title, content, category, color, pinned)):
+            return "Error: provide at least one memo field to update."
+        if title is not None and not title.strip():
+            return "Error: memo title cannot be empty."
+
+        existing = await memos_db.get_memo(user_id, memo_id)
+        if not existing:
+            return f"Error: memo id={memo_id} was not found."
+
+        memo = await memos_db.update_memo(
+            user_id,
+            memo_id,
+            title=title if title is not None else existing["title"],
+            content=content if content is not None else existing["content"],
+            category=category if category is not None else existing["category"],
+            color=color if color is not None else existing["color"],
+            pinned=pinned if pinned is not None else existing["pinned"],
+            attachments=existing["attachments"],
+            agent_maintained=existing["agent_maintained"],
+        )
+        if not memo:
+            return f"Error: memo id={memo_id} was not found."
+
+        try:
+            await vector_store.upsert_memo(
+                user_id,
+                memo["id"],
+                memo["title"],
+                memo["content"],
+                memo["category"],
+                memo["attachments"],
+            )
+        except Exception:
+            logging.exception("failed to reindex updated memo %s in Qdrant", memo_id)
+        return f"Memo updated: id={memo['id']} title={memo['title']!r}"
+
+    return update_memo
+
+
 import re as _re
 
 # Pronouns and question words that typically signal an ambiguous/follow-up query
@@ -1183,18 +1281,26 @@ def make_memos_tools(user_id: str) -> list:
         `contact_id` must come from a prior search_contacts result for this
         memo - never guess or invent one. `dimension`/`category`/`fact_key`/
         `fact_value` follow the same vocabulary as record_contact_fact."""
-        from app.infrastructure.db.repositories import contacts as contacts_repo
+        from app.services.contact_memory_service import (
+            ContactMemoryCandidate,
+            ContactMemoryService,
+            MemorySource,
+        )
 
-        fact = await contacts_repo.add_contact_profile(
+        write_result = await ContactMemoryService.write(
             user_id=user_id,
             contact_id=contact_id,
-            dimension=dimension,
-            category=category,
-            fact_key=fact_key.strip(),
-            fact_value=fact_value.strip(),
-            source_type="memo",
-            source_id=memo_id,
+            candidate=ContactMemoryCandidate(
+                dimension=dimension,
+                category=category,
+                fact_key=fact_key.strip(),
+                fact_value=fact_value.strip(),
+            ),
+            source=MemorySource(source_type="memo", source_id=memo_id),
         )
+        fact = write_result.fact
+        if fact is None:
+            return f"Failed to sync memo {memo_id}: {write_result.reason or 'memory fact was not written'}."
         await memos_db.set_sync_status(user_id, memo_id, "synced")
         return f"Synced memo {memo_id} to contact fact: [{fact['dimension']}/{fact['category']}] {fact_key}"
 
@@ -1234,6 +1340,7 @@ def make_memos_tools(user_id: str) -> list:
     return [
         list_memos,
         _make_create_memo_tool(user_id),
+        _make_update_memo_tool(user_id),
         _make_search_memos_tool(user_id),
         _make_search_contacts_tool(user_id),
         track_area,

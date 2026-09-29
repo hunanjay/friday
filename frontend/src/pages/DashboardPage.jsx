@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Button,
@@ -20,6 +20,18 @@ import { useContactReminders } from '../features/contacts/hooks';
 import { useGitHubCommits, useGitHubConnection } from '../features/github/hooks';
 import { useInboxUnread, useMailMessages } from '../features/mail/mailboxHooks';
 import { useAssistantName } from '../features/settings/hooks';
+import {
+  DASHBOARD_TIME_ZONE,
+  dashboardCalendarRange,
+  dayKey,
+  eventDayKey,
+  eventTimestamp,
+  formatDashboardClock,
+  formatDashboardDate,
+  formatEventMeta,
+  greetingFor,
+  shiftDayKey,
+} from '../features/dashboard/dashboardTime';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from 'react-i18next';
 import './DashboardPage.css';
@@ -55,42 +67,6 @@ const doraDarkTheme = {
   colorCompoundBrandBackgroundHover: '#A5432A',
   colorCompoundBrandBackgroundPressed: '#963D25',
 };
-
-const DASHBOARD_TIME_ZONE = 'Asia/Shanghai';
-
-function dayKey(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: DASHBOARD_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const value = Object.fromEntries(parts.map(part => [part.type, part.value]));
-  return `${value.year}-${value.month}-${value.day}`;
-}
-
-function shiftDayKey(dateKey, offsetDays) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const shifted = new Date(Date.UTC(year, month - 1, day + offsetDays));
-  return shifted.toISOString().slice(0, 10);
-}
-
-function eventDateTime(event) {
-  return event?.start?.dateTime || event?.startDateTime || '';
-}
-
-function eventTime(event, locale) {
-  const value = eventDateTime(event);
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.valueOf())) return value.slice(11, 16);
-  return new Intl.DateTimeFormat(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: DASHBOARD_TIME_ZONE,
-  }).format(parsed);
-}
 
 function formatEmailDate(dateStr, locale) {
   if (!dateStr) return '';
@@ -158,6 +134,25 @@ function displayName(user) {
   return user?.name?.trim()?.split(/\s+/)[0] || '';
 }
 
+function useSecondClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    let timeoutId;
+    const scheduleNextSecond = () => {
+      const delay = 1000 - (Date.now() % 1000) + 10;
+      timeoutId = window.setTimeout(() => {
+        setNow(new Date());
+        scheduleNextSecond();
+      }, delay);
+    };
+    scheduleNextSecond();
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  return now;
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
@@ -169,20 +164,16 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const isZh = i18n.language === 'zh';
   const [composerText, setComposerText] = useState('');
+  const now = useSecondClock();
 
   // ── Independent panel queries ────────────────────────────────────────────
-  const dashboardCalendarRange = useMemo(() => {
-    const start = new Date();
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
-    return { start: start.toISOString(), end: end.toISOString() };
-  }, []);
+  const calendarRange = useMemo(() => dashboardCalendarRange(), []);
   const {
     events,
     isCalendarError,
     isLoadingCalendarEvents,
     refetchCalendarEvents,
-  } = useCalendarEvents(dashboardCalendarRange);
+  } = useCalendarEvents(calendarRange);
   const {
     inboxError,
     isLoadingInbox: isEmailsLoading,
@@ -216,20 +207,21 @@ export default function DashboardPage() {
   };
 
   const todayEvents = useMemo(() => events
-    .filter(event => eventDateTime(event).slice(0, 10) === dayKey())
-    .sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b))), [events]);
+    .filter(event => eventDayKey(event) === dayKey(now))
+    .sort((a, b) => eventTimestamp(a) - eventTimestamp(b)), [events, now]);
   const upcomingEvents = useMemo(() => events
-    .filter(event => eventDateTime(event) >= new Date().toISOString())
-    .sort((a, b) => eventDateTime(a).localeCompare(eventDateTime(b)))
-    .slice(0, 4), [events]);
+    .filter(event => eventTimestamp(event) >= now.valueOf())
+    .sort((a, b) => eventTimestamp(a) - eventTimestamp(b))
+    .slice(0, 4), [events, now]);
   const displayEmails = useMemo(() => {
     const unread = emails.filter(email => email.parentFolderId === 'inbox' && !email.isRead);
     if (unread.length > 0) return unread.slice(0, 4);
     return emails.filter(email => email.parentFolderId === 'inbox').slice(0, 4);
   }, [emails]);
   const copy = isZh ? {
-    greeting: `早上好，${displayName(user) || '朋友'}`,
-    date: new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()),
+    greeting: greetingFor(now, true, displayName(user) || '朋友'),
+    date: formatDashboardDate(now, 'zh-CN'),
+    currentTime: '当前时间',
     summary: '今日概览',
     askDora: `问问 ${assistantName}`,
     composerPlaceholder: `问问 ${assistantName}：今天有什么该注意的？`,
@@ -257,13 +249,14 @@ export default function DashboardPage() {
     radarDismiss: '忽略',
     bubbleFieldLabel: '邮件 · 日程速览',
   } : {
-    greeting: `Good morning, ${displayName(user) || 'there'}`,
-    date: new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()),
+    greeting: greetingFor(now, false, displayName(user) || 'there'),
+    date: formatDashboardDate(now, 'en-US'),
+    currentTime: 'Current time',
     summary: 'Today\'s overview',
     askDora: `Ask ${assistantName}`,
     composerPlaceholder: `Ask ${assistantName}: what should I keep in mind today?`,
     unread: 'Unread mail',
-    meetings: 'Events today',
+    meetings: todayEvents.length === 1 ? 'Event today' : 'Events today',
     commits: 'commits',
     todosTitle: 'To-Do List',
     addTodoPlaceholder: 'Add a new task...',
@@ -295,12 +288,16 @@ export default function DashboardPage() {
         {/* ── Command bar ── */}
         <header className="dashboard-hero-header">
           <div className="dashboard-hero-left">
-            <Text as="p" className="dashboard-date">{copy.date}</Text>
             <h1>{copy.greeting}</h1>
+            <div className="dashboard-date-row">
+              <time className="dashboard-clock" dateTime={now.toISOString()} aria-label={copy.currentTime}>
+                {formatDashboardClock(now, i18n.language)}
+              </time>
+              <Text as="p" className="dashboard-date">{copy.date}</Text>
+            </div>
             <p className="dashboard-glance-line">
-              <b>{unreadCount}</b> {copy.unread}
-              {' · '}
-              <b>{todayEvents.length}</b> {copy.meetings}
+              <span>{copy.unread} <b>{unreadCount}</b></span>
+              <span>{copy.meetings} <b>{todayEvents.length}</b></span>
             </p>
           </div>
 
@@ -339,7 +336,7 @@ export default function DashboardPage() {
             <DashboardTodoPanel copy={copy} isZh={isZh} />
             <DashboardBubbleField
               copy={copy}
-              eventTime={eventTime}
+              formatEventMeta={formatEventMeta}
               events={isLoadingCalendarEvents ? [] : upcomingEvents}
               emails={isEmailsLoading ? [] : displayEmails}
               formatEmailDate={formatEmailDate}

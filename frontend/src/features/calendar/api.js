@@ -4,6 +4,7 @@ export function normalizeCalendarEvent(event) {
   return {
     id: event.id,
     subject: event.subject,
+    isAllDay: Boolean(event.isAllDay),
     start: event.start,
     end: event.end,
     body: event.body,

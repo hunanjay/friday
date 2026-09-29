@@ -1,3 +1,5 @@
+import MemoEditor from './MemoEditor';
+import MemoContent from './MemoContent';
 import React, { useState } from 'react';
 import { Edit3, Plus, Search, Trash, Pin, X } from './Icons';
 
@@ -162,7 +164,7 @@ export default function MemosTab({ memos, onAddMemo, onUpdateMemo, onDeleteMemo,
                 </div>
               </div>
               <h3 className="memo-card-title">{memo.title}</h3>
-              <p className="memo-card-content">{memo.content}</p>
+              <MemoContent content={memo.content} />
               <div className="memo-card-footer">
                 <span className="memo-date">{memo.dateStr}</span>
               </div>
@@ -193,14 +195,7 @@ export default function MemosTab({ memos, onAddMemo, onUpdateMemo, onDeleteMemo,
               </div>
 
               <div className="form-group">
-                <textarea
-                  placeholder="Take a note..."
-                  className="memo-content-textarea"
-                  value={newContent}
-                  onChange={e => setNewContent(e.target.value)}
-                  rows="6"
-                  required
-                />
+                <MemoEditor placeholder={"Take a note…"} value={newContent} onChange={setNewContent} />
               </div>
 
               <div className="memo-form-options">
@@ -261,14 +256,7 @@ export default function MemosTab({ memos, onAddMemo, onUpdateMemo, onDeleteMemo,
               </div>
 
               <div className="form-group">
-                <textarea
-                  placeholder="Take a note..."
-                  className="memo-content-textarea"
-                  value={editingMemo.content}
-                  onChange={e => setEditingMemo({ ...editingMemo, content: e.target.value })}
-                  rows="6"
-                  required
-                />
+                <MemoEditor placeholder={"Take a note…"} value={editingMemo.content} onChange={content => setEditingMemo(prev => ({ ...prev, content }))} />
               </div>
 
               <div className="memo-form-options">

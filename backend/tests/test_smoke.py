@@ -642,7 +642,8 @@ check(
 )
 check(
     "memos agent still exposes its own read and write tools",
-    {"list_memos", "search_memos", "create_memo"} <= _returned_tool_names("make_memos_tools"),
+    {"list_memos", "search_memos", "create_memo", "update_memo"}
+    <= _returned_tool_names("make_memos_tools"),
 )
 check(
     "contact agent exposes its own read and write tools",
@@ -883,6 +884,12 @@ contact_api_source   = (backend_dir / "app/api/contact.py").read_text()
 contact_repo_source  = (backend_dir / "app/infrastructure/db/repositories/contacts.py").read_text()
 contact_svc_source   = (backend_dir / "app/services/contact_service.py").read_text()
 contact_brain_source = (backend_dir / "app/services/contact_brain_service.py").read_text()
+contact_memory_repo_source = (
+    backend_dir / "app/infrastructure/db/repositories/contact_memory.py"
+).read_text()
+contact_memory_service_source = (
+    backend_dir / "app/services/contact_memory_service.py"
+).read_text()
 tools_source         = (backend_dir / "app/agents/tools.py").read_text()
 main_source_fresh    = (backend_dir / "app/main.py").read_text()
 
@@ -906,6 +913,108 @@ check(
 check(
     "contact_profiles stores confidence score",
     "confidence FLOAT" in contact_repo_source,
+)
+check(
+    "Contact Memory shadow schema stores Primary Abstraction",
+    "primary_abstraction" in contact_memory_repo_source,
+)
+check(
+    "Contact Memory shadow schema preserves Evidence and Revisions",
+    "contact_memory_evidence" in contact_memory_repo_source
+    and "contact_memory_revisions" in contact_memory_repo_source,
+)
+check(
+    "Contact Memory schema stores reusable Cue Anchors and scoped links",
+    "contact_memory_cues" in contact_memory_repo_source
+    and "contact_memory_cue_links" in contact_memory_repo_source,
+)
+check(
+    "Contact Memory shadow schema is installed by the Alembic head",
+    "CONTACT_MEMORY_SCHEMA"
+    in (
+        backend_dir
+        / "alembic/versions/e7c1a2b3d4f5_contact_memory_shadow_artifacts.py"
+    ).read_text(),
+)
+check(
+    "Contact Memory authoritative Judge actions are transactional and audited",
+    "apply_authoritative_judge_action" in contact_memory_service_source
+    and "operation in ('create', 'merge', 'correct', 'conflict', 'delete', 'restore')"
+    in contact_memory_repo_source,
+)
+check(
+    "Contact Memory shadow/index/Judge paths are always on without environment flags",
+    "CONTACT_MEMORY_SHADOW_WRITE" not in config_source
+    and "CONTACT_MEMORY_V2_INDEX_WRITE" not in config_source
+    and "CONTACT_MEMORY_SHADOW_JUDGE" not in config_source
+    and "CONTACT_MEMORY_SHADOW_WRITE" not in contact_memory_service_source
+    and "CONTACT_MEMORY_SHADOW_WRITE"
+    not in (backend_dir / ".env.example").read_text(),
+)
+check(
+    "legacy Contact Memory backfill is resumable and tenant scoped",
+    "for update of p skip locked" in contact_memory_repo_source.lower()
+    and "p.user_id = %s" in contact_memory_repo_source,
+)
+check(
+    "Primary Abstraction uses an independent v2 Qdrant collection",
+    'CONTACT_MEMORY_COLLECTION = "contact_memory_v2"' in qdrant_source
+    and "search_contact_memory_primary" in qdrant_source,
+)
+contact_memory_retrieval_source = (
+    backend_dir / "app/services/contact_memory_retrieval_service.py"
+).read_text()
+check(
+    "v2 retrieval jointly searches Primary Abstractions and Cue Anchors",
+    "search_contact_memory_primary" in contact_memory_retrieval_source
+    and "search_contact_memory_cues" in contact_memory_retrieval_source
+    and "resolve_cue_links" in contact_memory_retrieval_source,
+)
+check(
+    "search_contacts uses v2 memory retrieval by default with legacy recall preserved",
+    "ContactMemoryPolicyRetriever.search" in tools_source
+    and "qdrant.search_contact_docs" in tools_source,
+)
+check(
+    "v2 indexing has a database compensation marker",
+    "abstraction_indexed_at" in contact_memory_repo_source
+    and "mark_primary_indexed" in contact_memory_service_source,
+)
+contact_memory_judge_source = (
+    backend_dir / "app/services/contact_memory_judge.py"
+).read_text()
+check(
+    "Merge Judge is structured and drives the authoritative memory transaction",
+    "with_structured_output" in contact_memory_judge_source
+    and "apply_authoritative_judge_action" in contact_memory_service_source
+    and "record_shadow_decision" in contact_memory_service_source
+    and "v1_outcome" in contact_memory_repo_source,
+)
+check(
+    "shadow Merge Judge validates targets within the user/contact scope",
+    "target_memory_id not in candidate_ids" in contact_memory_judge_source
+    and "id = %s and contact_id = %s and user_id = %s" in contact_memory_repo_source,
+)
+contact_memory_policy_source = (
+    backend_dir / "app/services/contact_memory_policy_retriever.py"
+).read_text()
+check(
+    "policy-guided retrieval has bounded EXPAND/RE_QUERY/STOP control",
+    'Literal["EXPAND", "RE_QUERY", "STOP"]' in contact_memory_policy_source
+    and "POLICY_MAX_STEPS = 2" in contact_memory_policy_source
+    and "expand_from_memories" in contact_memory_policy_source,
+)
+check(
+    "contact memory deletion is recoverable and preserves history",
+    "set_memory_deleted" in contact_memory_service_source
+    and "get_memory_history" in contact_memory_repo_source
+    and "memory_status <> 'deleted'" in contact_repo_source,
+)
+check(
+    "Contact Memory Judge ships with an offline goldset and unsafe-merge metric",
+    (backend_dir / "tests/data/contact_memory_judge_eval.json").exists()
+    and "unsafe_merge_rate"
+    in (backend_dir / "tests/eval_contact_memory_judge.py").read_text(),
 )
 
 # ── 13-C. API 输入校验：name 不能为空 ────────────────────────────────────────
@@ -954,6 +1063,12 @@ check(
 check(
     "ContactBrainService saves extracted facts to contact_profiles",
     "contact_profiles" in contact_brain_source or "add_profile_fact" in contact_brain_source,
+)
+check(
+    "all four Contact Memory production writers share one service boundary",
+    "ContactMemoryService.write" in contact_brain_source
+    and "ContactMemoryService.write" in contact_api_source
+    and tools_source.count("ContactMemoryService.write") >= 2,
 )
 
 # ── 13-H. Agent Tools 注册了 3 个 contact 工具 ──────────────────────────────

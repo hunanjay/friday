@@ -6,6 +6,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import settings
 from app.core.llm import make_chat_model
 from app.infrastructure.db.repositories import contacts as contacts_repo
+from app.services.contact_memory_service import (
+    ContactMemoryCandidate,
+    ContactMemoryService,
+    MemorySource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,11 @@ EXTRACTION_SYSTEM_PROMPT = """你是一个高水平的 AI 关系大脑提取专�
       "dimension": "优先复用 basic|business|private|dynamic，都不合适时才自拟一个 snake_case 维度名",
       "category": "优先复用 preference|pain_point|demand|family|anniversary|event|other，都不合适时才自拟",
       "fact_key": "事实键描述，如 diet_preference, business_scale",
-      "fact_value": "事实具体内容，如 喜欢喝普洱茶，年营业额5000万"
+      "fact_value": "事实具体内容，如 喜欢喝普洱茶，年营业额5000万",
+      "primary_abstraction": "稳定表达这条记忆长期主题的短语，包含联系人和主题但不要绑定易变化的当前值，如 张三的任职经历",
+      "cues": ["0 到 3 个补充召回角度，如 张三 晋升、张三 技术管理；不得包含身份证号、银行卡号、完整住址或具体诊断"],
+      "occurred_at": "事实发生时间的 ISO 8601；原文无法确定则留空字符串",
+      "confidence": "0 到 1 的提取置信度"
     }
   ],
   "interaction_summary": "提取本次交互的关键事实/约定摘要"
@@ -134,53 +143,39 @@ class ContactBrainService:
             raw_snippet=raw_text[:500],
         )
 
-        # Insert profiles (facts): merge into an existing fact when the LLM
-        # matched one, skip pure duplicates, otherwise append as before.
+        # Route every extracted fact through the same write boundary used by
+        # manual, chat, and memo writes. Phase 0 preserves the existing
+        # new/update/delete/skip behaviour while making later merge policy a
+        # single service change.
         added_profiles = []
         for p in profiles:
             action = (p.get("action") or "new").strip().lower()
-            existing_fact_id = p.get("existing_fact_id") or ""
-
-            if action == "skip":
-                continue
-            if action == "delete":
-                if existing_fact_id:
-                    await contacts_repo.delete_contact_profile(user_id, contact_id, existing_fact_id)
+            if action not in {"new", "update", "delete", "skip"}:
+                logger.warning("ignoring contact memory with unknown action %r", action)
                 continue
 
-            dim = p.get("dimension") or "basic"
-            cat = p.get("category") or "other"
-            key = p.get("fact_key") or "note"
-            val = p.get("fact_value") or ""
-            if not val:
-                continue
-
-            prof = None
-            if action == "update" and existing_fact_id:
-                prof = await contacts_repo.update_contact_profile(
-                    user_id=user_id,
-                    contact_id=contact_id,
-                    fact_id=existing_fact_id,
-                    dimension=dim,
-                    category=cat,
-                    fact_key=key,
-                    fact_value=val,
+            result = await ContactMemoryService.write(
+                user_id=user_id,
+                contact_id=contact_id,
+                candidate=ContactMemoryCandidate(
+                    action=action,
+                    existing_fact_id=p.get("existing_fact_id") or "",
+                    dimension=p.get("dimension") or "basic",
+                    category=p.get("category") or "other",
+                    fact_key=p.get("fact_key") or "note",
+                    fact_value=p.get("fact_value") or "",
+                    primary_abstraction=p.get("primary_abstraction") or "",
+                    cues=[cue for cue in (p.get("cues") or []) if isinstance(cue, str)],
+                    occurred_at=p.get("occurred_at") or None,
+                    confidence=p.get("confidence", 1.0),
+                ),
+                source=MemorySource(
                     source_type="chat_paste",
                     source_id=interaction["id"],
-                )
-            if prof is None:
-                # New fact, or a stale/hallucinated existing_fact_id — append.
-                prof = await contacts_repo.add_contact_profile(
-                    user_id=user_id,
-                    contact_id=contact_id,
-                    dimension=dim,
-                    category=cat,
-                    fact_key=key,
-                    fact_value=val,
-                    source_type="chat_paste",
-                    source_id=interaction["id"],
-                )
-            added_profiles.append(prof)
+                ),
+            )
+            if result.fact is not None:
+                added_profiles.append(result.fact)
 
         # Insert tags
         for t in tags:
