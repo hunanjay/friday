@@ -1,3 +1,5 @@
+import MemoEditor from '../components/MemoEditor';
+import MemoContent from '../components/MemoContent';
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useMemos } from '../features/memos/hooks';
@@ -22,6 +24,9 @@ export default function MemosPage() {
 
   const {
     memos,
+    isLoadingMemos,
+    isAddingMemo,
+    isUpdatingMemo,
     hasMore,
     page,
     goToNextPage,
@@ -37,6 +42,34 @@ export default function MemosPage() {
 
   const [editingMemo, setEditingMemo] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const isModalOpen = isCreateOpen || Boolean(editingMemo);
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const previousFocus = document.activeElement;
+    const dialog = document.querySelector('.memo-modal');
+    dialog?.querySelector('.memo-title-input')?.focus();
+    const onKeyDown = event => {
+      if (event.key === 'Escape') {
+        setIsCreateOpen(false);
+        setEditingMemo(null);
+      }
+      if (event.key !== 'Tab') return;
+      const controls = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), select, [contenteditable="true"], a[href]')]
+        .filter(element => element.getClientRects().length);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [isModalOpen]);
 
   // Form states for creating a new memo
   const [newTitle, setNewTitle] = useState('');
@@ -215,6 +248,10 @@ export default function MemosPage() {
 
   return (
     <div className="memos-tab-container">
+      <div className="memos-page-heading">
+        <h1>{isZh ? "便签" : "Memos"}</h1>
+        <p>{isZh ? "随手记录，让想法有条理。" : "A little space for your thoughts."}</p>
+      </div>
       {/* Top action/filter bar */}
       <div className="memos-control-bar">
         <div className="memos-filter-tabs">
@@ -247,7 +284,7 @@ export default function MemosPage() {
       </div>
 
       {/* Grid of notes */}
-      {memos.length === 0 ? (
+      {isLoadingMemos ? <div className="memos-empty-state" role="status">{isZh ? "正在加载便签…" : "Loading memos…"}</div> : memos.length === 0 ? (
         <div className="memos-empty-state">
           <Edit3 size={48} className="empty-state-icon" />
           <h3>{isZh ? '未找到便签' : 'No notes found'}</h3>
@@ -281,7 +318,7 @@ export default function MemosPage() {
                 </div>
               </div>
               <h3 className="memo-card-title">{memo.title}</h3>
-              <p className="memo-card-content">{memo.content}</p>
+              <MemoContent content={memo.content} />
 
               {/* Attachments Section on Memo Card */}
               {memo.attachments && memo.attachments.length > 0 && (
@@ -332,10 +369,10 @@ export default function MemosPage() {
       {/* Create Memo Modal */}
       {isCreateOpen && (
         <div className="memo-modal-overlay" onClick={() => setIsCreateOpen(false)}>
-          <div className="memo-modal" onClick={e => e.stopPropagation()}>
+          <div className="memo-modal" role="dialog" aria-modal="true" aria-label={isCreateOpen ? t("memos.addMemo") : t("memos.editMemo")} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>{t('memos.addMemo')}</h3>
-              <button className="close-modal-btn" onClick={() => setIsCreateOpen(false)}>
+              <button className="close-modal-btn" aria-label={isZh ? "关闭" : "Close"} onClick={() => setIsCreateOpen(false)}>
                 <X size={18} />
               </button>
             </div>
@@ -351,13 +388,7 @@ export default function MemosPage() {
               </div>
 
               <div className="form-group">
-                <textarea
-                  placeholder={t('memos.content')}
-                  className="memo-content-textarea"
-                  value={newContent}
-                  onChange={e => setNewContent(e.target.value)}
-                  rows="4"
-                />
+                <MemoEditor isZh={isZh} placeholder={t('memos.content')} value={newContent} onChange={setNewContent} />
               </div>
 
               {/* Drag and Drop Zone */}
@@ -374,7 +405,7 @@ export default function MemosPage() {
                       {isZh ? '拖拽图片 / PDF / TXT / DOCX 文件到此处' : 'Drag & drop files here'}
                     </span>
                     <span className="dropzone-sub-text">
-                      {isZh ? '或点击选择文件 (AI 自动 OCR 提取结构化文字)' : 'or click to browse for RAG parsing'}
+                      {isZh ? '图片和文档中的文字会自动提取' : 'Text in images and documents is extracted automatically'}
                     </span>
                   </div>
                   <label className="upload-btn-label">
@@ -391,7 +422,7 @@ export default function MemosPage() {
                 {isUploadingNew && (
                   <div className="uploading-spinner-bar">
                     <span className="spinner" style={{ width: 14, height: 14 }}></span>
-                    <span>{isZh ? '⚡ AI 正在提取图片/文档中的表单与全文内容...' : '⚡ AI parsing text content...'}</span>
+                    <span>{isZh ? '正在提取文件中的文字…' : 'Extracting text from your file…'}</span>
                   </div>
                 )}
 
@@ -444,7 +475,7 @@ export default function MemosPage() {
 
               <div className="modal-footer">
                 <button type="button" className="cancel-btn" onClick={() => setIsCreateOpen(false)}>{t('common.cancel')}</button>
-                <button type="submit" className="save-btn" disabled={isUploadingNew}>{t('memos.addMemo')}</button>
+                <button type="submit" className="save-btn" disabled={isUploadingNew || isAddingMemo}>{t('memos.addMemo')}</button>
               </div>
             </form>
           </div>
@@ -454,10 +485,10 @@ export default function MemosPage() {
       {/* Edit/View Memo Modal */}
       {editingMemo && (
         <div className="memo-modal-overlay" onClick={() => setEditingMemo(null)}>
-          <div className="memo-modal" onClick={e => e.stopPropagation()}>
+          <div className="memo-modal" role="dialog" aria-modal="true" aria-label={isCreateOpen ? t("memos.addMemo") : t("memos.editMemo")} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>{t('memos.editMemo')}</h3>
-              <button className="close-modal-btn" onClick={() => setEditingMemo(null)}>
+              <button className="close-modal-btn" aria-label={isZh ? "关闭" : "Close"} onClick={() => setEditingMemo(null)}>
                 <X size={18} />
               </button>
             </div>
@@ -473,13 +504,7 @@ export default function MemosPage() {
               </div>
 
               <div className="form-group">
-                <textarea
-                  placeholder={t('memos.content')}
-                  className="memo-content-textarea"
-                  value={editingMemo.content}
-                  onChange={e => setEditingMemo({ ...editingMemo, content: e.target.value })}
-                  rows="4"
-                />
+                <MemoEditor isZh={isZh} placeholder={t('memos.content')} value={editingMemo.content} onChange={content => setEditingMemo(prev => ({ ...prev, content }))} />
               </div>
 
               {/* Drag and Drop Zone in Edit Modal */}
@@ -496,7 +521,7 @@ export default function MemosPage() {
                       {isZh ? '拖拽图片 / PDF / TXT / DOCX 文件到此处' : 'Drag & drop files here'}
                     </span>
                     <span className="dropzone-sub-text">
-                      {isZh ? '或点击选择文件 (AI 自动 OCR 提取结构化文字)' : 'or click to browse for RAG parsing'}
+                      {isZh ? '图片和文档中的文字会自动提取' : 'Text in images and documents is extracted automatically'}
                     </span>
                   </div>
                   <label className="upload-btn-label">
@@ -513,7 +538,7 @@ export default function MemosPage() {
                 {isUploadingEdit && (
                   <div className="uploading-spinner-bar">
                     <span className="spinner" style={{ width: 14, height: 14 }}></span>
-                    <span>{isZh ? '⚡ AI 正在提取图片/文档中的表单与全文内容...' : '⚡ AI parsing text content...'}</span>
+                    <span>{isZh ? '正在提取文件中的文字…' : 'Extracting text from your file…'}</span>
                   </div>
                 )}
 
@@ -592,7 +617,7 @@ export default function MemosPage() {
                   <Trash size={16} />
                   <span>{t('common.delete')}</span>
                 </button>
-                <button type="submit" className="save-btn" disabled={isUploadingEdit}>{t('common.save')}</button>
+                <button type="submit" className="save-btn" disabled={isUploadingEdit || isUpdatingMemo}>{t('common.save')}</button>
               </div>
             </form>
           </div>
@@ -605,7 +630,7 @@ export default function MemosPage() {
           <div className="memo-lightbox-content" onClick={e => e.stopPropagation()}>
             <div className="lightbox-header">
               <span className="lightbox-title">{previewImage.name}</span>
-              <button className="close-modal-btn" onClick={() => setPreviewImage(null)}>
+              <button className="close-modal-btn" aria-label={isZh ? "关闭" : "Close"} onClick={() => setPreviewImage(null)}>
                 <X size={18} />
               </button>
             </div>

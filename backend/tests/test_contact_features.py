@@ -37,6 +37,32 @@ from app.services.contact_service import ContactService
 class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.test_user_id = "test-user-uuid-123"
+        # Contact Memory is always on; these feature tests exercise the legacy
+        # contact flows and replace the shadow side effects with hermetic mocks.
+        patchers = [
+            patch(
+                "app.services.contact_memory_service.ContactMemoryService._evaluate_shadow_decision",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.services.contact_memory_service.ContactMemoryService._record_shadow_write",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.contact_memory_service.ContactMemoryService._index_primary",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.services.contact_memory_service.memory_repo.get_memory_snapshot",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ]
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     # =========================================================================
     # 1. Outlook 通讯录增量同步
@@ -229,7 +255,8 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
              patch("app.infrastructure.db.repositories.contacts.update_contact", new_callable=AsyncMock), \
              patch("app.infrastructure.db.repositories.contacts.add_contact_profile", new_callable=AsyncMock) as mock_add_profile, \
              patch("app.infrastructure.db.repositories.contacts.update_contact_profile", new_callable=AsyncMock) as mock_update_profile, \
-             patch("app.infrastructure.db.repositories.contacts.delete_contact_profile", new_callable=AsyncMock) as mock_delete_profile, \
+             patch("app.services.contact_memory_service.memory_repo.set_memory_deleted", new_callable=AsyncMock) as mock_delete_profile, \
+             patch("app.services.contact_memory_service.contacts_repo.unindex_contact_profile", new_callable=AsyncMock), \
              patch("app.infrastructure.db.repositories.contacts.add_contact_interaction", new_callable=AsyncMock) as mock_add_interaction:
 
             mock_llm_instance = MagicMock()
@@ -244,6 +271,18 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
             mock_get_contact.return_value = existing_contact
             mock_update_profile.return_value = {"id": "fact-tea", "fact_value": "改喝正山小种了"}
             mock_add_profile.side_effect = lambda **kw: {"id": "fact-new", **kw}
+            mock_delete_profile.return_value = {
+                "fact": {"id": "fact-old-car", "fact_value": "旧车"},
+                "memory": {
+                    "memory_id": "fact-old-car",
+                    "user_id": self.test_user_id,
+                    "contact_id": "cid-zhangming-100",
+                    "primary_abstraction": "张明 · vehicle",
+                    "dimension": "private",
+                    "category": "other",
+                    "memory_status": "deleted",
+                },
+            }
             mock_add_interaction.return_value = {"id": "interaction-2"}
 
             result = await ContactBrainService.extract_and_save(
@@ -256,12 +295,13 @@ class TestContactFeatures(unittest.IsolatedAsyncioTestCase):
             self.assertIn("喜欢喝普洱茶", prompt_text)
 
             # update -> update_contact_profile, skip -> nothing, new -> add_contact_profile,
-            # delete -> delete_contact_profile
+            # delete -> soft-delete through the memory repository
             mock_update_profile.assert_awaited_once()
             self.assertEqual(mock_update_profile.call_args.kwargs["fact_id"], "fact-tea")
             mock_add_profile.assert_awaited_once()
             self.assertEqual(mock_add_profile.call_args.kwargs["fact_key"], "new_deal")
-            mock_delete_profile.assert_awaited_once_with(self.test_user_id, "cid-zhangming-100", "fact-old-car")
+            self.assertEqual(mock_delete_profile.await_args.kwargs["memory_id"], "fact-old-car")
+            self.assertTrue(mock_delete_profile.await_args.kwargs["deleted"])
             self.assertEqual(len(result["extracted_profiles"]), 2)
 
     # =========================================================================

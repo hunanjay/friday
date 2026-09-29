@@ -73,6 +73,12 @@ Friday 不要求你重新学习一套录入流程。邮件往来、联系人同�
 | 个人工作台 | 集中查看待办、便签和需要留意的工作信息。 |
 | 个性化 | 支持中英文界面，并可设置助手名称、形象和表达风格。 |
 
+## 研究与设计
+
+Friday 的下一代 Contact Memory 正在借鉴 Microsoft Research 的 ICML 2026 论文 [Memora: A Harmonic Memory Representation Balancing Abstraction and Specificity](https://arxiv.org/abs/2602.03315)（[官方实现](https://github.com/microsoft/Memora)）。其核心思想是用 Primary Abstraction、Memory Value 和 Cue Anchor 解耦“保存什么”与“如何检索”，在保留事实细节的同时减少记忆碎片，并支持多角度和多跳召回。
+
+Friday 会基于现有 Postgres + Qdrant 架构渐进实现这一思路，而不是直接引入研究代码。详细的数据模型、迁移、灰度、评估与回滚方案见 [Contact Memory 的 Memora 化工程实施计划](./docs/contact-memory-memora-implementation-plan.md)。
+
 ## 接下来
 
 我们正在把 Friday 从“帮你找回信息”推进到“主动帮你维护关系”：更合适的联系时机提醒、会前准备、跨来源检索，以及更完整的关系维护建议都会陆续到来。完整方向见 [产品路线图](./TODO.md)。

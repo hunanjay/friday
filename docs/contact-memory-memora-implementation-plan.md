@@ -1,8 +1,25 @@
 # Contact Memory 的 Memora 化工程实施计划
 
-> 状态：Proposal
+> 状态：Implementation Complete / Evaluation Pending
 > 适用范围：Friday Contact Relationship Brain
 > 目标：引入 Primary Abstraction、Memory Value、Cue Anchor 和可选的策略式检索，同时保留现有 Postgres + Qdrant 技术栈与 Contact UI。
+
+## 实施进度
+
+- 2026-09-17：开始 Phase 0。已建立统一的 `ContactMemoryService` 写入边界，并将长文本提取、单条聊天事实、手工 API 和 Memo 同步四个生产入口接入；本批次保持现有 `contact_profiles` 存储行为不变。
+- 2026-09-17：完成 Phase 1 数据基础。新增 Primary Abstraction 字段、Evidence/Revision 审计表和 Alembic migration；所有新写入都会旁路记录影子数据，失败时不阻断现有 v1 写入。
+- 2026-09-17：完成可重入历史 backfill 和 Primary Abstraction v2 索引基础。新增用户级批处理 API、`SKIP LOCKED` 续跑、`contact_memory_v2` 独立 collection、租户隔离检索及 `abstraction_indexed_at` 补偿队列。
+- 2026-09-17：完成 Top-K candidate retrieval 与结构化 Merge Judge 影子链路。Judge 只读取同一 user/contact 的候选，非法 target 和低置信度均降级为 `create`，决策写入独立审计表与 v1 结果对比，不改变线上真值。
+- 2026-09-17：建立第一版离线 Judge goldset 与评分脚本，覆盖重复、时间变化、冲突、相似但不同事件、数值口径和误召回主题，并单独统计 unsafe merge 与保守 false create。
+- 2026-09-18：移除 Contact Memory 启用型环境变量。影子审计、v2 索引和 Merge Judge 改为默认常开；外部依赖失败继续采用 best-effort 降级与索引补偿，不影响 v1 事实写入。
+- 2026-09-18：完成 Cue Anchor 数据与检索基础。新增共享 cue/link 表、cue Qdrant point、写入与补偿索引，以及 Primary + Cue 并行召回、链接展开、去重融合的独立 retrieval service；敏感值和 Primary 的机械重复不会写入 cue。
+- 2026-09-18：将 Primary+Cue 检索接入 `search_contacts` 默认语义回退。v2 返回聚合 Memory Value，原 `contacts` collection 同步保留身份与互动召回，两路结果按联系人去重后加载完整档案。
+- 2026-09-18：完成 Phase 2 权威写入切换。高置信度 Judge 的 `merge/noop/conflict` 在用户与联系人范围内事务执行；`noop` 只追加 Evidence，`merge` 更新聚合值并追加 Revision，`conflict` 保留两条 disputed 陈述。目标失效时安全退化为 create。
+- 2026-09-18：补齐历史 Cue Anchor 独立回填。已完成 Primary 回填但没有 cue-link 的旧记忆也会生成不含 Memory Value 的稳定召回短语，并复用 cue 索引补偿队列。
+- 2026-09-18：完成 Phase 4 的有界 Policy-guided Retriever。复杂查询默认进入最多两步的 `EXPAND/RE_QUERY/STOP` 循环，简单查询仍为单轮；策略只能选择已提供的 cue id，模型或扩展失败时稳定返回当前 working set。
+- 2026-09-18：删除改为可恢复软删除，并新增人工纠错、恢复、Evidence/Revision 历史 API；人工纠错绕过自动 Judge，优先级高于自动提取。
+- 2026-09-18：使用本地阿里云 Qwen `qwen3.6-flash` 完成首轮 Judge goldset 基线；8/8 action 与 target 正确，unsafe merge 和 false create 均为 0。评估脚本现会主动加载 `backend/.env`，与应用使用相同 provider profile。
+- 下一批：扩充真实脱敏样例并运行 Primary+Cue 与 Policy 多跳基线，继续校准阈值、延迟和成本预算；代码与测试实现不依赖启用型环境变量。
 
 ## 1. 背景
 
@@ -372,32 +389,32 @@ Postgres 事务：memory + evidence + revision + cue links
 - 旧行为测试全部通过。
 - 有可重复运行的离线基线报告。
 
-### Phase 1：Primary Abstraction + 可靠合并（影子模式）
+### Phase 1：Primary Abstraction + 可靠合并基础
 
 工作项：
 
 - 新增 profile 字段、evidence 和 revision 表。
 - 为新写入生成 primary abstraction。
 - 实现 Top-K candidate retrieval 和结构化 LLM Judge。
-- 影子执行新决策，但仍以旧写入结果为线上真值。
+- 先记录新旧决策差异，再由 Phase 2 切换为权威事务。
 - 记录新旧决策差异，不把 shadow 数据展示给用户。
 - 为旧数据运行可重入 backfill，生成 abstraction 和初始 revision/evidence。
 
 退出条件：
 
 - 误合并率达到验收阈值，且不存在跨用户、跨联系人合并。
-- Shadow 决策覆盖所有写入口。
+- Judge 决策覆盖所有自动写入口。
 - Backfill 可暂停、续跑、重复执行，不产生重复 revision/evidence。
 
 ### Phase 2：Primary 写入切换
 
 工作项：
 
-- 通过 feature flag 将新领域服务设为 Contact Memory 真值写入路径。
+- 在离线验收达标后，将新领域服务设为 Contact Memory 真值写入路径。
 - `noop`、`merge`、`conflict` 和 `create` 均生成完整审计记录。
 - UI 继续读取当前 `contact_profiles.fact_value`，无需同步重做。
 - 增加用户纠错后的 revision，并确保纠错优先级高于自动提取。
-- 保留关闭自动 merge 的 kill switch。
+- 自动 merge 失败时必须退化为 create/conflict，并保留完整审计记录。
 
 退出条件：
 
@@ -430,7 +447,7 @@ Postgres 事务：memory + evidence + revision + cue links
 - 实现 `EXPAND/RE_QUERY/STOP` 的 prompt policy。
 - 对复杂问题启用 query classifier，简单问题仍走单轮检索。
 - 评估答案质量、额外 token、LLM 调用数、P50/P95 延迟和无效扩展率。
-- 仅在收益成立时灰度开启；暂不训练 GRPO。
+- 默认对复杂查询启用，严格限制步数和 working-set 大小；暂不训练 GRPO。
 
 退出条件：
 
@@ -448,26 +465,19 @@ Postgres 事务：memory + evidence + revision + cue links
 - 无可靠来源的旧记录使用 `source_type=unknown`，不伪造来源。
 - Backfill 不自动合并历史行；先生成 merge proposal，离线审核后再单独执行。
 
-### 9.2 Feature Flags
+### 9.2 常开与失败隔离
 
-建议至少提供：
-
-- `CONTACT_MEMORY_UNIFIED_WRITE`
-- `CONTACT_MEMORY_MERGE_SHADOW`
-- `CONTACT_MEMORY_AUTO_MERGE`
-- `CONTACT_MEMORY_V2_INDEX_WRITE`
-- `CONTACT_MEMORY_V2_RETRIEVAL`
-- `CONTACT_MEMORY_POLICY_RETRIEVAL`
-
-Feature flag 应支持全局默认和按用户 allowlist 灰度。
+- 统一写入、Primary Abstraction/Evidence/Revision、v2 索引、Merge Judge 和复杂查询 Policy 默认常开，不使用启用型环境变量控制。
+- Postgres `contact_profiles` 是当前值投影与事实真值；Qdrant 仍是可重建派生索引，索引失败不能回滚 Postgres 事务。
+- Qdrant 写入失败时保留 `abstraction_indexed_at IS NULL`，由 backfill/compensation API 重试。
+- Judge 检索失败时不伪造 `create` 决策，本次退回原有明确写入动作。
+- Policy 失败、输出非法 action/cue 或达到预算时立即停止，并返回当前 semantic working set。
 
 ### 9.3 回滚
 
-- 关闭 `AUTO_MERGE` 后，新输入退化为 create，但仍可保存 evidence。
-- 关闭 `V2_RETRIEVAL` 后立即回到当前 `contacts` collection。
-- v1/v2 collection 独立，回滚不需要重建旧索引。
-- Revision 使错误 merge 可恢复到指定版本；不得通过删除 audit row 回滚。
-- Schema migration 在稳定期只增加列和表，不立即删除旧字段。
+- 当前 v1/v2 collection 独立且并行召回，代码回滚不需要重建旧索引。
+- Revision 使未来错误 merge 可恢复到指定版本；不得通过删除 audit row 回滚。
+- Schema migration 保持只增加列和表，不通过 downgrade 删除 Evidence/Revision 审计数据。
 
 ## 10. 测试与评估
 
@@ -548,8 +558,8 @@ Feature flag 应支持全局默认和按用户 allowlist 灰度。
 | `backend/app/services/` | 新增统一 memory write/retrieval service 与 Judge |
 | `backend/app/infrastructure/db/repositories/contacts.py` | memory/evidence/revision/cue 的事务操作和 backfill/reindex |
 | `backend/app/infrastructure/vector/qdrant.py` | v2 collection、primary/cue points、联合检索和重建 |
-| `backend/app/agents/tools.py` | 所有 Contact/Memo 写入口接入统一服务，检索切换 feature flag |
-| `backend/app/api/contact.py` | 手工事实写入接入统一服务；后续暴露 history/source |
+| `backend/app/agents/tools.py` | 所有 Contact/Memo 写入口接入统一服务，后续切换到统一检索服务 |
+| `backend/app/api/contact.py` | 手工事实写入、纠错、删除/恢复、revision 回滚和 history/source API |
 | `backend/tests/` | 写入判定、并发、隔离、迁移、降级和离线评估测试 |
 | `frontend/src/pages/ContactsPage.jsx` | 后续可选：历史、冲突和来源展示，不阻塞后端 P0 |
 
@@ -562,7 +572,7 @@ Feature flag 应支持全局默认和按用户 allowlist 灰度。
 5. 用户手工编辑与自动提取冲突时，是否始终以手工编辑为最高优先级。
 6. Policy retrieval 可接受的 P95 延迟和单次查询成本。
 
-在这些决策完成前，可以推进 Phase 0 和 Phase 1 的影子模式，但不能默认开启自动 merge 或策略式多轮检索。
+当前实现采用保守阈值、严格租户范围和有界检索预算默认开启；上述产品决策用于后续校准体验和成本，而不再作为代码启用开关。
 
 ## 15. Definition of Done
 

@@ -217,11 +217,16 @@ class TestSearchContactsTool(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.contact_service.ContactService.get_contacts", new=AsyncMock(return_value=[contact])),
+            patch(
+                "app.services.contact_memory_policy_retriever.ContactMemoryPolicyRetriever.search",
+                new=AsyncMock(),
+            ) as memory_vec,
             patch.object(qdrant, "search_contact_docs", new=AsyncMock()) as vec,
         ):
             out = await search.ainvoke({"query": "张明"})
 
         vec.assert_not_awaited()
+        memory_vec.assert_not_awaited()
         self.assertIn("张明", out)
 
     async def test_vague_query_falls_back_to_vector_and_reports_the_match(self):
@@ -232,6 +237,10 @@ class TestSearchContactsTool(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.contact_service.ContactService.get_contacts", new=AsyncMock(return_value=[])),
             patch("app.services.contact_service.ContactService.get_contact_by_id", new=AsyncMock(return_value=contact)),
+            patch(
+                "app.services.contact_memory_policy_retriever.ContactMemoryPolicyRetriever.search",
+                new=AsyncMock(return_value=[]),
+            ),
             patch.object(qdrant, "search_contact_docs", new=AsyncMock(return_value=[hit])) as vec,
         ):
             out = await search.ainvoke({"query": "喜欢喝茶的那个投资人"})
@@ -245,10 +254,42 @@ class TestSearchContactsTool(unittest.IsolatedAsyncioTestCase):
         tools, search = self._tool()
         with (
             patch("app.services.contact_service.ContactService.get_contacts", new=AsyncMock(return_value=[])),
+            patch(
+                "app.services.contact_memory_policy_retriever.ContactMemoryPolicyRetriever.search",
+                new=AsyncMock(return_value=[]),
+            ),
             patch.object(qdrant, "search_contact_docs", new=AsyncMock(return_value=[])),
         ):
             out = await search.ainvoke({"query": "nobody"})
         self.assertIn("No contacts matched", out)
+
+    async def test_v2_memory_hit_is_rendered_with_loaded_memory_value(self):
+        tools, search = self._tool()
+        contact = {**CONTACT, "profiles": [], "tags": [], "timeline": []}
+        memory_hit = {
+            "memory_id": "memory-1",
+            "contact_id": CONTACT["id"],
+            "memory_value": "过去喜欢普洱茶，目前偏好红茶",
+            "recent_evidence": [{"source_type": "memo", "source_id": "memo-1"}],
+            "score": 0.9,
+        }
+        with (
+            patch("app.services.contact_service.ContactService.get_contacts", new=AsyncMock(return_value=[])),
+            patch(
+                "app.services.contact_service.ContactService.get_contact_by_id",
+                new=AsyncMock(return_value=contact),
+            ),
+            patch(
+                "app.services.contact_memory_policy_retriever.ContactMemoryPolicyRetriever.search",
+                new=AsyncMock(return_value=[memory_hit]),
+            ),
+            patch.object(qdrant, "search_contact_docs", new=AsyncMock(return_value=[])),
+        ):
+            out = await search.ainvoke({"query": "那个现在改喝红茶的人"})
+
+        self.assertIn("memory_v2", out)
+        self.assertIn("目前偏好红茶", out)
+        self.assertIn("source: memo", out)
 
 
 class TestProvenance(unittest.TestCase):

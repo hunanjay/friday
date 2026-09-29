@@ -1,0 +1,85 @@
+{
+  "_comment": "Hand-authored Contact Memory merge/noop/conflict/create cases. Values are synthetic and contain no user data.",
+  "cases": [
+    {
+      "id": "exact_duplicate",
+      "kind": "duplicate",
+      "primary_abstraction": "张三的饮食偏好",
+      "candidate": {"dimension": "private", "category": "preference", "fact_key": "tea_preference", "fact_value": "喜欢普洱茶"},
+      "candidates": [
+        {"memory_id": "m1", "primary_abstraction": "张三的饮食偏好", "memory_value": "喜欢普洱茶", "dimension": "private", "category": "preference", "memory_status": "active", "recent_evidence": []}
+      ],
+      "expected": {"action": "noop", "target_memory_id": "m1"}
+    },
+    {
+      "id": "paraphrase_duplicate",
+      "kind": "duplicate",
+      "primary_abstraction": "李梅的工作地点",
+      "candidate": {"dimension": "business", "category": "other", "fact_key": "work_location", "fact_value": "目前在深圳办公"},
+      "candidates": [
+        {"memory_id": "m2", "primary_abstraction": "李梅的工作地点", "memory_value": "工作地是深圳", "dimension": "business", "category": "other", "memory_status": "active", "recent_evidence": []}
+      ],
+      "expected": {"action": "noop", "target_memory_id": "m2"}
+    },
+    {
+      "id": "preference_changed",
+      "kind": "temporal_update",
+      "primary_abstraction": "张三的饮食偏好",
+      "candidate": {"dimension": "private", "category": "preference", "fact_key": "tea_preference", "fact_value": "现在更喜欢正山小种", "occurred_at": "2026-09-01T00:00:00+08:00"},
+      "candidates": [
+        {"memory_id": "m3", "primary_abstraction": "张三的饮食偏好", "memory_value": "过去喜欢普洱茶", "dimension": "private", "category": "preference", "memory_status": "active", "occurred_at": "2025-05-01T00:00:00+08:00", "recent_evidence": []}
+      ],
+      "expected": {"action": "merge", "target_memory_id": "m3"}
+    },
+    {
+      "id": "promotion_update",
+      "kind": "temporal_update",
+      "primary_abstraction": "王伟的任职经历",
+      "candidate": {"dimension": "business", "category": "event", "fact_key": "employment_history", "fact_value": "2026 年晋升为技术总监", "occurred_at": "2026-08-01T00:00:00+08:00"},
+      "candidates": [
+        {"memory_id": "m4", "primary_abstraction": "王伟的任职经历", "memory_value": "2024 年起担任技术经理", "dimension": "business", "category": "event", "memory_status": "active", "recent_evidence": []}
+      ],
+      "expected": {"action": "merge", "target_memory_id": "m4"}
+    },
+    {
+      "id": "irreconcilable_company",
+      "kind": "conflict",
+      "primary_abstraction": "陈晨的当前任职公司",
+      "candidate": {"dimension": "business", "category": "other", "fact_key": "current_company", "fact_value": "目前就职于海岸科技"},
+      "candidates": [
+        {"memory_id": "m5", "primary_abstraction": "陈晨的当前任职公司", "memory_value": "目前就职于山河资本", "dimension": "business", "category": "other", "memory_status": "active", "recent_evidence": []}
+      ],
+      "expected": {"action": "conflict", "target_memory_id": "m5"}
+    },
+    {
+      "id": "different_events_same_topic",
+      "kind": "distinct_event",
+      "primary_abstraction": "赵敏参加的行业活动",
+      "candidate": {"dimension": "dynamic", "category": "event", "fact_key": "conference", "fact_value": "2026 年 10 月参加上海 AI 峰会", "occurred_at": "2026-10-18T00:00:00+08:00"},
+      "candidates": [
+        {"memory_id": "m6", "primary_abstraction": "赵敏参加的行业活动", "memory_value": "2026 年 6 月参加北京开发者大会", "dimension": "dynamic", "category": "event", "memory_status": "active", "occurred_at": "2026-06-10T00:00:00+08:00", "recent_evidence": []}
+      ],
+      "expected": {"action": "create", "target_memory_id": ""}
+    },
+    {
+      "id": "different_numeric_scope",
+      "kind": "numeric_scope",
+      "primary_abstraction": "周航负责业务的预算规模",
+      "candidate": {"dimension": "business", "category": "other", "fact_key": "budget", "fact_value": "华南市场年度预算 800 万元"},
+      "candidates": [
+        {"memory_id": "m7", "primary_abstraction": "周航负责业务的预算规模", "memory_value": "全国品牌投放预算 3000 万元", "dimension": "business", "category": "other", "memory_status": "active", "recent_evidence": []}
+      ],
+      "expected": {"action": "create", "target_memory_id": ""}
+    },
+    {
+      "id": "different_topic_false_candidate",
+      "kind": "distinct_topic",
+      "primary_abstraction": "刘洋的家庭纪念日",
+      "candidate": {"dimension": "private", "category": "anniversary", "fact_key": "wedding_anniversary", "fact_value": "结婚纪念日是 5 月 20 日"},
+      "candidates": [
+        {"memory_id": "m8", "primary_abstraction": "刘洋的家庭情况", "memory_value": "有一个正在读小学的女儿", "dimension": "private", "category": "family", "memory_status": "active", "recent_evidence": []}
+      ],
+      "expected": {"action": "create", "target_memory_id": ""}
+    }
+  ]
+}

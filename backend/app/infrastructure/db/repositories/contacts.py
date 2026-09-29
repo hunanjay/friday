@@ -346,7 +346,7 @@ async def get_contact_profiles(user_id: str, contact_id: str) -> list[dict]:
             """
             SELECT id, dimension, category, fact_key, fact_value, confidence, created_at, source_type, source_id
             FROM contact_profiles
-            WHERE user_id = %s AND contact_id = %s
+            WHERE user_id = %s AND contact_id = %s AND memory_status <> 'deleted'
             ORDER BY dimension, created_at DESC
             """,
             (user_id, contact_id),
@@ -496,6 +496,29 @@ async def update_contact_profile(
         fact["id"],
     )
     return fact
+
+
+async def reindex_contact_profile(user_id: str, contact_id: str, fact: dict) -> None:
+    """Rebuild the legacy fact point after an authoritative memory transaction."""
+
+    await _index_docs(
+        [
+            vector_store.contact_fact_doc(
+                user_id,
+                contact_id,
+                await _contact_name(user_id, contact_id),
+                fact,
+            )
+        ],
+        "contact_profiles",
+        fact["id"],
+    )
+
+
+async def unindex_contact_profile(fact_id: str) -> None:
+    """Remove the legacy point while retaining the soft-deleted Postgres row."""
+
+    await _unindex([fact_id])
 
 
 async def delete_contact_profile(user_id: str, contact_id: str, fact_id: str) -> bool:

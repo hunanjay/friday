@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 COLLECTION = "memos"
 CONTACTS_COLLECTION = "contacts"
+CONTACT_MEMORY_COLLECTION = "contact_memory_v2"
 
 
 def _embedding_base_url() -> str | None:
@@ -154,6 +155,11 @@ async def init_collection():
     try:
         await _ensure_collection(client, COLLECTION, ("user_id",))
         await _ensure_collection(client, CONTACTS_COLLECTION, ("user_id", "contact_id", "doc_type"))
+        await _ensure_collection(
+            client,
+            CONTACT_MEMORY_COLLECTION,
+            ("user_id", "contact_id", "index_kind", "status", "cue_id"),
+        )
     except Exception:
         logger.warning("Qdrant init failed - vector search unavailable", exc_info=True)
 
@@ -374,6 +380,13 @@ async def delete_contact_docs(doc_ids: list[str]) -> None:
         collection_name=CONTACTS_COLLECTION,
         points_selector=models.PointIdsList(points=doc_ids),
     )
+    # v2 primary points intentionally reuse contact_profiles.id, so deleting
+    # the same ids is idempotent for identity/interaction rows and guarantees
+    # that every fact deletion removes both representations.
+    await client.delete(
+        collection_name=CONTACT_MEMORY_COLLECTION,
+        points_selector=models.PointIdsList(points=doc_ids),
+    )
 
 
 async def delete_contact_points(user_id: str, contact_id: str) -> None:
@@ -383,6 +396,17 @@ async def delete_contact_points(user_id: str, contact_id: str) -> None:
         raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
     await client.delete(
         collection_name=CONTACTS_COLLECTION,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id)),
+                    models.FieldCondition(key="contact_id", match=models.MatchValue(value=contact_id)),
+                ]
+            )
+        ),
+    )
+    await client.delete(
+        collection_name=CONTACT_MEMORY_COLLECTION,
         points_selector=models.FilterSelector(
             filter=models.Filter(
                 must=[
@@ -469,4 +493,251 @@ async def search_contact_docs(
         return hits
     except Exception as exc:
         logger.warning("Qdrant search_contact_docs failed completely: %s", exc)
+        return []
+
+
+# --- Contact Memory v2 collection ------------------------------------------
+
+
+async def upsert_contact_memory_primary(
+    *,
+    user_id: str,
+    contact_id: str,
+    memory_id: str,
+    primary_abstraction: str,
+    dimension: str,
+    category: str,
+    memory_status: str = "active",
+) -> None:
+    """Index only the stable retrieval handle, never the mutable Memory Value."""
+
+    text = primary_abstraction.strip()
+    if not text:
+        raise ValueError("primary_abstraction is required for v2 indexing")
+    client = _get_client()
+    if client is None:
+        raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
+
+    dense_vec = await _get_dense().aembed_query(text)
+    vectors: dict[str, list[float] | models.SparseVector] = {"dense": dense_vec}
+    sparse_vec = await _try_sparse_vector(text)
+    if sparse_vec is not None:
+        vectors["bm25"] = sparse_vec
+    await client.upsert(
+        collection_name=CONTACT_MEMORY_COLLECTION,
+        points=[
+            models.PointStruct(
+                id=memory_id,
+                vector=vectors,
+                payload={
+                    "user_id": user_id,
+                    "contact_id": contact_id,
+                    "memory_id": memory_id,
+                    "index_kind": "primary",
+                    "dimension": dimension,
+                    "category": category,
+                    "status": memory_status,
+                    "primary_abstraction": text,
+                },
+            )
+        ],
+    )
+
+
+async def delete_contact_memory_primary(memory_id: str) -> None:
+    client = _get_client()
+    if client is None:
+        raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
+    await client.delete(
+        collection_name=CONTACT_MEMORY_COLLECTION,
+        points_selector=models.PointIdsList(points=[memory_id]),
+    )
+
+
+async def upsert_contact_memory_cues(cues: list[dict]) -> None:
+    cues = [cue for cue in cues if cue.get("cue_text")]
+    if not cues:
+        return
+    client = _get_client()
+    if client is None:
+        raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
+
+    # Qwen's OpenAI-compatible embedding endpoint accepts at most 20 inputs in
+    # one request. Keep the batch provider-safe; Qdrant upserts are idempotent.
+    for offset in range(0, len(cues), 20):
+        batch = cues[offset : offset + 20]
+        texts = [cue["cue_text"] for cue in batch]
+        dense_vecs = await _get_dense().aembed_documents(texts)
+        points = []
+        for cue, dense_vec in zip(batch, dense_vecs, strict=True):
+            vectors: dict[str, list[float] | models.SparseVector] = {"dense": dense_vec}
+            sparse_vec = await _try_sparse_vector(cue["cue_text"])
+            if sparse_vec is not None:
+                vectors["bm25"] = sparse_vec
+            points.append(
+                models.PointStruct(
+                    id=cue["cue_id"],
+                    vector=vectors,
+                    payload={
+                        "user_id": cue["user_id"],
+                        "cue_id": cue["cue_id"],
+                        "index_kind": "cue",
+                        "cue_type": cue.get("cue_type") or "semantic",
+                        "cue_text": cue["cue_text"],
+                        "status": "active",
+                    },
+                )
+            )
+        await client.upsert(collection_name=CONTACT_MEMORY_COLLECTION, points=points)
+
+
+async def search_contact_memory_cues(
+    user_id: str,
+    query: str,
+    limit: int = 10,
+    raise_on_error: bool = False,
+) -> list[dict]:
+    """Hybrid search over reusable Cue Anchor points."""
+
+    client = _get_client()
+    if client is None:
+        if raise_on_error:
+            raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
+        return []
+    try:
+        scope = models.Filter(
+            must=[
+                models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id)),
+                models.FieldCondition(key="index_kind", match=models.MatchValue(value="cue")),
+                models.FieldCondition(key="status", match=models.MatchValue(value="active")),
+            ]
+        )
+        dense_vec = await _get_dense().aembed_query(query)
+        points = None
+        sparse_vec = await _try_sparse_vector(query)
+        if sparse_vec is not None:
+            try:
+                result = await client.query_points(
+                    collection_name=CONTACT_MEMORY_COLLECTION,
+                    prefetch=[
+                        models.Prefetch(query=dense_vec, using="dense", limit=limit * 4, filter=scope),
+                        models.Prefetch(query=sparse_vec, using="bm25", limit=limit * 4, filter=scope),
+                    ],
+                    query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    limit=limit,
+                )
+                points = result.points
+            except Exception as err:
+                logger.warning("Qdrant cue RRF query failed, falling back to dense: %s", err)
+        if points is None:
+            result = await client.query_points(
+                collection_name=CONTACT_MEMORY_COLLECTION,
+                query=dense_vec,
+                using="dense",
+                query_filter=scope,
+                limit=limit,
+            )
+            points = result.points
+
+        hits = []
+        for point in points:
+            payload = getattr(point, "payload", None) or {}
+            if payload.get("user_id") != user_id:
+                continue
+            hits.append(
+                {
+                    "cue_id": payload.get("cue_id") or str(point.id),
+                    "cue_text": payload.get("cue_text", ""),
+                    "cue_type": payload.get("cue_type", ""),
+                    "score": getattr(point, "score", 0.0),
+                }
+            )
+        return hits
+    except Exception as exc:
+        if raise_on_error:
+            raise
+        logger.warning("Qdrant search_contact_memory_cues failed completely: %s", exc)
+        return []
+
+
+async def search_contact_memory_primary(
+    user_id: str,
+    query: str,
+    limit: int = 10,
+    contact_id: str | None = None,
+    raise_on_error: bool = False,
+) -> list[dict]:
+    """Shadow retrieval over Primary Abstractions with hard tenant isolation."""
+
+    client = _get_client()
+    if client is None:
+        if raise_on_error:
+            raise RuntimeError("Qdrant not configured (QDRANT_URL missing)")
+        return []
+
+    try:
+        must: list[models.Condition] = [
+            models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id)),
+            models.FieldCondition(key="index_kind", match=models.MatchValue(value="primary")),
+            models.FieldCondition(key="status", match=models.MatchValue(value="active")),
+        ]
+        if contact_id:
+            must.append(
+                models.FieldCondition(key="contact_id", match=models.MatchValue(value=contact_id))
+            )
+        scope = models.Filter(must=must)
+        dense_vec = await _get_dense().aembed_query(query)
+
+        points = None
+        sparse_vec = await _try_sparse_vector(query)
+        if sparse_vec is not None:
+            try:
+                result = await client.query_points(
+                    collection_name=CONTACT_MEMORY_COLLECTION,
+                    prefetch=[
+                        models.Prefetch(query=dense_vec, using="dense", limit=limit * 4, filter=scope),
+                        models.Prefetch(query=sparse_vec, using="bm25", limit=limit * 4, filter=scope),
+                    ],
+                    query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    limit=limit,
+                )
+                points = result.points
+            except Exception as err:
+                logger.warning(
+                    "Qdrant Contact Memory RRF query failed, falling back to dense search: %s",
+                    err,
+                )
+
+        if points is None:
+            result = await client.query_points(
+                collection_name=CONTACT_MEMORY_COLLECTION,
+                query=dense_vec,
+                using="dense",
+                query_filter=scope,
+                limit=limit,
+            )
+            points = result.points
+
+        hits = []
+        for point in points:
+            payload = getattr(point, "payload", None) or {}
+            if payload.get("user_id") != user_id:
+                continue
+            if contact_id and payload.get("contact_id") != contact_id:
+                continue
+            hits.append(
+                {
+                    "memory_id": payload.get("memory_id") or str(point.id),
+                    "contact_id": payload.get("contact_id", ""),
+                    "primary_abstraction": payload.get("primary_abstraction", ""),
+                    "dimension": payload.get("dimension", ""),
+                    "category": payload.get("category", ""),
+                    "score": getattr(point, "score", 0.0),
+                }
+            )
+        return hits
+    except Exception as exc:
+        if raise_on_error:
+            raise
+        logger.warning("Qdrant search_contact_memory_primary failed completely: %s", exc)
         return []

@@ -6,11 +6,17 @@ from pydantic import BaseModel
 
 from app.core.security import get_user_id
 from app.infrastructure.db.repositories import (
+    contact_memory as memory_repo,
     contact_reminders as reminders_repo,
     contacts as contacts_repo,
     user_memory as user_memory_repo,
 )
 from app.services.contact_brain_service import ContactBrainService
+from app.services.contact_memory_service import (
+    ContactMemoryCandidate,
+    ContactMemoryService,
+    MemorySource,
+)
 from app.services.contact_service import ContactService
 from app.services.storage import save_attachment_file
 
@@ -48,6 +54,10 @@ class AddFactRequest(BaseModel):
     category: str
     fact_key: str
     fact_value: str
+
+
+class UpdateFactRequest(AddFactRequest):
+    """A user-authored correction that must override automatic merge policy."""
 
 
 class CreateReminderRequest(BaseModel):
@@ -295,6 +305,16 @@ async def reindex_contacts(
     return await contacts_repo.reindex_pending(user_id=user_id, limit=limit)
 
 
+@router.post("/memory/backfill")
+async def backfill_contact_memory(
+    limit: int = Query(default=500, ge=1, le=2000),
+    user_id: str = Depends(get_user_id),
+):
+    """Run one resumable batch of Phase-1 memory artifacts for this user."""
+
+    return await ContactMemoryService.backfill(user_id=user_id, limit=limit)
+
+
 @router.post("/{contact_id}/facts")
 async def add_fact(
     contact_id: str,
@@ -302,15 +322,99 @@ async def add_fact(
     user_id: str = Depends(get_user_id),
 ):
     """Add a discrete fact row to contact_profiles."""
-    return await contacts_repo.add_contact_profile(
+    result = await ContactMemoryService.write(
         user_id=user_id,
         contact_id=contact_id,
-        dimension=payload.dimension,
-        category=payload.category,
-        fact_key=payload.fact_key,
-        fact_value=payload.fact_value,
-        source_type="manual",
+        candidate=ContactMemoryCandidate(
+            dimension=payload.dimension,
+            category=payload.category,
+            fact_key=payload.fact_key,
+            fact_value=payload.fact_value,
+        ),
+        source=MemorySource(source_type="manual"),
     )
+    if result.fact is None:
+        raise HTTPException(status_code=422, detail=result.reason or "Fact was not written")
+    return result.fact
+
+
+@router.patch("/{contact_id}/facts/{fact_id}")
+async def correct_fact(
+    contact_id: str,
+    fact_id: str,
+    payload: UpdateFactRequest,
+    user_id: str = Depends(get_user_id),
+):
+    """Correct a fact and append an authoritative revision."""
+
+    result = await ContactMemoryService.write(
+        user_id=user_id,
+        contact_id=contact_id,
+        candidate=ContactMemoryCandidate(
+            action="update",
+            existing_fact_id=fact_id,
+            dimension=payload.dimension,
+            category=payload.category,
+            fact_key=payload.fact_key,
+            fact_value=payload.fact_value,
+        ),
+        source=MemorySource(source_type="manual_correction"),
+    )
+    if result.outcome != "updated" or result.fact is None:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    return result.fact
+
+
+@router.get("/{contact_id}/facts/{fact_id}/history")
+async def get_fact_history(
+    contact_id: str,
+    fact_id: str,
+    user_id: str = Depends(get_user_id),
+):
+    result = await memory_repo.get_memory_history(
+        user_id=user_id,
+        contact_id=contact_id,
+        memory_id=fact_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    return result
+
+
+@router.post("/{contact_id}/facts/{fact_id}/restore")
+async def restore_fact(
+    contact_id: str,
+    fact_id: str,
+    user_id: str = Depends(get_user_id),
+):
+    restored = await ContactMemoryService.restore(
+        user_id=user_id,
+        contact_id=contact_id,
+        memory_id=fact_id,
+    )
+    if restored is None:
+        raise HTTPException(status_code=404, detail="Deleted fact not found")
+    return restored
+
+
+@router.post("/{contact_id}/facts/{fact_id}/revisions/{revision_version}/restore")
+async def restore_fact_revision(
+    contact_id: str,
+    fact_id: str,
+    revision_version: int,
+    user_id: str = Depends(get_user_id),
+):
+    if revision_version < 1:
+        raise HTTPException(status_code=422, detail="revision_version must be positive")
+    restored = await ContactMemoryService.restore_revision(
+        user_id=user_id,
+        contact_id=contact_id,
+        memory_id=fact_id,
+        revision_version=revision_version,
+    )
+    if restored is None:
+        raise HTTPException(status_code=404, detail="Fact revision not found")
+    return restored
 
 
 @router.post("/{contact_id}/reminders")
@@ -342,7 +446,12 @@ async def delete_fact(
     user_id: str = Depends(get_user_id),
 ):
     """Delete a discrete fact row from contact_profiles."""
-    ok = await contacts_repo.delete_contact_profile(user_id, contact_id, fact_id)
-    if not ok:
+    result = await ContactMemoryService.write(
+        user_id=user_id,
+        contact_id=contact_id,
+        candidate=ContactMemoryCandidate(action="delete", existing_fact_id=fact_id),
+        source=MemorySource(source_type="manual"),
+    )
+    if result.outcome != "deleted":
         raise HTTPException(status_code=404, detail="Fact not found")
     return {"status": "ok", "fact_id": fact_id}
